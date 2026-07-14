@@ -4,8 +4,8 @@ harness:
   manifest: .psp/harness/harness.manifest.json
 stages:
   product-design:
-    status: active
-    root: 01-product-design
+    status: uninitialized
+    root: templates/workspace/01-product-design
     artifacts:
       product-package:
         internalModel: .psp/models/product-package.yaml
@@ -42,7 +42,7 @@ stages:
         root: HTML-Mock
   architecture-design:
     status: uninitialized
-    root: 02-architecture-design
+    root: templates/workspace/02-architecture-design
     artifacts:
       architecture-package:
         internalModel: .psp/models/architecture-package.yaml

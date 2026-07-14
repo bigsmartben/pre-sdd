@@ -22,7 +22,9 @@
 
 ## Initialize
 
-uninitialized 表示路径绑定有效但用户实例不存在。普通 Harness 变更和 Hook 不得创建用户文件。只有用户明确开始某阶段时，才能执行 manifest 为该阶段声明的初始化 operation；先使用 --dry-run 审核目标，初始化 operation 必须预检上游 readiness 与用户改动碰撞、原子创建完整 Package，并在最后将阶段切换为 active。架构设计只能在产品 strict Profile 通过后初始化。
+纯脚手架使用 manifest 声明的 initialize-workspace operation 初始化工作区：先运行 `npm run init:workspace -- --dry-run`，确认目标后运行 `npm run init:workspace`。该 operation 必须从 psp.project.yaml 派生全部非 unavailable 阶段根目录，只创建 workspace Scope 声明的 `.gitkeep` 标记，并保持所有阶段为 uninitialized；它不得创建任何产品或架构用户实例。该操作可重复执行，但发现 active 阶段或用户文件时必须阻断。
+
+uninitialized 表示目录骨架和路径绑定有效，但用户实例不存在；`.gitkeep` 不属于用户文件，也不得列入用户交付。普通 Harness 变更和 Hook 不得创建用户文件。只有用户明确开始某阶段时，才能执行 manifest 为该阶段声明的 stage operation；先使用 --dry-run 审核目标，stage operation 必须预检上游 readiness 与用户改动碰撞、原子创建完整 Package，并在最后将阶段切换为 active。产品设计使用 `npm run init:product`；架构设计使用 `npm run init:architecture`，且只能在产品 strict Profile 通过后初始化。
 
 ## Verify
 

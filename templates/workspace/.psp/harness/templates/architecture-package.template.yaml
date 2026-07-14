@@ -1,0 +1,31 @@
+apiVersion: psp.dev/v1
+kind: ArchitecturePackage
+metadata:
+  status: draft
+  version: 0.1.0
+upstream:
+  stage: product-design
+  artifact: capabilities
+  version: null
+overview:
+  systemName: null
+  architectureGoal: null
+  constraints: []
+artifactOrder:
+  - system-boundary
+  - conceptual-model
+  - technical-validation
+gates:
+  - id: upstream-baseline-pinned
+    label: 已记录通过 strict 门禁的 Product Design 版本
+    checked: false
+  - id: abstraction-reviewed
+    label: 子系统边界、对象模型与技术选型的抽象边界已审阅
+    checked: false
+  - id: architecture-approved
+    label: 架构事实与显式约束已批准供 Spec-Kit 消费
+    checked: false
+gaps:
+  - id: GAP-001
+    field: upstream.version
+    reason: 尚未绑定通过严格门禁的产品规格版本

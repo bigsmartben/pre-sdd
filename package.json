@@ -1,22 +1,36 @@
 {
-  "name": "psp-product-specification-pipeline",
+  "name": "pre-sdd",
   "version": "0.1.0",
-  "private": true,
+  "description": "Harness-governed reusable Product Design and Architecture Design workspace scaffold",
   "type": "module",
+  "bin": {
+    "pre-sdd": "./bin/pre-sdd.mjs"
+  },
+  "files": [
+    "bin/",
+    "runtime/",
+    "templates/workspace/",
+    "README.md"
+  ],
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
-    "dev": "node .psp/harness/scripts/run-project-command.mjs --area html-mock --script dev",
-    "build": "node .psp/harness/scripts/run-project-command.mjs --area html-mock --script build",
-    "typecheck": "node .psp/harness/scripts/run-project-command.mjs --area html-mock --script typecheck",
-    "install:browser": "playwright install chromium",
+    "dev": "node bin/pre-sdd.mjs harness dev --workspace .",
+    "workspace:build": "node bin/pre-sdd.mjs harness workspace:build --workspace .",
+    "typecheck": "node bin/pre-sdd.mjs harness typecheck --workspace .",
+    "install:browser": "node bin/pre-sdd.mjs harness install:browser --workspace .",
     "validate": "npm run validate:product",
     "validate:strict": "npm run validate:product:strict",
     "validate:harness": "node .psp/harness/scripts/validate-harness.mjs",
+    "validate:workspace": "node .psp/harness/scripts/init-workspace.mjs --dry-run",
     "validate:product": "node .psp/harness/scripts/validate-product.mjs",
     "validate:product:strict": "node .psp/harness/scripts/validate-product.mjs --strict",
     "validate:html-mock-input": "node .psp/harness/scripts/validate-html-mock-input.mjs",
     "validate:html-mock-runtime": "node .psp/harness/scripts/validate-html-mock-runtime.mjs",
     "validate:architecture": "node .psp/harness/scripts/validate-architecture.mjs",
     "validate:architecture:strict": "node .psp/harness/scripts/validate-architecture.mjs --strict",
+    "init:workspace": "node .psp/harness/scripts/init-workspace.mjs",
     "init:product": "node .psp/harness/scripts/init-product.mjs",
     "init:architecture": "node .psp/harness/scripts/init-architecture.mjs",
     "render:product": "node .psp/harness/scripts/render-artifacts.mjs",
@@ -28,11 +42,12 @@
     "test:harness": "node --test .psp/harness/tests/harness/*.test.mjs",
     "test:product": "node --test .psp/harness/tests/product/*.test.mjs",
     "test:architecture": "node --test .psp/harness/tests/architecture/*.test.mjs",
-    "test": "npm run test:harness && npm run test:product && npm run test:architecture",
-    "check": "npm test && npm run validate:harness && npm run validate:product && npm run validate:architecture && npm run check:outputs && npm run check:architecture-outputs",
-    "check:strict": "npm test && npm run validate:harness && npm run validate:product && npm run validate:html-mock-input && npm run typecheck && npm run build && npm run validate:html-mock-runtime && npm run validate:product:strict && npm run validate:architecture:strict"
+    "test:package": "node --test tests/package/*.test.mjs",
+    "test": "npm run test:harness && npm run test:product && npm run test:architecture && npm run test:package",
+    "check": "npm test && npm run validate:harness && npm run validate:workspace && npm run validate:product && npm run validate:architecture",
+    "pack:check": "npm pack --dry-run --json"
   },
-  "devDependencies": {
+  "dependencies": {
     "@playwright/test": "^1.61.1",
     "ajv": "^8.20.0",
     "lit": "^3.3.3",

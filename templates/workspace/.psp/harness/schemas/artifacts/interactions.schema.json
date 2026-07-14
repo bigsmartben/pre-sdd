@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/artifacts/interactions.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "wireflows", "screens", "interactionStates", "gates", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "WireflowMidSpecification"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "wireflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "useCase", "name", "userGoal", "coveredScenarios", "entryScreen", "completionStates", "steps"],
+        "properties": {
+          "id": {"$ref": "#/$defs/wireflowId"},
+          "useCase": {"$ref": "#/$defs/useCaseId"},
+          "name": {"type": "string", "minLength": 1},
+          "userGoal": {"type": "string", "minLength": 1},
+          "coveredScenarios": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/useCaseScenarioId"}]}
+          },
+          "entryScreen": {"$ref": "#/$defs/screenId"},
+          "completionStates": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"$ref": "#/$defs/stateId"}
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/$defs/wireflowStep"}
+          }
+        }
+      }
+    },
+    "screens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "purpose", "useCases", "regions"],
+        "properties": {
+          "id": {"$ref": "#/$defs/screenId"},
+          "name": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1},
+          "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+          "regions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "purpose", "content", "controls"],
+              "properties": {
+                "id": {"$ref": "#/$defs/regionId"},
+                "name": {"type": "string", "minLength": 1},
+                "purpose": {"type": "string", "minLength": 1},
+                "content": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+                "controls": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "type", "label", "purpose", "dataBinding", "action"],
+                    "properties": {
+                      "id": {"$ref": "#/$defs/controlId"},
+                      "type": {"enum": ["display", "input", "action", "navigation", "selection"]},
+                      "label": {"type": "string", "minLength": 1},
+                      "purpose": {"type": "string", "minLength": 1},
+                      "dataBinding": {"$ref": "#/$defs/nullableText"},
+                      "action": {"$ref": "#/$defs/nullableText"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "interactionStates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "screen", "type", "condition", "presentation", "availableControls", "terminal"],
+        "properties": {
+          "id": {"$ref": "#/$defs/stateId"},
+          "screen": {"$ref": "#/$defs/screenId"},
+          "type": {"enum": ["default", "loading", "empty", "error", "success", "validation", "disabled"]},
+          "condition": {"type": "string", "minLength": 1},
+          "presentation": {"type": "string", "minLength": 1},
+          "availableControls": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/controlId"}},
+          "terminal": {"type": "boolean"}
+        }
+      }
+    },
+    "gates": {"$ref": "#/$defs/gates"},
+    "gaps": {"$ref": "#/$defs/gaps"}
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "version", "upstreamArtifact"],
+      "properties": {
+        "status": {"enum": ["draft", "ready"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "upstreamArtifact": {"const": "capabilities"}
+      }
+    },
+    "nullableText": {"type": ["string", "null"], "minLength": 1},
+    "useCaseId": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
+    "useCaseScenarioId": {"type": "string", "pattern": "^UC-[0-9]{3}-(ALT|EXC)-[0-9]{2}$"},
+    "wireflowId": {"type": "string", "pattern": "^WF-[0-9]{3}$"},
+    "wireflowStepId": {"type": "string", "pattern": "^WF-[0-9]{3}-STEP-[0-9]{2}$"},
+    "screenId": {"type": "string", "pattern": "^SCREEN-[0-9]{3}$"},
+    "regionId": {"type": "string", "pattern": "^REGION-[0-9]{3}$"},
+    "controlId": {"type": "string", "pattern": "^CONTROL-[0-9]{3}$"},
+    "stateId": {"type": "string", "pattern": "^WF-STATE-[0-9]{3}$"},
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["screen", "state"],
+      "properties": {
+        "screen": {"$ref": "#/$defs/screenId"},
+        "state": {"$ref": "#/$defs/stateId"}
+      }
+    },
+    "wireflowStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "scenario", "actorAction", "systemResponse", "from", "event", "control", "guard", "to", "visibleFeedback"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/wireflowStepId"},
+        "scenario": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/useCaseScenarioId"}]},
+        "actorAction": {"type": "string", "minLength": 1},
+        "systemResponse": {"type": "string", "minLength": 1},
+        "from": {"$ref": "#/$defs/endpoint"},
+        "event": {"type": "string", "minLength": 1},
+        "control": {"oneOf": [{"$ref": "#/$defs/controlId"}, {"type": "null"}]},
+        "guard": {"$ref": "#/$defs/nullableText"},
+        "to": {"$ref": "#/$defs/endpoint"},
+        "visibleFeedback": {"type": "string", "minLength": 1}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "checked"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "checked": {"type": "boolean"}
+      }
+    },
+    "gates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gate"}},
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field", "reason"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"},
+        "field": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  }
+}

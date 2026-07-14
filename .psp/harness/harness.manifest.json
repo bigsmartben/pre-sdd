@@ -1,7 +1,12 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "7.0.0",
+  "version": "9.0.0",
+  "runtime": {
+    "protocol": "pre-sdd-harness/v1",
+    "command": "pre-sdd",
+    "fallbackPackage": "git+https://github.com/bigsmartben/pre-sdd.git"
+  },
   "entrypoints": {
     "instructions": "AGENTS.md",
     "protocol": ".psp/harness/HARNESS.md",
@@ -123,9 +128,18 @@
   ],
   "operations": [
     {
+      "id": "initialize-workspace",
+      "kind": "workspace",
+      "npmScript": "init:workspace",
+      "run": "npm run init:workspace",
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-workspace.mjs"}
+    },
+    {
       "id": "initialize-product",
+      "kind": "stage",
       "npmScript": "init:product",
       "run": "npm run init:product",
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-product.mjs"},
       "stage": "product-design",
       "fromState": "uninitialized",
       "toState": "active",
@@ -135,8 +149,10 @@
     },
     {
       "id": "initialize-architecture",
+      "kind": "stage",
       "npmScript": "init:architecture",
       "run": "npm run init:architecture",
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-architecture.mjs"},
       "stage": "architecture-design",
       "fromState": "uninitialized",
       "toState": "active",
@@ -151,87 +167,175 @@
       "npmScript": "validate:harness",
       "run": "npm run validate:harness",
       "purpose": "校验 Harness、项目绑定、Contract、Codex 接入与 resolver",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-harness.mjs"}
+    },
+    {
+      "id": "workspace-structure",
+      "npmScript": "validate:workspace",
+      "run": "npm run validate:workspace",
+      "purpose": "校验纯脚手架目录骨架、阶段空状态和用户实例隔离",
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-workspace.mjs", "args": ["--dry-run"]}
     },
     {
       "id": "test-harness",
       "npmScript": "test:harness",
       "run": "npm run test:harness",
       "purpose": "运行 Harness contract tests",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "node-test", "paths": [".psp/harness/tests/harness/*.test.mjs"]}
     },
     {
       "id": "test-product",
       "npmScript": "test:product",
       "run": "npm run test:product",
       "purpose": "运行 UC、Wireflow Mid、HTML Mock 与支撑追溯的 contract tests",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "node-test", "paths": [".psp/harness/tests/product/*.test.mjs"]}
     },
     {
       "id": "product-structure",
       "npmScript": "validate:product",
       "run": "npm run validate:product",
       "purpose": "校验 UC → Wireflow Mid → HTML Mock 结构、场景覆盖、代码入口和生成一致性，允许显式 draft gap",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-product.mjs"}
     },
     {
       "id": "product-strict",
       "npmScript": "validate:product:strict",
       "run": "npm run validate:product:strict",
       "purpose": "校验产品 Markdown 用户产物与 HTML Mock 可执行证据是否达到下游可消费状态",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-product.mjs", "args": ["--strict"]}
     },
     {
       "id": "html-mock-input",
       "npmScript": "validate:html-mock-input",
       "run": "npm run validate:html-mock-input",
       "purpose": "在 HTML 编码前校验 Product Package、Use Case、Wireflow 与设计来源证据已可消费",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-html-mock-input.mjs"}
     },
     {
       "id": "typecheck",
       "npmScript": "typecheck",
       "run": "npm run typecheck",
       "purpose": "校验绑定的 HTML Mock TypeScript",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "runtime", "capability": "typecheck"}
     },
     {
       "id": "build",
-      "npmScript": "build",
-      "run": "npm run build",
+      "npmScript": "workspace:build",
+      "run": "npm run workspace:build",
       "purpose": "构建绑定的 HTML Mock",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "runtime", "capability": "build"}
     },
     {
       "id": "html-mock-runtime",
       "npmScript": "validate:html-mock-runtime",
       "run": "npm run validate:html-mock-runtime",
       "purpose": "在全部必测视口运行 HTML 场景、检查 DOM/状态/反馈/资源使用并生成截图证据",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "runtime", "capability": "html-mock-runtime"}
     },
     {
       "id": "test-architecture",
       "npmScript": "test:architecture",
       "run": "npm run test:architecture",
       "purpose": "运行架构 Markdown 用户产物、内部模型、技术选型与代码验证脚手架 contract tests",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "node-test", "paths": [".psp/harness/tests/architecture/*.test.mjs"]}
     },
     {
       "id": "architecture-structure",
       "npmScript": "validate:architecture",
       "run": "npm run validate:architecture",
       "purpose": "校验架构实例结构、上游引用、代码证据和生成一致性，允许显式 draft gap",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-architecture.mjs"}
     },
     {
       "id": "architecture-strict",
       "npmScript": "validate:architecture:strict",
       "run": "npm run validate:architecture:strict",
       "purpose": "校验架构 Markdown 用户产物是否达到 Spec-Kit 可消费状态",
-      "blocking": true
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-architecture.mjs", "args": ["--strict"]}
+    },
+    {
+      "id": "html-mock-dev",
+      "npmScript": "dev",
+      "run": "npm run dev",
+      "purpose": "启动绑定的 HTML Mock 开发服务器",
+      "blocking": true,
+      "executor": {"kind": "runtime", "capability": "dev"}
+    },
+    {
+      "id": "install-browser",
+      "npmScript": "install:browser",
+      "run": "npm run install:browser",
+      "purpose": "显式安装 Playwright Chromium 浏览器运行时",
+      "blocking": true,
+      "executor": {"kind": "runtime", "capability": "install-browser"}
+    },
+    {
+      "id": "render-product",
+      "npmScript": "render:product",
+      "run": "npm run render:product",
+      "purpose": "从内部模型生成产品 Markdown 与机器支撑",
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-artifacts.mjs"}
+    },
+    {
+      "id": "render-architecture",
+      "npmScript": "render:architecture",
+      "run": "npm run render:architecture",
+      "purpose": "从内部模型生成架构 Markdown",
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-architecture.mjs"}
+    },
+    {
+      "id": "check-product-outputs",
+      "npmScript": "check:outputs",
+      "run": "npm run check:outputs",
+      "purpose": "检查产品生成结果漂移",
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-artifacts.mjs", "args": ["--check"]}
+    },
+    {
+      "id": "check-architecture-outputs",
+      "npmScript": "check:architecture-outputs",
+      "run": "npm run check:architecture-outputs",
+      "purpose": "检查架构生成结果漂移",
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-architecture.mjs", "args": ["--check"]}
+    },
+    {
+      "id": "verify-architecture",
+      "npmScript": "verify:architecture",
+      "run": "npm run verify:architecture",
+      "purpose": "运行绑定的架构技术验证脚本",
+      "blocking": true,
+      "executor": {"kind": "area-script", "area": "technical-validation", "script": "verify"}
+    },
+    {
+      "id": "harness-resolve",
+      "npmScript": "harness:resolve",
+      "run": "npm run harness:resolve",
+      "purpose": "解析变更路径对应的 Scope 与 Profile",
+      "blocking": true,
+      "executor": {"kind": "module", "path": ".psp/harness/scripts/resolve-validation.mjs"}
     }
   ],
   "validationProfiles": [
+    {
+      "id": "workspace-scaffold",
+      "commands": ["harness", "workspace-structure", "test-harness", "test-product", "product-structure", "test-architecture", "architecture-structure"]
+    },
     {
       "id": "repository-harness",
       "commands": ["harness", "test-harness"]
@@ -279,6 +383,19 @@
   ],
   "scopes": [
     {
+      "id": "workspace-scaffold",
+      "kind": "workspace",
+      "selectionGroup": "workspace",
+      "priority": 300,
+      "status": "active",
+      "selector": {
+        "type": "workspace",
+        "marker": ".gitkeep"
+      },
+      "defaultProfile": "workspace-scaffold",
+      "readinessProfile": "workspace-scaffold"
+    },
+    {
       "id": "repository-harness",
       "kind": "repository",
       "selectionGroup": "repository",
@@ -292,6 +409,20 @@
           "package.json",
           "package-lock.json",
           "psp.project.yaml",
+          "bin/**",
+          "runtime/**",
+          "01-product-design/**",
+          "02-architecture-design/**",
+          "templates/workspace/AGENTS.md",
+          "templates/workspace/README.md",
+          "templates/workspace/package.json",
+          "templates/workspace/package-lock.json",
+          "templates/workspace/psp.project.yaml",
+          "templates/workspace/.gitignore",
+          "templates/workspace/.codex/**",
+          "templates/workspace/.agents/**",
+          "templates/workspace/.psp/harness/**",
+          "tests/package/**",
           ".codex/**",
           ".agents/skills/**",
           ".psp/harness/**"
@@ -439,7 +570,7 @@
     "test": {"status": "available", "command": "test"},
     "lint": {"status": "unavailable", "reason": "仓库尚未声明 lint script"},
     "typecheck": {"status": "available", "command": "typecheck"},
-    "build": {"status": "available", "command": "build"}
+    "build": {"status": "available", "command": "workspace:build"}
   },
   "handoff": {
     "requiredFields": ["scope", "changes", "validation", "residuals"],
@@ -468,10 +599,13 @@
     {"code": "AIH_CODEX_ADAPTER_INVALID", "severity": "high", "owner": "repository-harness", "meaning": "Codex config、Hook 或 Repository Skill 不符合适配器契约"},
     {"code": "AIH_HARNESS_COUPLED", "severity": "blocker", "owner": "repository-harness", "meaning": "Harness Framework 硬编码了项目绑定中的用户目录"},
     {"code": "AIH_HOOK_DEGRADED", "severity": "medium", "owner": "repository-harness", "meaning": "SessionStart Hook 缺少依赖或无法定位仓库"},
+    {"code": "AIH_RUNTIME_UNAVAILABLE", "severity": "blocker", "owner": "repository-harness", "meaning": "pre-sdd 全局运行时与一次性回退均不可用"},
+    {"code": "AIH_RUNTIME_INCOMPATIBLE", "severity": "blocker", "owner": "repository-harness", "meaning": "工作区 Harness 协议与 pre-sdd 运行时不兼容"},
     {"code": "AIH_VALIDATION_FAILED", "severity": "blocker", "owner": "repository-harness", "meaning": "必需验证命令返回非零"},
     {"code": "AIH_BROWSER_UNAVAILABLE", "severity": "blocker", "owner": "repository-harness", "meaning": "HTML Mock 浏览器运行时未安装或不可启动"},
     {"code": "AIH_HTML_MOCK_RUNTIME_FAILED", "severity": "blocker", "owner": "product-design", "meaning": "HTML Mock 路由、DOM、场景、状态、反馈、资源使用或必测视口运行验证失败"},
     {"code": "AIH_USER_CHANGE_COLLISION", "severity": "blocker", "owner": "repository-harness", "meaning": "目标位置存在无法安全合并的用户改动"},
+    {"code": "AIH_WORKSPACE_NOT_EMPTY", "severity": "blocker", "owner": "repository-harness", "meaning": "纯脚手架初始化要求所有可用阶段均未初始化且不存在用户实例"},
     {"code": "AIH_STAGE_UNINITIALIZED", "severity": "blocker", "owner": "repository-harness", "meaning": "阶段绑定有效但尚未创建任何用户实例，不能执行 readiness 或实例操作"},
     {"code": "AIH_PARTIAL_INITIALIZATION", "severity": "blocker", "owner": "repository-harness", "meaning": "uninitialized 阶段出现部分用户文件，生命周期状态不一致"},
     {"code": "AIH_STAGE_ALREADY_INITIALIZED", "severity": "blocker", "owner": "repository-harness", "meaning": "阶段已经 active，不能再次执行初始化 operation"}

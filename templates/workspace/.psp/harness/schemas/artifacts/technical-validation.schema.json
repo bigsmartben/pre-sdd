@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/artifacts/technical-validation.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "decisions", "experiments", "gates", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "TechnicalValidationSpecification"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category", "subsystem", "capabilities", "useCases", "inputModels", "outputModels", "externalSystems", "decisionQuestion", "criteria", "candidates", "status", "selectedCandidate", "rationale", "limitations"],
+        "properties": {
+          "id": {"$ref": "#/$defs/decisionId"},
+          "category": {"enum": ["third-party-api", "storage", "runtime", "framework", "protocol", "library", "infrastructure"]},
+          "subsystem": {"$ref": "#/$defs/subsystemId"},
+          "capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/capabilityId"}},
+          "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+          "inputModels": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/objectId"}},
+          "outputModels": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/objectId"}},
+          "externalSystems": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/externalSystemId"}},
+          "decisionQuestion": {"type": "string", "minLength": 1},
+          "criteria": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "candidates": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "provider", "version", "officialDocumentation", "strengths", "risks"],
+              "properties": {
+                "id": {"$ref": "#/$defs/candidateId"},
+                "name": {"type": "string", "minLength": 1},
+                "provider": {"type": "string", "minLength": 1},
+                "version": {"type": "string", "minLength": 1},
+                "officialDocumentation": {"type": "string", "pattern": "^https://.+"},
+                "strengths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+                "risks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+              }
+            }
+          },
+          "status": {"enum": ["pending", "selected"]},
+          "selectedCandidate": {"oneOf": [{"$ref": "#/$defs/candidateId"}, {"type": "null"}]},
+          "rationale": {"type": ["string", "null"], "minLength": 1},
+          "limitations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "experiments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "decision", "candidate", "hypothesis", "source", "command", "requiredEnvironment", "assertions", "result", "limitations"],
+        "properties": {
+          "id": {"$ref": "#/$defs/experimentId"},
+          "decision": {"$ref": "#/$defs/decisionId"},
+          "candidate": {"$ref": "#/$defs/candidateId"},
+          "hypothesis": {"type": "string", "minLength": 1},
+          "source": {"$ref": "#/$defs/path"},
+          "command": {"type": "string", "pattern": "^npm run verify -- --case EXP-[0-9]{3}$"},
+          "requiredEnvironment": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
+          "assertions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "result": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "executedAt", "summary", "evidence"],
+            "properties": {
+              "status": {"enum": ["pending", "passed", "failed", "blocked"]},
+              "executedAt": {"type": ["string", "null"], "minLength": 1},
+              "summary": {"type": ["string", "null"], "minLength": 1},
+              "evidence": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+            }
+          },
+          "limitations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "gates": {"$ref": "#/$defs/gates"},
+    "gaps": {"$ref": "#/$defs/gaps"}
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "version", "upstreamArtifact"],
+      "properties": {
+        "status": {"enum": ["draft", "ready"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "upstreamArtifact": {"const": "conceptual-model"}
+      }
+    },
+    "decisionId": {"type": "string", "pattern": "^TECH-[0-9]{3}$"},
+    "candidateId": {"type": "string", "pattern": "^OPTION-[0-9]{3}$"},
+    "experimentId": {"type": "string", "pattern": "^EXP-[0-9]{3}$"},
+    "subsystemId": {"type": "string", "pattern": "^SUBSYSTEM-[0-9]{3}$"},
+    "capabilityId": {"type": "string", "pattern": "^ARCH-CAP-[0-9]{3}$"},
+    "objectId": {"type": "string", "pattern": "^OBJECT-[0-9]{3}$"},
+    "externalSystemId": {"type": "string", "pattern": "^EXT-[0-9]{3}$"},
+    "useCaseId": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[*!?\\[\\]{}]).+$"
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "checked"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "checked": {"type": "boolean"}
+      }
+    },
+    "gates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gate"}},
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field", "reason"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"},
+        "field": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  }
+}

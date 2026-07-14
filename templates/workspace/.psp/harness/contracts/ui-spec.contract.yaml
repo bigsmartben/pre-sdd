@@ -1,0 +1,42 @@
+apiVersion: psp.dev/v1
+kind: ArtifactContract
+metadata:
+  id: ui-spec
+  version: 3.2.0
+spec:
+  stage: product-design
+  internalModelFormat: yaml
+  outputRole: user-artifact
+  purpose: 定义并验收可运行 HTML Mock，使每个 Wireflow 场景、Screen 和可见状态都能通过代码入口被实际操作与审阅。
+  owns:
+    - HTML Mock 入口、路由与上游覆盖
+    - Figma、截图与导出资源的视觉来源追溯
+    - 设计来源的本地快照、捕获时间与内容哈希证据
+    - 设计资源到仓库本地文件的绑定
+    - Screen 到 DOM selector 的实现映射
+    - 可操作场景与可观察断言
+    - 必测视口下的浏览器场景与截图证据
+    - Mock 数据行为
+    - 视觉约束与必测视口
+    - 无障碍要求及验证方式
+  excludes:
+    - 新产品能力
+    - 新交互分支
+    - 真实后端与生产业务规则
+    - 软件架构
+  domainRules:
+    - unique-identifiers
+    - html-mock-upstream-references
+    - html-mock-design-provenance
+    - html-mock-source-integrity
+    - html-mock-local-asset-bindings
+    - html-mock-scenario-coverage
+    - html-mock-screen-coverage
+    - html-mock-code-entry
+    - html-mock-component-references
+    - html-mock-responsive-accessibility
+    - html-mock-browser-runtime
+  readiness:
+    requiredStatus: ready
+    requireNoGaps: true
+    requireAllGates: true

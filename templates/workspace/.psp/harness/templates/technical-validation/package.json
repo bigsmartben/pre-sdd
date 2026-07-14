@@ -1,0 +1,8 @@
+{
+  "name": "psp-architecture-technical-validation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "node src/verify.mjs"
+  }
+}
