@@ -1,0 +1,33 @@
+apiVersion: psp.dev/v1
+kind: UseCaseSpecification
+metadata:
+  status: draft
+  version: 0.1.0
+intent:
+  productConcept: null
+  problem: null
+  businessGoal: null
+  successSignal: null
+actors: []
+productScope:
+  included: []
+  excluded: []
+businessRules: []
+useCases: []
+gates:
+  - id: actors-defined
+    label: 每个 Actor 有清晰目标
+    checked: false
+  - id: product-scope-defined
+    label: 产品范围内外明确，且未越权定义系统/子系统架构边界
+    checked: false
+  - id: use-case-scenarios-complete
+    label: 每个 Use Case 都有触发、前后置条件、主场景和显式分支
+    checked: false
+  - id: acceptance-defined
+    label: 每个 Use Case 场景都有可观察的验收结果
+    checked: false
+gaps:
+  - id: GAP-001
+    field: useCases
+    reason: 尚未形成可供 Wireflow 消费的完整 Use Case 场景

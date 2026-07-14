@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/harness-manifest.schema.json",
+  "title": "Repository AI Coding Harness Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "name",
+    "version",
+    "entrypoints",
+    "schemas",
+    "codex",
+    "readOrder",
+    "artifactRegistry",
+    "operations",
+    "commands",
+    "validationProfiles",
+    "scopes",
+    "capabilities",
+    "handoff",
+    "blockers"
+  ],
+  "properties": {
+    "$schema": {"const": "./schemas/harness-manifest.schema.json"},
+    "name": {"$ref": "#/$defs/identifier"},
+    "version": {"$ref": "#/$defs/version"},
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instructions", "protocol", "project", "manifest", "repository"],
+      "properties": {
+        "instructions": {"$ref": "#/$defs/path"},
+        "protocol": {"$ref": "#/$defs/path"},
+        "project": {"$ref": "#/$defs/path"},
+        "manifest": {"$ref": "#/$defs/path"},
+        "repository": {"$ref": "#/$defs/path"}
+      }
+    },
+    "schemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest", "project", "contract"],
+      "properties": {
+        "manifest": {"$ref": "#/$defs/path"},
+        "project": {"$ref": "#/$defs/path"},
+        "contract": {"$ref": "#/$defs/path"}
+      }
+    },
+    "codex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectConfig", "hookConfig", "hookScripts", "repositorySkills"],
+      "properties": {
+        "projectConfig": {"$ref": "#/$defs/path"},
+        "hookConfig": {"$ref": "#/$defs/path"},
+        "hookScripts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "repositorySkills": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}}
+      }
+    },
+    "readOrder": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+    "artifactRegistry": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/artifact"}},
+    "operations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/operation"}},
+    "commands": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/command"}},
+    "validationProfiles": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/profile"}},
+    "scopes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scope"}},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["test", "lint", "typecheck", "build"],
+      "properties": {
+        "test": {"$ref": "#/$defs/capability"},
+        "lint": {"$ref": "#/$defs/capability"},
+        "typecheck": {"$ref": "#/$defs/capability"},
+        "build": {"$ref": "#/$defs/capability"}
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredFields", "validationStates"],
+      "properties": {
+        "requiredFields": {"const": ["scope", "changes", "validation", "residuals"]},
+        "validationStates": {"const": ["PASS", "FAIL", "BLOCKED", "NOT_RUN"]}
+      }
+    },
+    "blockers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/blocker"}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "blockerCode": {"type": "string", "pattern": "^AIH_[A-Z0-9_]+$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[*!?\\[\\]{}]).+$"
+    },
+    "glob": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$)).+$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "stage", "format", "contract", "schema", "template", "renderer"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "stage": {"$ref": "#/$defs/identifier"},
+        "format": {"enum": ["yaml", "json"]},
+        "contract": {"$ref": "#/$defs/path"},
+        "schema": {"$ref": "#/$defs/path"},
+        "template": {"$ref": "#/$defs/path"},
+        "renderer": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "npmScript", "run", "purpose", "blocking"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "npmScript": {"type": "string", "minLength": 1},
+        "run": {"type": "string", "pattern": "^npm run [^ ]+$"},
+        "purpose": {"type": "string", "minLength": 1},
+        "blocking": {"const": true}
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "npmScript", "run", "stage", "fromState", "toState", "areaTemplates"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "npmScript": {"type": "string", "minLength": 1},
+        "run": {"type": "string", "pattern": "^npm run [^ ]+$"},
+        "stage": {"$ref": "#/$defs/identifier"},
+        "fromState": {"const": "uninitialized"},
+        "toState": {"const": "active"},
+        "areaTemplates": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/path"}
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "commands"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "commands": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}
+      }
+    },
+    "staticSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "paths"],
+      "properties": {
+        "type": {"const": "static"},
+        "paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/glob"}}
+      }
+    },
+    "stageSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "stage"],
+      "properties": {
+        "type": {"const": "stage"},
+        "stage": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "areaSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "stage", "area"],
+      "properties": {
+        "type": {"const": "area"},
+        "stage": {"$ref": "#/$defs/identifier"},
+        "area": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "selector": {"oneOf": [{"$ref": "#/$defs/staticSelector"}, {"$ref": "#/$defs/stageSelector"}, {"$ref": "#/$defs/areaSelector"}]},
+    "activeScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "selectionGroup", "priority", "status", "selector", "defaultProfile", "readinessProfile"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["repository", "validator", "stage", "subtree"]},
+        "selectionGroup": {"$ref": "#/$defs/identifier"},
+        "priority": {"type": "integer", "minimum": 0},
+        "status": {"const": "active"},
+        "selector": {"$ref": "#/$defs/selector"},
+        "defaultProfile": {"$ref": "#/$defs/identifier"},
+        "readinessProfile": {"$ref": "#/$defs/identifier"},
+        "uninitializedProfile": {"$ref": "#/$defs/identifier"},
+        "dependencies": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}
+      }
+    },
+    "unsupportedScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "selectionGroup", "priority", "status", "selector", "blockerCode"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["repository", "validator", "stage", "subtree"]},
+        "selectionGroup": {"$ref": "#/$defs/identifier"},
+        "priority": {"type": "integer", "minimum": 0},
+        "status": {"const": "unsupported"},
+        "selector": {"$ref": "#/$defs/selector"},
+        "blockerCode": {"$ref": "#/$defs/blockerCode"},
+        "dependencies": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}
+      }
+    },
+    "scope": {"oneOf": [{"$ref": "#/$defs/activeScope"}, {"$ref": "#/$defs/unsupportedScope"}]},
+    "capability": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "command"],
+          "properties": {"status": {"const": "available"}, "command": {"type": "string", "minLength": 1}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {"status": {"const": "unavailable"}, "reason": {"type": "string", "minLength": 1}}
+        }
+      ]
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "owner", "meaning"],
+      "properties": {
+        "code": {"$ref": "#/$defs/blockerCode"},
+        "severity": {"enum": ["blocker", "high", "medium", "low"]},
+        "owner": {"$ref": "#/$defs/identifier"},
+        "meaning": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

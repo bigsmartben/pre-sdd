@@ -1,0 +1,5 @@
+# Codex 仅在仓库被信任后加载此项目层。
+# 模型、provider、sandbox 与 approval 保留给用户或组织策略。
+
+[features]
+hooks = true

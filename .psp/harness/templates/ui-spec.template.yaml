@@ -1,0 +1,34 @@
+apiVersion: psp.dev/v1
+kind: HTMLMockSpecification
+metadata:
+  status: draft
+  version: 0.1.0
+  upstreamArtifact: interactions
+designSources: []
+assetBindings: []
+htmlMocks: []
+interactionScenarios: []
+visualRules: []
+mockBehaviors: []
+viewports: []
+accessibility: []
+gates:
+  - id: upstream-valid
+    label: 每个 HTML Mock 引用有效 Use Case、Wireflow 与 Screen
+    checked: false
+  - id: design-sources-verified
+    label: 每个可用设计来源都有可复现本地证据和匹配内容哈希
+    checked: false
+  - id: scenarios-operable
+    label: 每个 Wireflow 场景都能在 HTML Mock 中实际操作并观察结果
+    checked: false
+  - id: runtime-evidence-generated
+    label: 浏览器已在全部必测视口执行场景并生成截图证据
+    checked: false
+  - id: responsive-accessibility-checked
+    label: 必测视口、键盘、焦点、对比度和语义结构已检查
+    checked: false
+gaps:
+  - id: GAP-001
+    field: htmlMocks
+    reason: 上游 Wireflow Mid 尚未形成可运行 HTML Mock

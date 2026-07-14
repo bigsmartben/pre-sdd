@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/project.schema.json",
+  "title": "PSP Project Binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "harness", "stages"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "PSPProject"},
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest"],
+      "properties": {"manifest": {"$ref": "#/$defs/path"}}
+    },
+    "stages": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"$ref": "#/$defs/stage"}
+    }
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "blockerCode": {"type": "string", "pattern": "^AIH_[A-Z0-9_]+$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[*!?\\[\\]{}]).+$"
+    },
+    "internalModelPath": {
+      "allOf": [
+        {"$ref": "#/$defs/path"},
+        {"type": "string", "pattern": "^\\.psp/models/.+\\.(yaml|json)$"}
+      ]
+    },
+    "artifactOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "role"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "role": {"enum": ["user-artifact", "generated-support"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"role": {"const": "user-artifact"}}, "required": ["role"]},
+          "then": {"properties": {"path": {"type": "string", "pattern": "^(?!\\.psp(?:/|$)).+\\.md$"}}}
+        },
+        {
+          "if": {"properties": {"role": {"const": "generated-support"}}, "required": ["role"]},
+          "then": {"properties": {"path": {"type": "string", "pattern": "^(?!\\.psp(?:/|$)).+"}}}
+        }
+      ]
+    },
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["internalModel", "outputs"],
+      "properties": {
+        "internalModel": {"$ref": "#/$defs/internalModelPath"},
+        "outputs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/artifactOutput"}}
+      }
+    },
+    "areaBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root"],
+      "properties": {"root": {"$ref": "#/$defs/path"}}
+    },
+    "activeStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "root", "artifacts"],
+      "properties": {
+        "status": {"const": "active"},
+        "root": {"$ref": "#/$defs/path"},
+        "artifacts": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/artifactBinding"}
+        },
+        "areas": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/areaBinding"}
+        }
+      }
+    },
+    "uninitializedStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "root", "artifacts"],
+      "properties": {
+        "status": {"const": "uninitialized"},
+        "root": {"$ref": "#/$defs/path"},
+        "artifacts": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/artifactBinding"}
+        },
+        "areas": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/areaBinding"}
+        }
+      }
+    },
+    "unavailableStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "root", "blockerCode"],
+      "properties": {
+        "status": {"const": "unavailable"},
+        "root": {"$ref": "#/$defs/path"},
+        "blockerCode": {"$ref": "#/$defs/blockerCode"}
+      }
+    },
+    "stage": {
+      "oneOf": [
+        {"$ref": "#/$defs/uninitializedStage"},
+        {"$ref": "#/$defs/activeStage"},
+        {"$ref": "#/$defs/unavailableStage"}
+      ]
+    }
+  }
+}

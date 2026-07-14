@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/artifacts/capabilities.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "intent", "actors", "productScope", "businessRules", "useCases", "gates", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "UseCaseSpecification"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productConcept", "problem", "businessGoal", "successSignal"],
+      "properties": {
+        "productConcept": {"$ref": "#/$defs/nullableText"},
+        "problem": {"$ref": "#/$defs/nullableText"},
+        "businessGoal": {"$ref": "#/$defs/nullableText"},
+        "successSignal": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "actors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "goal", "description"],
+        "properties": {
+          "id": {"$ref": "#/$defs/actorId"},
+          "name": {"type": "string", "minLength": 1},
+          "goal": {"type": "string", "minLength": 1},
+          "description": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "productScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included", "excluded"],
+      "properties": {
+        "included": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "excluded": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "businessRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "rationale", "appliesTo"],
+        "properties": {
+          "id": {"$ref": "#/$defs/businessRuleId"},
+          "statement": {"type": "string", "minLength": 1},
+          "rationale": {"type": "string", "minLength": 1},
+          "appliesTo": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}}
+        }
+      }
+    },
+    "useCases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "name", "actor", "goal", "value", "trigger", "preconditions", "postconditions",
+          "mainScenario", "alternateScenarios", "businessRules", "acceptanceCriteria", "relationships"
+        ],
+        "properties": {
+          "id": {"$ref": "#/$defs/useCaseId"},
+          "name": {"type": "string", "minLength": 1},
+          "actor": {"$ref": "#/$defs/actorId"},
+          "goal": {"type": "string", "minLength": 1},
+          "value": {"type": "string", "minLength": 1},
+          "trigger": {"type": "string", "minLength": 1},
+          "preconditions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "postconditions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["success", "failure"],
+            "properties": {
+              "success": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+              "failure": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+            }
+          },
+          "mainScenario": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/$defs/mainStep"}
+          },
+          "alternateScenarios": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/alternateScenario"}
+          },
+          "businessRules": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/businessRuleId"}},
+          "acceptanceCriteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/$defs/acceptanceCriterion"}
+          },
+          "relationships": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "target"],
+              "properties": {
+                "type": {"enum": ["include", "extend", "generalize"]},
+                "target": {"$ref": "#/$defs/useCaseId"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "gates": {"$ref": "#/$defs/gates"},
+    "gaps": {"$ref": "#/$defs/gaps"}
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "version"],
+      "properties": {
+        "status": {"enum": ["draft", "ready"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
+      }
+    },
+    "nullableText": {"type": ["string", "null"], "minLength": 1},
+    "actorId": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+    "useCaseId": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
+    "businessRuleId": {"type": "string", "pattern": "^BR-[0-9]{3}$"},
+    "mainStepId": {"type": "string", "pattern": "^UC-[0-9]{3}-STEP-[0-9]{2}$"},
+    "scenarioId": {"type": "string", "pattern": "^UC-[0-9]{3}-(ALT|EXC)-[0-9]{2}$"},
+    "scenarioStepId": {"type": "string", "pattern": "^UC-[0-9]{3}-(ALT|EXC)-[0-9]{2}-STEP-[0-9]{2}$"},
+    "acceptanceId": {"type": "string", "pattern": "^AC-[0-9]{3}$"},
+    "mainStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "initiator", "action", "systemResponse", "observableResult"],
+      "properties": {
+        "id": {"$ref": "#/$defs/mainStepId"},
+        "initiator": {"enum": ["actor", "system"]},
+        "action": {"type": "string", "minLength": 1},
+        "systemResponse": {"type": "string", "minLength": 1},
+        "observableResult": {"type": "string", "minLength": 1}
+      }
+    },
+    "alternateScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "name", "startsAt", "condition", "steps", "outcome"],
+      "properties": {
+        "id": {"$ref": "#/$defs/scenarioId"},
+        "type": {"enum": ["alternate", "exception"]},
+        "name": {"type": "string", "minLength": 1},
+        "startsAt": {"$ref": "#/$defs/mainStepId"},
+        "condition": {"type": "string", "minLength": 1},
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "initiator", "action", "systemResponse", "observableResult"],
+            "properties": {
+              "id": {"$ref": "#/$defs/scenarioStepId"},
+              "initiator": {"enum": ["actor", "system"]},
+              "action": {"type": "string", "minLength": 1},
+              "systemResponse": {"type": "string", "minLength": 1},
+              "observableResult": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "outcome": {"type": "string", "minLength": 1}
+      }
+    },
+    "acceptanceCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scenario", "given", "when", "then"],
+      "properties": {
+        "id": {"$ref": "#/$defs/acceptanceId"},
+        "scenario": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/scenarioId"}]},
+        "given": {"type": "string", "minLength": 1},
+        "when": {"type": "string", "minLength": 1},
+        "then": {"type": "string", "minLength": 1}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "checked"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "checked": {"type": "boolean"}
+      }
+    },
+    "gates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gate"}},
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field", "reason"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"},
+        "field": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  }
+}

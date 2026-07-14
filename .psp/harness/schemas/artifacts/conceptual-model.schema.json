@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/artifacts/conceptual-model.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "objects", "relationships", "objectFlows", "gates", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "ConceptualModelSpecification"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "aliases", "kind", "definition", "ownedBy", "useCases", "capabilities", "fields", "keys", "constraints", "states"],
+        "properties": {
+          "id": {"$ref": "#/$defs/objectId"},
+          "name": {"type": "string", "minLength": 1},
+          "aliases": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "kind": {"enum": ["entity", "value-object", "event", "enum"]},
+          "definition": {"type": "string", "minLength": 1},
+          "ownedBy": {"$ref": "#/$defs/subsystemId"},
+          "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+          "capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/capabilityId"}},
+          "fields": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "type", "required", "definition", "constraints"],
+              "properties": {
+                "name": {"$ref": "#/$defs/fieldName"},
+                "type": {"type": "string", "minLength": 1},
+                "required": {"type": "boolean"},
+                "definition": {"type": "string", "minLength": 1},
+                "constraints": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+              }
+            }
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "type", "fields", "scope", "immutable"],
+              "properties": {
+                "id": {"$ref": "#/$defs/keyId"},
+                "type": {"enum": ["primary", "business", "alternate"]},
+                "fields": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/fieldName"}},
+                "scope": {"type": "string", "minLength": 1},
+                "immutable": {"type": "boolean"}
+              }
+            }
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "type", "description"],
+              "properties": {
+                "id": {"$ref": "#/$defs/ruleId"},
+                "type": {"enum": ["uniqueness", "invariant", "referential", "state-transition", "validation"]},
+                "description": {"type": "string", "minLength": 1}
+              }
+            }
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "definition", "initial", "terminal"],
+              "properties": {
+                "id": {"$ref": "#/$defs/stateId"},
+                "name": {"type": "string", "minLength": 1},
+                "definition": {"type": "string", "minLength": 1},
+                "initial": {"type": "boolean"},
+                "terminal": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "from", "to", "type", "fromCardinality", "toCardinality", "description"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^REL-[0-9]{3}$"},
+          "from": {"$ref": "#/$defs/objectId"},
+          "to": {"$ref": "#/$defs/objectId"},
+          "type": {"enum": ["association", "aggregation", "composition", "reference", "generalization"]},
+          "fromCardinality": {"$ref": "#/$defs/cardinality"},
+          "toCardinality": {"$ref": "#/$defs/cardinality"},
+          "description": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "objectFlows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "object", "useCase", "capability", "subsystem", "operation", "source", "target", "inputFields", "outputFields", "fromState", "toState", "description", "rules"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^OBJECT-FLOW-[0-9]{3}$"},
+          "object": {"$ref": "#/$defs/objectId"},
+          "useCase": {"$ref": "#/$defs/useCaseId"},
+          "capability": {"$ref": "#/$defs/capabilityId"},
+          "subsystem": {"$ref": "#/$defs/subsystemId"},
+          "operation": {"enum": ["create", "read", "update", "delete", "transition", "transfer", "publish", "consume"]},
+          "source": {"$ref": "#/$defs/endpoint"},
+          "target": {"$ref": "#/$defs/endpoint"},
+          "inputFields": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/fieldName"}},
+          "outputFields": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/fieldName"}},
+          "fromState": {"oneOf": [{"$ref": "#/$defs/stateId"}, {"type": "null"}]},
+          "toState": {"oneOf": [{"$ref": "#/$defs/stateId"}, {"type": "null"}]},
+          "description": {"type": "string", "minLength": 1},
+          "rules": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "gates": {"$ref": "#/$defs/gates"},
+    "gaps": {"$ref": "#/$defs/gaps"}
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "version", "upstreamArtifact"],
+      "properties": {
+        "status": {"enum": ["draft", "ready"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "upstreamArtifact": {"const": "system-boundary"}
+      }
+    },
+    "objectId": {"type": "string", "pattern": "^OBJECT-[0-9]{3}$"},
+    "subsystemId": {"type": "string", "pattern": "^SUBSYSTEM-[0-9]{3}$"},
+    "capabilityId": {"type": "string", "pattern": "^ARCH-CAP-[0-9]{3}$"},
+    "useCaseId": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
+    "keyId": {"type": "string", "pattern": "^KEY-[0-9]{3}$"},
+    "ruleId": {"type": "string", "pattern": "^OBJECT-RULE-[0-9]{3}$"},
+    "stateId": {"type": "string", "pattern": "^OBJECT-STATE-[0-9]{3}$"},
+    "fieldName": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+    "cardinality": {"enum": ["zero-or-one", "one", "many", "one-or-more"]},
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "type": {"enum": ["none", "actor", "subsystem", "external-system"]},
+        "ref": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "checked"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "checked": {"type": "boolean"}
+      }
+    },
+    "gates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gate"}},
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field", "reason"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"},
+        "field": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  }
+}

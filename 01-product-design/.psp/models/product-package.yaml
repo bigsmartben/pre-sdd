@@ -1,0 +1,31 @@
+apiVersion: psp.dev/v1
+kind: ProductPackage
+metadata:
+  status: draft
+  version: 0.1.0
+overview:
+  productName: null
+  productGoal: null
+  targetUsers: null
+  coreValue: null
+primaryChain:
+  - capabilities
+  - interactions
+  - ui-spec
+supportingArtifacts:
+  - component-catalog
+  - traceability
+gates:
+  - id: overview-confirmed
+    label: Product Overview 已由产品责任人确认
+    checked: false
+  - id: abstraction-reviewed
+    label: UC → Wireflow Mid → HTML Mock 主链及支撑产物边界已审阅
+    checked: false
+  - id: product-facts-approved
+    label: Package 中的产品事实已批准交付
+    checked: false
+gaps:
+  - id: GAP-001
+    field: overview
+    reason: 记录缺失事实及其澄清原因，不得用实现假设填充

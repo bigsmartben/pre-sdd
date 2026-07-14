@@ -1,0 +1,23 @@
+apiVersion: psp.dev/v1
+kind: ConceptualModelSpecification
+metadata:
+  status: draft
+  version: 0.1.0
+  upstreamArtifact: system-boundary
+objects: []
+relationships: []
+objectFlows: []
+gates:
+  - id: object-semantics-defined
+    label: 关键对象实体具有规范名称、核心字段、唯一键和业务约束
+    checked: false
+  - id: normalization-reviewed
+    label: 同义概念已归一，关联、组合与泛化继承关系已审阅
+    checked: false
+  - id: lifecycle-flows-covered
+    label: 对象数据流覆盖各 UC，并明确生命周期状态变化
+    checked: false
+gaps:
+  - id: GAP-001
+    field: objects
+    reason: 尚未从 UC 与子系统能力中提炼关键对象实体
