@@ -84,6 +84,17 @@ test('strict validation separates workflow state from component state and checks
   assert.ok(codes(invalid).has('AIH_REFERENCE_UNRESOLVED') || codes(invalid).has('AIH_GENERATED_DRIFT'));
 });
 
+test('strict validation requires every scenario event to resolve to exactly one action', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+  model.actions = model.actions.filter((action) => action.eventId !== 'EVENT-002');
+  await writeCanonical(path, model);
+  const invalid = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json']);
+  assert.ok(codes(invalid).has('AIH_REFERENCE_UNRESOLVED'), JSON.stringify(invalid.output, null, 2));
+  assert.ok(invalid.output.blockers.some((item) => item.message.includes('SCENARIO-002 / EVENT-002')));
+});
+
 test('Canonical UI input gate requires reproducible design source evidence', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
@@ -193,7 +204,40 @@ test('browser validator executes declared routes, interactions and viewports wit
   assert.equal(result.output.evidence.filter((item) => item.kind === 'route').length, 2);
   assert.equal(result.output.evidence.filter((item) => item.kind === 'scenario').length, 4);
   assert.deepEqual(new Set(result.output.evidence.filter((item) => item.kind === 'scenario').map((item) => item.viewportId)), new Set(['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP']));
+  for (const item of result.output.evidence.filter((entry) => entry.kind === 'scenario')) {
+    assert.equal(item.actionStateTraces.length, 1);
+    const expected = item.scenarioId === 'SCENARIO-001'
+      ? ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS']
+      : ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'];
+    assert.deepEqual(item.actionStateTraces[0].stateIds, expected);
+  }
   assert.ok(result.output.evidence.every((item) => !item.screenshot.startsWith(root)));
+});
+
+test('browser validator uses the browser accessible-name algorithm for aria-labelledby', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { areaPath } = await canonicalFixture(root);
+  const appPath = resolve(areaPath, 'src/psp-app.ts');
+  const app = await readFile(appPath, 'utf8');
+  await writeFile(appPath, app
+    .replace('<div class="actions">', '<span id="fixture-success-label">模拟成功</span>\n            <div class="actions">')
+    .replace('                class="primary"\n                data-control-id="CONTROL-001"', '                class="primary"\n                aria-labelledby="fixture-success-label"\n                data-control-id="CONTROL-001"')
+    .replace('              >\n                模拟成功\n              </button>', '              >\n              </button>'));
+  const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
+  assert.equal(result.exitCode, 0, JSON.stringify(result.output, null, 2));
+});
+
+test('browser validator requires a font asset to be used by the declared target computed style', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+  Object.assign(model.assets[0], { kind: 'font', fontFamily: 'FixtureUnusedFont' });
+  await writeCanonical(path, model);
+  const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
+  assert.ok(codes(result).has('AIH_CANONICAL_UI_ASSET_FAILED'), JSON.stringify(result.output, null, 2));
+  assert.ok(result.output.blockers.some((item) => item.message.includes('未在声明目标中实际使用')));
+  assert.equal(result.output.blockers.some((item) => item.message.includes('资源未成功加载')), false);
 });
 
 test('browser validator separates console, network, visual, accessibility and asset blockers', async () => {
@@ -205,6 +249,9 @@ test('browser validator separates console, network, visual, accessibility and as
   await writeFile(appPath, app
     .replace("this.feedback = '选择一种 Mock 行为，验证 Loading、Success 与 Error 状态。';", "this.feedback = '选择一种 Mock 行为，验证 Loading、Success 与 Error 状态。';\n    console.error('fixture console failure');\n    setTimeout(() => { throw new Error('fixture page failure'); }, 0);\n    void fetch('https://example.com/blocked').catch(() => undefined);")
     .replace('            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />\n', '')
+    .replace('                data-control-id="CONTROL-001"\n', '                data-control-id="CONTROL-001"\n                tabindex="-1"\n')
+    .replace('                data-action-id="ACTION-001"', '                data-action-id="ACTION-UNKNOWN"')
+    .replace('              >\n                模拟错误\n              </button>', '              >\n              </button>')
     .replace('    button {\n      min-height: 44px;', '    button {\n      box-sizing: border-box;\n      width: 30px;\n      overflow: hidden;\n      min-height: 10px;')
     .replace('button.primary { background: var(--accent); }', 'button.primary { background: var(--accent); }\n    button + button { margin-left: -10px; }')
     .replace('button:focus-visible { outline: 3px solid #678e25; outline-offset: 3px; }', 'button:focus-visible { outline: none; box-shadow: none; }'));
@@ -219,5 +266,8 @@ test('browser validator separates console, network, visual, accessibility and as
     'AIH_CANONICAL_UI_ASSET_FAILED',
   ]) assert.ok(actual.has(expected), JSON.stringify(result.output, null, 2));
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_CONSOLE_FAILED' && item.message.includes('页面异常')));
+  assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_RUNTIME_FAILED' && item.message.includes('事件控件未绑定声明动作')));
+  assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED' && item.message.includes('键盘 Tab 到达')));
+  assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED' && item.message.includes('缺少可访问名称')));
   assert.equal(result.output.evidence.length, 6);
 });

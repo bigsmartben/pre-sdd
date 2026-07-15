@@ -57,6 +57,87 @@ function allowedRequest(value, base) {
   return url.protocol === 'data:' || url.protocol === 'blob:' || url.origin === new URL(base).origin;
 }
 
+async function ensureAxe(page, axePath) {
+  const available = await page.evaluate(() => Boolean(globalThis.axe?.run && globalThis.axe?.commons?.text?.accessibleText));
+  if (!available) await page.addScriptTag({ path: axePath });
+}
+
+async function verifyExclusiveComponentStates(page, model, location) {
+  for (const component of model.components) {
+    const visibleStateIds = [];
+    for (const stateId of component.stateIds) {
+      const states = page.locator('[data-component-state="' + stateId + '"]');
+      for (let index = 0; index < await states.count(); index += 1) {
+        if (await states.nth(index).isVisible()) {
+          visibleStateIds.push(stateId);
+          break;
+        }
+      }
+    }
+    if (visibleStateIds.length > 1) {
+      block(
+        'AIH_CANONICAL_UI_RUNTIME_FAILED',
+        '组件同时暴露多个互斥状态：' + component.id + ' → ' + visibleStateIds.join(', '),
+        location,
+      );
+    }
+  }
+}
+
+async function beginStateTrace(page) {
+  await page.evaluate(() => {
+    const state = {
+      ids: [],
+      initializing: true,
+      observers: [],
+      roots: new WeakSet(),
+      values: new WeakMap(),
+    };
+    const recordElement = (element) => {
+      const previous = state.values.get(element) || {};
+      for (const attribute of ['data-state-id', 'data-component-state']) {
+        const value = element.getAttribute(attribute);
+        if (value && previous[attribute] !== value && !state.initializing && state.ids.at(-1) !== value) state.ids.push(value);
+        if (value) previous[attribute] = value;
+        else delete previous[attribute];
+      }
+      state.values.set(element, previous);
+    };
+    let registerRoot;
+    const scanRoot = (root) => {
+      const elements = [...root.querySelectorAll('*')];
+      if (root instanceof Element) elements.unshift(root);
+      for (const element of elements) {
+        recordElement(element);
+        if (element.shadowRoot) registerRoot(element.shadowRoot);
+      }
+    };
+    registerRoot = (root) => {
+      if (state.roots.has(root)) return;
+      state.roots.add(root);
+      const observer = new MutationObserver(() => scanRoot(root));
+      observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state-id', 'data-component-state'] });
+      state.observers.push(observer);
+      scanRoot(root);
+    };
+    globalThis.__pspCanonicalStateTrace = state;
+    registerRoot(document);
+    state.initializing = false;
+    state.ids.length = 0;
+  });
+}
+
+async function stopStateTrace(page) {
+  return page.evaluate(() => {
+    const state = globalThis.__pspCanonicalStateTrace;
+    if (!state) return [];
+    for (const observer of state.observers) observer.disconnect();
+    const ids = [...state.ids];
+    delete globalThis.__pspCanonicalStateTrace;
+    return ids;
+  });
+}
+
 async function guardedPage(viewport, base) {
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
   const explicitlyBlocked = new Set();
@@ -117,14 +198,18 @@ async function verifyBaseSemantics(page, model, route) {
       block('AIH_CANONICAL_UI_RUNTIME_FAILED', '缺少 data-control-id：' + control.id, route.path);
       continue;
     }
-    const accessibleName = await locator.first().evaluate((element) =>
-      element.getAttribute('aria-label') || element.textContent?.trim() || element.getAttribute('value') || '',
-    );
+    const ariaSnapshot = await locator.first().ariaSnapshot();
+    const serializedName = ariaSnapshot.split('\n')[0]?.match(/^-\s+\S+\s+("(?:\\.|[^"\\])*")/)?.[1];
+    let accessibleName = '';
+    if (serializedName) {
+      try { accessibleName = JSON.parse(serializedName).trim(); } catch { /* An invalid snapshot name remains empty. */ }
+    }
     if (!accessibleName) block('AIH_CANONICAL_UI_ACCESSIBILITY_FAILED', '控件缺少可访问名称：' + control.id, route.path);
   }
   if (await page.locator('[data-state-id][data-component-state]').count() > 0) {
     block('AIH_CANONICAL_UI_RUNTIME_FAILED', '同一页面元素不得混用流程状态与组件局部状态。', route.path);
   }
+  await verifyExclusiveComponentStates(page, model, route.path);
   return screen;
 }
 
@@ -202,7 +287,7 @@ async function runVisualAssertions(page, model, routeId, viewport, scenarioId = 
 }
 
 async function runAccessibility(page, model, screen, axePath, location) {
-  await page.addScriptTag({ path: axePath });
+  await ensureAxe(page, axePath);
   const violations = await page.evaluate(async () => {
     const result = await globalThis.axe.run(document, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'] },
@@ -281,7 +366,15 @@ async function observeAssets(page, model, base) {
           if ([style.backgroundImage, style.maskImage, style.webkitMaskImage].some((value) => value?.includes(input.expectedUrl))) return true;
           return candidate instanceof HTMLImageElement && candidate.currentSrc === input.expectedUrl && candidate.complete && candidate.naturalWidth > 0;
         };
-        if (input.kind === 'font') return document.fonts.check('12px "' + input.fontFamily + '"');
+        if (input.kind === 'font') {
+          const normalizeFamily = (value) => value.trim().replace(/^["']|["']$/g, '').toLowerCase();
+          const expectedFamily = normalizeFamily(input.fontFamily);
+          const targetUsesFamily = candidates.some((candidate) => getComputedStyle(candidate).fontFamily
+            .split(',')
+            .map(normalizeFamily)
+            .includes(expectedFamily));
+          return targetUsesFamily && document.fonts.check('12px "' + input.fontFamily + '"');
+        }
         return candidates.some(references);
       }, { expectedUrl, kind: asset.kind, fontFamily: asset.fontFamily || '' });
       if (used) usedAssetTargets.get(asset.id).add(targetId);
@@ -376,23 +469,60 @@ try {
           }
         }
         const before = await page.locator('[role="status"]').allTextContents();
+        const actionStateTraces = [];
         for (const eventId of scenario.eventIds) {
           const event = model.events.find((item) => item.id === eventId);
+          if (!event) {
+            block('AIH_CANONICAL_UI_RUNTIME_FAILED', '场景引用未知事件：' + eventId, scenario.id);
+            continue;
+          }
+          const actions = model.actions.filter((item) => item.eventId === eventId);
+          if (actions.length !== 1) {
+            block('AIH_CANONICAL_UI_RUNTIME_FAILED', '场景事件必须且只能对应一个动作：' + eventId + '，实际为 ' + actions.length + ' 个。', scenario.id);
+            continue;
+          }
+          const [action] = actions;
           const control = page.locator('[data-control-id="' + event.controlId + '"][data-event-id="' + event.id + '"]');
           if (await control.count() === 0) {
             block('AIH_CANONICAL_UI_RUNTIME_FAILED', '场景缺少事件控件：' + event.id, scenario.id);
             continue;
           }
-          await control.click();
-          for (const action of model.actions.filter((item) => item.eventId === eventId)) {
-            for (const stateId of action.resultingStateIds) {
-              try {
-                await page.locator(stateSelector(model, stateId)).first().waitFor({ state: 'visible', timeout: 2500 });
-              } catch {
-                block('AIH_CANONICAL_UI_RUNTIME_FAILED', '动作未按序产生声明状态：' + action.id + ' → ' + stateId, scenario.id + ' / ' + viewport.id);
-              }
-            }
+          const boundActionId = await control.first().getAttribute('data-action-id');
+          if (boundActionId !== action.id) {
+            block('AIH_CANONICAL_UI_RUNTIME_FAILED', '事件控件未绑定声明动作：' + event.id + ' → ' + action.id + '，实际为 ' + (boundActionId || '未声明'), scenario.id);
           }
+          await beginStateTrace(page);
+          let observedStateIds = [];
+          try {
+            await control.first().click();
+            await page.waitForFunction((expectedStateIds) => {
+              const observed = globalThis.__pspCanonicalStateTrace?.ids || [];
+              let expectedIndex = 0;
+              for (const stateId of observed) {
+                if (stateId === expectedStateIds[expectedIndex]) expectedIndex += 1;
+                if (expectedIndex === expectedStateIds.length) return true;
+              }
+              return false;
+            }, action.resultingStateIds, { timeout: 2500 });
+          } catch {
+            // The trace is inspected after the observer is stopped so the blocker contains the actual sequence.
+          } finally {
+            observedStateIds = await stopStateTrace(page);
+          }
+          actionStateTraces.push({ actionId: action.id, stateIds: observedStateIds });
+          let expectedIndex = 0;
+          for (const stateId of observedStateIds) {
+            if (stateId === action.resultingStateIds[expectedIndex]) expectedIndex += 1;
+            if (expectedIndex === action.resultingStateIds.length) break;
+          }
+          if (expectedIndex !== action.resultingStateIds.length) {
+            block(
+              'AIH_CANONICAL_UI_RUNTIME_FAILED',
+              '动作未按序产生声明状态：' + action.id + '，期望 ' + action.resultingStateIds.join(' → ') + '，观测到 ' + (observedStateIds.join(' → ') || '无状态变化'),
+              scenario.id + ' / ' + viewport.id,
+            );
+          }
+          await verifyExclusiveComponentStates(page, model, scenario.id + ' / ' + viewport.id);
         }
         const after = await page.locator('[role="status"]').allTextContents();
         if (JSON.stringify(before) === JSON.stringify(after)) block('AIH_CANONICAL_UI_RUNTIME_FAILED', '场景未产生可见状态变化。', scenario.id + ' / ' + viewport.id);
@@ -412,6 +542,7 @@ try {
           initialStateIds: scenario.initialStateIds,
           eventIds: scenario.eventIds,
           finalStateIds: scenario.expectedStateIds,
+          actionStateTraces,
         });
         if (screen) await runAccessibility(page, model, screen, axePath, scenario.id + ' / ' + viewport.id);
       } catch (error) {

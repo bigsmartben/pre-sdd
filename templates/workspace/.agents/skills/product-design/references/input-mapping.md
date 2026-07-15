@@ -12,4 +12,4 @@
 
 `designSources[].coverage` 使用 Screen、State、Viewport 和证据项标识表达可验证覆盖，不接受自由文本。`assets[].sourceIds`、`tokens[].sourceIds` 和 `visualAssertions[].sourceIds` 必须引用可用来源。
 
-`data-state-id` 只能表示 Wireflow 页面或流程状态；组件局部状态使用 `data-component-state`。事件与动作使用独立的 `data-event-id`、`data-event` 和 `data-action-id`，不得用一个字段混写。
+`data-state-id` 只能表示 Wireflow 页面或流程状态；组件局部状态使用 `data-component-state`。事件与动作使用独立的 `data-event-id`、`data-event` 和 `data-action-id`，不得用一个字段混写。每个场景事件必须且只能对应一个动作，事件控件的 `data-action-id` 必须等于该动作标识。
