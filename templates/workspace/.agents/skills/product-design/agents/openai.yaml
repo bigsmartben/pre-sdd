@@ -1,0 +1,4 @@
+interface:
+  display_name: "Product Design Domain"
+  short_description: "将产品与设计来源转为可执行规范界面并通过机器验收"
+  default_prompt: "Use $product-design to turn source-backed product and design inputs, including Figma when present, into a browser-executable Canonical UI Prototype and run its registered Harness gates."

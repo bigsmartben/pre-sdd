@@ -1,43 +1,51 @@
-import { resolveHarness } from './lib/routing.mjs';
-import { loadProjectAndManifest, repositoryRootFrom } from './lib/repository.mjs';
+import { resolve } from 'node:path';
+import { readJson, readYaml } from './lib/repository.mjs';
+import { matchingScopes, resolvedProfiles } from './lib/routing.mjs';
 
-const root = repositoryRootFrom(import.meta.dirname);
 const args = process.argv.slice(2);
 const paths = [];
-let intent = 'change';
-let json = false;
-
 for (let index = 0; index < args.length; index += 1) {
-  const argument = args[index];
-  if (argument === '--path' && args[index + 1]) paths.push(args[++index]);
-  else if (argument === '--intent' && args[index + 1]) intent = args[++index];
-  else if (argument === '--json') json = true;
+  if (args[index] === '--path' && args[index + 1]) paths.push(args[++index]);
 }
-
+const intentIndex = args.indexOf('--intent');
+const intent = intentIndex >= 0 ? args[intentIndex + 1] : 'change';
+const json = args.includes('--json');
+const root = resolve(process.env.PSP_REPOSITORY_ROOT || process.cwd());
 let result;
+
 try {
-  const loaded = await loadProjectAndManifest(root);
-  result = resolveHarness(loaded.manifest, loaded.project, paths, intent, root);
+  if (paths.length === 0 || !['change', 'readiness'].includes(intent)) {
+    throw Object.assign(new Error('必须提供至少一个 --path，且 --intent 只能是 change 或 readiness。'), { code: 'AIH_PATH_INVALID' });
+  }
+  const project = await readYaml(root, 'psp.project.yaml');
+  if (project.kind !== 'PSPScaffoldProject') {
+    throw Object.assign(new Error('根项目不是脚手架项目。'), { code: 'AIH_SCAFFOLD_CONTEXT_INVALID' });
+  }
+  const manifest = await readJson(root, project.harness.manifest);
+  const selection = matchingScopes(manifest, paths, root);
+  if (selection.blockers.length > 0) {
+    result = { status: 'BLOCKED', scopes: selection.scopes.map((scope) => scope.id), profiles: [], commandIds: [], commands: [], blockers: selection.blockers };
+  } else {
+    const resolved = resolvedProfiles(manifest, selection.scopes, intent);
+    result = {
+      status: 'READY',
+      scopes: selection.scopes.map((scope) => scope.id),
+      upstreamScopes: [],
+      downstreamConsumers: [],
+      upstreamProfiles: [],
+      upstreamCommandIds: [],
+      upstreamCommands: [],
+      profiles: resolved.profiles.map((profile) => profile.id),
+      commandIds: resolved.commands.map((command) => command.id),
+      commands: resolved.commands.map((command) => command.run),
+      blockers: [],
+    };
+  }
 } catch (error) {
-  const code = error.code || (String(error.message).includes('psp.project') ? 'AIH_PROJECT_BINDING_INVALID' : 'AIH_MANIFEST_UNREADABLE');
-  result = {
-    status: 'BLOCKED',
-    scopes: [],
-    profiles: [],
-    commandIds: [],
-    commands: [],
-    blockers: [{
-      code,
-      severity: 'blocker',
-      owner: 'repository-harness',
-      meaning: code === 'AIH_PROJECT_BINDING_INVALID' ? '项目绑定无效' : 'Harness manifest 无法读取',
-      message: error.message,
-    }],
-  };
+  result = { status: 'BLOCKED', scopes: [], profiles: [], commandIds: [], commands: [], blockers: [{ code: error.code || 'AIH_MANIFEST_UNREADABLE', message: error.message }] };
 }
 
 if (json) console.log(JSON.stringify(result, null, 2));
-else if (result.status === 'READY') console.log('READY ' + result.scopes.join(', ') + ' -> ' + result.commands.join(' && '));
-else for (const blocker of result.blockers) console.error('[' + blocker.code + '] ' + (blocker.message || blocker.meaning));
-
-if (result.status === 'BLOCKED') process.exitCode = 1;
+else if (result.status === 'READY') for (const command of result.commands) console.log(command);
+else for (const blocker of result.blockers) console.error('[' + blocker.code + '] ' + blocker.message);
+if (result.status !== 'READY') process.exitCode = 1;

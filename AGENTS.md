@@ -1,34 +1,29 @@
-# PSP Repository Instructions
+# pre-sdd 脚手架仓库说明（Scaffold Repository Instructions）
 
-## 沟通语言
+## 仓库身份
 
-- 与用户沟通、编写规格和说明性文档时，优先使用中文。
-- 代码标识符、协议名、技术名词和业界通用缩写可保留英文。
+- 当前根目录是 `pre-sdd` 脚手架源仓库（Scaffold Repository），负责维护、测试和发布用于生成工作区的工具；它不是产品或架构交付工作区。
+- `templates/workspace/` 是生成工作区模板（Workspace Template）的唯一事实来源；`runtime/` 与 `bin/` 是打包运行时（Packaged Runtime）；`pre-sdd init` 生成的目标目录才是业务工作区（Generated Workspace）。
+- 根目录与工作区模板使用不同的项目绑定、Harness 和 Agent 说明。不得用模板的产品交付规则治理根脚手架，也不得用根脚手架规则替代生成工作区的本地治理。
 
 ## 行为边界
 
-- 仓库交付链为 Product Idea → Product Design → Architecture Design → Spec-Kit。
-- 架构设计单向依赖产品设计；不得从实现便利性反向推导、静默改变或伪造产品事实。
-- 面向用户阅读、评审和交付的正式规格产物必须是 Markdown；HTML Mock 与技术验证代码只作为相应 Markdown 产物的可执行证据。
-- YAML/JSON 只作为 Harness 内部结构化模型，必须位于项目绑定声明的隐藏 `.psp/models/` 路径，不属于用户产物。
-- `user-artifact` 是正式用户产物；`generated-support` 只供机器消费，不得列入用户交付清单。用户目录不得放置 Contract、Schema、Validator、Harness 测试或通用模板。
-- 具体用户目录与产物路径只从 psp.project.yaml 读取，不得从目录名称猜测。
-- 工作区初始化必须创建所有已绑定且非 unavailable 的阶段根目录；空目录骨架不等于用户实例。
-- 纯脚手架初始状态下，所有非 unavailable 阶段必须为 uninitialized，阶段根目录只能包含 manifest 声明的工作区标记。
-- status 为 uninitialized 的阶段只有目录骨架，不拥有用户实例；只有用户明确开始该阶段时才能执行 manifest 声明的初始化 operation。
-- status 为 unavailable 的阶段禁止写入；下游只能记录缺口，不得把架构假设写成上游事实。
+- 根仓库只处理脚手架工程：模板、通用运行时、命令行入口、初始化、打包、发布准备、脚手架测试和根 Harness。
+- 根仓库禁止绑定或初始化 Product Design（产品设计）和 Architecture Design（架构设计）用户阶段，禁止执行产品交付链、领域 readiness（就绪）或领域 handoff（移交）。
+- Product Design 与 Architecture Design 领域 Skill 只存在于 `templates/workspace/.agents/skills/` 及生成工作区中；根 `.agents/skills/` 不得保存或自动发现这些领域 Skill。
+- 全局运行时只提供依赖和通用执行环境。Manifest 声明的模块或测试执行器必须从目标工作区本地路径执行；不得改用包内模板副本。
+- 脚手架测试必须在操作系统临时目录中的模板副本或生成工作区上运行，不得在 `templates/workspace/` 原位创建用户实例、`node_modules`、构建输出或浏览器证据。
+- 修改前识别并保留用户已有改动；不得覆盖、回退或删除无关内容。
 
 ## Harness 接入
 
-- 任务开始时读取 `.psp/harness/HARNESS.md`、`psp.project.yaml` 和 `.psp/harness/harness.manifest.json`；这些隐藏基础设施不构成用户阅读路径。
-- 使用 Repository Skill apply-repository-harness 调用统一 resolver，并执行返回的全部 validation commands。
-- 初始化纯脚手架工作区时只使用 manifest 声明的 initialize-workspace operation；它不得创建产品或架构用户实例。
-- AGENTS.md 只拥有行为边界；执行协议、机器路由、合法结构和领域判断分别由 Harness protocol、manifest、Schema 和 validator 拥有。
-- 只有 strict Profile 全部通过才能声明 ready、可消费或可交付；结构校验通过也可能只表示 uninitialized 空状态或 draft 结构有效。
+- 任务开始时读取 `.psp/harness/HARNESS.md`、`psp.project.yaml` 和 `.psp/harness/harness.manifest.json`。
+- 使用根 Repository Skill `apply-repository-harness` 调用统一 resolver（解析器），按返回顺序执行全部验证命令。
+- 根项目绑定必须是 `PSPScaffoldProject`；模板项目绑定必须是 `PSPProject`。任何上下文混用都以稳定 blocker code（阻断码）失败。
+- `AGENTS.md` 只保留身份、行为边界和 Harness 入口；结构化不变量、路径范围、工程命令、验证顺序和阻断码由根 Manifest、Schema（结构定义）和 Validator（校验器）拥有。
+- 根 Harness 没有领域移交边。完成脚手架变更后只报告工程门禁结果，不提示产品或架构下游移交。
 
-## 变更保护与交付
+## 交付报告
 
-- 修改前识别并保留用户已有改动；不得覆盖无关内容。
-- 路径变更必须同步维护项目绑定、内部模型、用户产物、机器生成支撑和追溯关系。
-- 不得绕过机器门禁，或把 FAIL、BLOCKED、NOT_RUN 表述为 PASS。
-- 最终交付必须报告 Scope、实际变更、逐项验证状态和剩余 blocker。
+- 最终报告必须包含 Scope（范围）、Changes（实际变更）、Validation（逐项验证）和 Residuals（剩余阻断）。
+- 验证状态只使用 `PASS`、`FAIL`、`BLOCKED`、`NOT_RUN`；不得把结构通过、失败或未运行表述为业务就绪。

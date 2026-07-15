@@ -1,433 +1,300 @@
-import { access, readFile, readdir, stat } from 'node:fs/promises';
-import { posix } from 'node:path';
+import { readFile, readdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import picomatch from 'picomatch';
-import { parse as parseToml } from 'toml';
-import { parse as parseYaml } from 'yaml';
-import { resolveHarness, selectorPatterns } from './lib/routing.mjs';
 import {
-  artifactPaths,
-  loadProjectAndManifest,
-  normalizeRepositoryPath,
+  joinRepositoryPath,
+  pathExists,
   readJson,
+  readYaml,
   repositoryFile,
-  repositoryRootFrom,
 } from './lib/repository.mjs';
 
-const root = repositoryRootFrom(import.meta.dirname);
-const json = process.argv.includes('--json');
-const blockers = [];
-const REQUIRED_CODES = [
-  'AIH_PROJECT_BINDING_INVALID',
-  'AIH_CONTRACT_INVALID',
-  'AIH_ARTIFACT_SCHEMA_FAILED',
-  'AIH_ARTIFACT_INCOMPLETE',
-  'AIH_REFERENCE_UNRESOLVED',
-  'AIH_GENERATED_DRIFT',
-  'AIH_UPSTREAM_NOT_READY',
-  'AIH_ARCHITECTURE_UNAVAILABLE',
-  'AIH_TECHNICAL_VALIDATION_FAILED',
-  'AIH_SCOPE_UNRESOLVED',
-  'AIH_PATH_INVALID',
-  'AIH_PATH_OUTSIDE_ROOT',
-  'AIH_MANIFEST_UNREADABLE',
-  'AIH_SCHEMA_INVALID',
-  'AIH_ENTRYPOINT_MISSING',
-  'AIH_COMMAND_INVALID',
-  'AIH_PROFILE_INVALID',
-  'AIH_SCOPE_INVALID',
-  'AIH_CODEX_ADAPTER_INVALID',
-  'AIH_HARNESS_COUPLED',
-  'AIH_HOOK_DEGRADED',
-  'AIH_RUNTIME_UNAVAILABLE',
-  'AIH_RUNTIME_INCOMPATIBLE',
-  'AIH_VALIDATION_FAILED',
-  'AIH_USER_CHANGE_COLLISION',
-  'AIH_WORKSPACE_NOT_EMPTY',
-  'AIH_STAGE_UNINITIALIZED',
-  'AIH_PARTIAL_INITIALIZATION',
-  'AIH_STAGE_ALREADY_INITIALIZED',
-];
-
-function block(code, message, location) {
-  blockers.push({ code, message, ...(location ? { location } : {}) });
+function issue(list, code, message, path) {
+  list.push({ code, message, ...(path ? { path } : {}) });
 }
 
-async function requirePath(path, location = path) {
-  try {
-    await access(repositoryFile(root, path));
-  } catch (error) {
-    const code = typeof error.code === 'string' && error.code.startsWith('AIH_')
-      ? error.code
-      : 'AIH_ENTRYPOINT_MISSING';
-    block(code, '声明路径不存在：' + path, location);
+function schemaMessages(errors) {
+  return (errors || []).map((error) => (error.instancePath || '/') + ' ' + error.message).join('; ');
+}
+
+function sameMembers(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+function own(object, key) {
+  return object !== null && typeof object === 'object' && Object.hasOwn(object, key);
+}
+
+function validateContinuousIntegration(workflow, policy, issues) {
+  const triggers = workflow.on;
+  if (!triggers || !sameMembers(Object.keys(triggers), policy.triggers)) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成触发器必须与 Manifest 完全一致。', policy.workflow);
+  }
+  if (!own(triggers, 'pull_request')) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成必须在 pull_request 上运行。', policy.workflow);
+  }
+  const pushBranches = triggers?.push?.branches || [];
+  if (!sameMembers(pushBranches, policy.protectedBranches)) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成 push 分支必须与 Manifest 完全一致。', policy.workflow);
+  }
+  if (workflow.permissions?.contents !== 'read') {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成默认权限必须收敛为 contents: read。', policy.workflow);
+  }
+
+  const job = workflow.jobs?.[policy.job];
+  if (!job) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成缺少 Manifest 登记的治理 job：' + policy.job, policy.workflow);
+    return;
+  }
+  if (job['runs-on'] !== policy.runsOn) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成运行环境与 Manifest 不一致。', policy.workflow);
+  }
+  const steps = job.steps || [];
+  const checkout = steps.find((step) => step.uses === policy.checkoutAction);
+  if (!checkout || checkout.with?.['fetch-depth'] !== 0) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成必须完整检出 Git 历史。', policy.workflow);
+  }
+  const setupNode = steps.find((step) => step.uses === policy.setupNodeAction);
+  if (!setupNode || String(setupNode.with?.['node-version']) !== policy.nodeVersion || setupNode.with?.cache !== 'npm') {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成 Node.js 环境与 Manifest 不一致。', policy.workflow);
+  }
+  const runSteps = steps.filter((step) => typeof step.run === 'string').map((step) => step.run.trim());
+  const expectedRuns = [policy.installCommand, 'node ' + policy.runner];
+  if (JSON.stringify(runSteps) !== JSON.stringify(expectedRuns)) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成只能安装依赖并调用 Manifest 登记的 Resolver 驱动执行器。', policy.workflow);
   }
 }
 
-async function requireDirectory(path, location = path) {
-  try {
-    if (!(await stat(repositoryFile(root, path))).isDirectory()) {
-      block('AIH_PROJECT_BINDING_INVALID', '声明的阶段根路径不是目录：' + path, location);
-    }
-  } catch (error) {
-    const code = typeof error.code === 'string' && error.code.startsWith('AIH_')
-      ? error.code
-      : 'AIH_ENTRYPOINT_MISSING';
-    block(code, '声明的阶段根目录不存在：' + path, location);
-  }
-}
-
-function unique(items, label, code) {
-  const values = new Map();
-  for (const item of items || []) {
-    if (values.has(item.id)) block(code, label + ' id 重复：' + item.id, item.id);
-    else values.set(item.id, item);
-  }
-  return values;
-}
-
-function schemaErrors(validate, code, location) {
-  for (const error of validate.errors || []) {
-    block(code, (error.instancePath || '/') + ' ' + error.message, location + (error.instancePath || ''));
-  }
-}
-
-async function allTextFiles(directory, prefix = '') {
-  const output = [];
+async function skillNames(root, skillsRoot) {
+  const directory = repositoryFile(root, skillsRoot);
+  if (!await pathExists(root, skillsRoot)) return [];
+  const names = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const relative = prefix ? prefix + '/' + entry.name : entry.name;
-    const absolute = repositoryFile(root, '.psp/harness/' + relative);
-    if (entry.isDirectory()) output.push(...await allTextFiles(absolute, relative));
-    else output.push('.psp/harness/' + relative);
+    if (entry.isDirectory() && await pathExists(root, joinRepositoryPath(skillsRoot, entry.name, 'SKILL.md'))) names.push(entry.name);
   }
-  return output;
+  return names.sort();
 }
 
-let project;
-let manifest;
-try {
-  ({ project, manifest } = await loadProjectAndManifest(root));
-} catch (error) {
-  block(error.code || 'AIH_PROJECT_BINDING_INVALID', error.message, 'psp.project.yaml');
+async function pollutedDirectories(root, templateRoot, forbiddenNames) {
+  const found = [];
+  async function walk(relative) {
+    for (const entry of await readdir(repositoryFile(root, joinRepositoryPath(templateRoot, relative)), { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const next = joinRepositoryPath(relative, entry.name);
+      if (forbiddenNames.includes(entry.name)) found.push(joinRepositoryPath(templateRoot, next));
+      else await walk(next);
+    }
+  }
+  await walk('');
+  return found;
 }
 
-let ajv;
-let manifestValid = false;
-let projectValid = false;
-if (project && manifest) {
-  try {
-    ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-    const [manifestSchema, projectSchema, contractSchema] = await Promise.all([
-      readJson(root, manifest.schemas.manifest),
-      readJson(root, manifest.schemas.project),
-      readJson(root, manifest.schemas.contract),
-    ]);
-    const validateManifest = ajv.compile(manifestSchema);
-    manifestValid = validateManifest(manifest);
-    if (!manifestValid) schemaErrors(validateManifest, 'AIH_SCHEMA_INVALID', manifest.entrypoints?.manifest || 'harness manifest');
-    const validateProject = ajv.compile(projectSchema);
-    projectValid = validateProject(project);
-    if (!projectValid) schemaErrors(validateProject, 'AIH_PROJECT_BINDING_INVALID', 'psp.project.yaml');
-
-    const validateContract = ajv.compile(contractSchema);
-    for (const registry of manifest.artifactRegistry || []) {
-      try {
-        const contract = parseYaml(await readFile(repositoryFile(root, registry.contract), 'utf8'));
-        if (!validateContract(contract)) schemaErrors(validateContract, 'AIH_CONTRACT_INVALID', registry.contract);
-        if (
-          contract?.metadata?.id !== registry.id
-          || contract?.spec?.stage !== registry.stage
-          || contract?.spec?.internalModelFormat !== registry.format
-        ) {
-          block('AIH_CONTRACT_INVALID', 'Contract identity 与 Artifact Registry 不一致。', registry.contract);
-        }
-        const boundOutputs = projectValid
-          ? project?.stages?.[registry.stage]?.artifacts?.[registry.id]?.outputs || []
-          : [];
-        if (projectValid && boundOutputs.some((output) => output.role !== contract?.spec?.outputRole)) {
-          block('AIH_CONTRACT_INVALID', 'Contract outputRole 与项目 Artifact binding 不一致。', registry.contract);
-        }
-      } catch (error) {
-        block('AIH_CONTRACT_INVALID', error.message, registry.contract);
-      }
-      try {
-        const schema = await readJson(root, registry.schema);
-        ajv.compile(schema);
-      } catch (error) {
-        block('AIH_SCHEMA_INVALID', 'Artifact Schema 无法编译：' + error.message, registry.schema);
-      }
+async function executorPathsExist(root, templateRoot, manifest, issues) {
+  for (const item of [...(manifest.commands || []), ...(manifest.operations || [])]) {
+    const executor = item.executor;
+    if (!executor || executor.kind === 'area-script') continue;
+    if (executor.kind === 'module') {
+      const path = joinRepositoryPath(templateRoot, executor.path);
+      if (!await pathExists(root, path)) issue(issues, 'AIH_ENTRYPOINT_MISSING', '模板本地 module executor 不存在：' + executor.path, path);
+      continue;
     }
-  } catch (error) {
-    block('AIH_SCHEMA_INVALID', 'Harness Schema 无法读取或编译：' + error.message, '.psp/harness/schemas');
-  }
-}
-
-if (manifest && manifestValid) {
-  const catalog = new Map();
-  for (const item of manifest.blockers) {
-    if (catalog.has(item.code)) block('AIH_CONTRACT_INVALID', 'blocker code 重复：' + item.code, item.code);
-    else catalog.set(item.code, item);
-  }
-  for (const code of REQUIRED_CODES) {
-    if (!catalog.has(code)) block('AIH_CONTRACT_INVALID', 'blocker catalog 缺少必需 code：' + code, 'blockers');
-  }
-
-  await Promise.all([
-    ...Object.entries(manifest.entrypoints).map(([key, path]) => requirePath(path, 'entrypoints.' + key)),
-    ...Object.entries(manifest.schemas).map(([key, path]) => requirePath(path, 'schemas.' + key)),
-    ...manifest.readOrder.map((path, index) => requirePath(path, 'readOrder[' + index + ']')),
-    requirePath(manifest.codex.projectConfig, 'codex.projectConfig'),
-    requirePath(manifest.codex.hookConfig, 'codex.hookConfig'),
-    ...manifest.codex.hookScripts.map((path) => requirePath(path, 'codex.hookScripts')),
-    ...manifest.codex.repositorySkills.map((path) => requirePath(path, 'codex.repositorySkills')),
-    ...manifest.artifactRegistry.flatMap((item) => [item.contract, item.schema, item.template].map((path) => requirePath(path, item.id))),
-    ...manifest.operations.flatMap((item) => Object.values(item.areaTemplates || {}).map((path) => requirePath(path, item.id))),
-    ...[...manifest.commands, ...manifest.operations]
-      .filter((item) => item.executor?.kind === 'module')
-      .map((item) => requirePath(item.executor.path, item.id + '.executor.path')),
-  ]);
-
-  if (
-    manifest.entrypoints.project !== 'psp.project.yaml'
-    || manifest.entrypoints.manifest !== project?.harness?.manifest
-    || manifest.readOrder.join('|') !== [
-      manifest.entrypoints.instructions,
-      manifest.entrypoints.protocol,
-      manifest.entrypoints.project,
-      manifest.entrypoints.manifest,
-    ].join('|')
-  ) {
-    block('AIH_CONTRACT_INVALID', '入口或 readOrder 与项目绑定不一致。', 'readOrder');
-  }
-
-  const commands = unique(manifest.commands, 'command', 'AIH_COMMAND_INVALID');
-  const operations = unique(manifest.operations, 'operation', 'AIH_COMMAND_INVALID');
-  const profiles = unique(manifest.validationProfiles, 'profile', 'AIH_PROFILE_INVALID');
-  const scopes = unique(manifest.scopes, 'scope', 'AIH_SCOPE_INVALID');
-  let packageJson;
-  try {
-    packageJson = await readJson(root, 'package.json');
-  } catch (error) {
-    block('AIH_COMMAND_INVALID', error.message, 'package.json');
-  }
-  for (const command of commands.values()) {
-    if (!packageJson?.scripts?.[command.npmScript]) {
-      block('AIH_COMMAND_INVALID', 'package.json 未声明命令：' + command.npmScript, command.id);
-    }
-    if (command.run !== 'npm run ' + command.npmScript) {
-      block('AIH_COMMAND_INVALID', '命令文本与 npm script 不一致：' + command.id, command.id);
-    }
-  }
-  for (const operation of operations.values()) {
-    if (!packageJson?.scripts?.[operation.npmScript]) {
-      block('AIH_COMMAND_INVALID', 'package.json 未声明 operation：' + operation.npmScript, operation.id);
-    }
-    if (operation.run !== 'npm run ' + operation.npmScript) {
-      block('AIH_COMMAND_INVALID', 'Operation 文本与 npm script 不一致：' + operation.id, operation.id);
-    }
-    if (operation.kind === 'workspace') continue;
-    const stage = project?.stages?.[operation.stage];
-    if (!stage || !['uninitialized', 'active'].includes(stage.status)) {
-      block('AIH_PROJECT_BINDING_INVALID', 'Operation 引用不可初始化阶段：' + operation.stage, operation.id);
-    }
-    for (const [areaId, template] of Object.entries(operation.areaTemplates)) {
-      if (!stage?.areas?.[areaId]) {
-        block('AIH_PROJECT_BINDING_INVALID', 'Operation 引用未知 area：' + areaId, operation.id);
-      }
-      await requirePath(template, operation.id + '.areaTemplates.' + areaId);
-    }
-  }
-  const workspaceOperations = [...operations.values()].filter((operation) => operation.kind === 'workspace');
-  const workspaceScopes = [...scopes.values()].filter((scope) => scope.selector?.type === 'workspace');
-  if (workspaceOperations.length !== 1) {
-    block('AIH_CONTRACT_INVALID', 'Harness 必须声明且只声明一个 workspace operation。', 'operations');
-  }
-  if (workspaceScopes.length !== 1) {
-    block('AIH_SCOPE_INVALID', 'Harness 必须声明且只声明一个 workspace Scope。', 'scopes');
-  }
-  for (const profile of profiles.values()) {
-    if (!profile.commands.includes('harness')) {
-      block('AIH_PROFILE_INVALID', 'Profile 缺少 Harness 自检：' + profile.id, profile.id);
-    }
-    for (const command of profile.commands) {
-      if (!commands.has(command)) block('AIH_PROFILE_INVALID', 'Profile 引用未知命令：' + command, profile.id);
-    }
-  }
-  for (const [name, capability] of Object.entries(manifest.capabilities)) {
-    if (capability.status === 'available' && !packageJson?.scripts?.[capability.command]) {
-      block('AIH_COMMAND_INVALID', 'Capability 与 package.json 漂移：' + name, 'capabilities.' + name);
-    }
-  }
-
-  for (const scope of scopes.values()) {
-    for (const pattern of selectorPatterns(scope.selector, project || { stages: {} })) {
-      const normalized = normalizeRepositoryPath(pattern, root, { allowGlob: true });
-      if (normalized.error) block(normalized.error, normalized.message, scope.id);
-      else {
-        try {
-          picomatch.makeRe(pattern);
-        } catch (error) {
-          block('AIH_PATH_INVALID', error.message, scope.id);
-        }
-      }
-    }
-    if (['stage', 'area'].includes(scope.selector.type)) {
-      const stage = project?.stages?.[scope.selector.stage];
-      if (!stage) block('AIH_SCOPE_INVALID', 'Scope 引用未知阶段：' + scope.selector.stage, scope.id);
-      if (scope.selector.type === 'area' && !stage?.areas?.[scope.selector.area]) {
-        block('AIH_SCOPE_INVALID', 'Scope 引用未知 area：' + scope.selector.area, scope.id);
-      }
-    }
-    if (scope.status === 'active') {
-      if (!profiles.has(scope.defaultProfile) || !profiles.has(scope.readinessProfile)) {
-        block('AIH_SCOPE_INVALID', 'Scope 引用未知 Profile：' + scope.id, scope.id);
-      }
-      if (scope.uninitializedProfile && !profiles.has(scope.uninitializedProfile)) {
-        block('AIH_SCOPE_INVALID', 'Scope 引用未知 uninitialized Profile：' + scope.uninitializedProfile, scope.id);
-      }
-    } else if (!catalog.has(scope.blockerCode)) {
-      block('AIH_SCOPE_INVALID', 'Unsupported Scope 引用未知 blocker：' + scope.blockerCode, scope.id);
-    }
-    for (const dependency of scope.dependencies || []) {
-      if (!scopes.has(dependency)) block('AIH_SCOPE_INVALID', 'Scope 引用未知依赖：' + dependency, scope.id);
-    }
-  }
-
-  const registry = unique(manifest.artifactRegistry, 'artifact', 'AIH_CONTRACT_INVALID');
-  if (project && projectValid) {
-    const occupied = new Map();
-    for (const [stageId, stage] of Object.entries(project.stages)) {
-      if (stage.status === 'unavailable') {
-        if (!catalog.has(stage.blockerCode)) {
-          block('AIH_PROJECT_BINDING_INVALID', 'Unavailable stage 引用未知 blocker：' + stage.blockerCode, stageId);
-        }
-        continue;
-      }
-      const requireUserFiles = stage.status === 'active';
-      await requireDirectory(stage.root, 'stages.' + stageId + '.root');
-      const expected = new Set([...registry.values()].filter((item) => item.stage === stageId).map((item) => item.id));
-      const actual = new Set(Object.keys(stage.artifacts));
-      if (expected.size !== actual.size || [...expected].some((id) => !actual.has(id))) {
-        block('AIH_PROJECT_BINDING_INVALID', '阶段 Artifact 绑定与 registry 不一致：' + stageId, stageId);
-      }
-      for (const [artifactId, binding] of Object.entries(stage.artifacts)) {
-        const registered = registry.get(artifactId);
-        if (!registered || registered.stage !== stageId) {
-          block('AIH_PROJECT_BINDING_INVALID', 'Artifact 未注册到当前阶段：' + artifactId, stageId + '.artifacts.' + artifactId);
+    if (executor.kind === 'node-test') {
+      for (const pattern of executor.paths || []) {
+        const slash = pattern.lastIndexOf('/');
+        const directory = pattern.slice(0, slash);
+        const namePattern = pattern.slice(slash + 1);
+        const suffix = namePattern.startsWith('*') ? namePattern.slice(1) : namePattern;
+        const boundDirectory = joinRepositoryPath(templateRoot, directory);
+        if (!await pathExists(root, boundDirectory)) {
+          issue(issues, 'AIH_ENTRYPOINT_MISSING', '模板本地 test executor 目录不存在：' + directory, boundDirectory);
           continue;
         }
-        const paths = artifactPaths(project, artifactId, stageId);
-        for (const path of [paths.internalModel, ...paths.outputPaths]) {
-          if (requireUserFiles) await requirePath(path, stageId + '.artifacts.' + artifactId);
-          const owner = occupied.get(path);
-          if (owner) block('AIH_PROJECT_BINDING_INVALID', '绑定路径重复：' + path + ' (' + owner + ', ' + artifactId + ')', path);
-          else occupied.set(path, artifactId);
-        }
-      }
-      for (const [areaId, area] of Object.entries(stage.areas || {})) {
-        if (requireUserFiles) await requirePath(stage.root + '/' + area.root, stageId + '.areas.' + areaId);
-      }
-    }
-  }
-
-  try {
-    const roots = Object.values(project?.stages || {}).map((stage) => stage.root);
-    for (const path of await allTextFiles(repositoryFile(root, '.psp/harness'))) {
-      const content = await readFile(repositoryFile(root, path), 'utf8');
-      for (const userRoot of roots) {
-        if (content.includes(userRoot)) {
-          block('AIH_HARNESS_COUPLED', 'Harness 文件硬编码用户目录：' + userRoot, path);
-        }
-      }
-    }
-  } catch (error) {
-    block('AIH_HARNESS_COUPLED', error.message, 'harness');
-  }
-
-  try {
-    const config = parseToml(await readFile(repositoryFile(root, manifest.codex.projectConfig), 'utf8'));
-    if (config?.features?.hooks !== true || Object.keys(config).some((key) => key !== 'features')) {
-      block('AIH_CODEX_ADAPTER_INVALID', 'Codex config 只允许启用 features.hooks。', manifest.codex.projectConfig);
-    }
-    const hook = await readJson(root, manifest.codex.hookConfig);
-    const handler = hook?.hooks?.SessionStart?.[0]?.hooks?.[0];
-    if (
-      Object.keys(hook?.hooks || {}).join('|') !== 'SessionStart'
-      || hook.hooks.SessionStart.length !== 1
-      || hook.hooks.SessionStart[0].hooks.length !== 1
-      || !manifest.codex.hookScripts.every((path) => handler?.command?.includes(path) && handler?.commandWindows?.includes(path))
-    ) {
-      block('AIH_CODEX_ADAPTER_INVALID', 'Hook config 不是唯一的轻量 SessionStart 适配器。', manifest.codex.hookConfig);
-    }
-    for (const skillPath of manifest.codex.repositorySkills) {
-      const content = await readFile(repositoryFile(root, skillPath), 'utf8');
-      const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-      if (!match) throw new Error('Skill 缺少 YAML frontmatter');
-      const frontmatter = parseYaml(match[1]);
-      const folder = skillPath.split('/').at(-2);
-      if (frontmatter.name !== folder || content.includes('[TODO')) throw new Error('Skill name 与目录不一致或包含 TODO');
-      const metadataPath = skillPath.replace(/SKILL\.md$/, 'agents/openai.yaml');
-      const metadata = parseYaml(await readFile(repositoryFile(root, metadataPath), 'utf8'));
-      if (!metadata?.interface?.default_prompt?.includes('$' + folder)) throw new Error('Skill default_prompt 未引用自身');
-    }
-  } catch (error) {
-    block('AIH_CODEX_ADAPTER_INVALID', error.message, 'codex');
-  }
-
-  if (project && projectValid) {
-    const selfChecks = [['AGENTS.md', 'change', 'READY']];
-    const workspaceScope = manifest.scopes.find((scope) => scope.selector?.type === 'workspace');
-    if (workspaceScope) {
-      for (const stage of Object.values(project.stages)) {
-        if (stage.status !== 'unavailable') {
-          selfChecks.push([stage.root + '/' + workspaceScope.selector.marker, 'change', 'READY']);
-        }
-      }
-    }
-    for (const [stageId, stage] of Object.entries(project.stages)) {
-      if (stage.status === 'active') {
-        const first = Object.values(stage.artifacts)[0];
-        selfChecks.push([stage.root + '/' + first.internalModel, 'change', 'READY']);
-        for (const area of Object.values(stage.areas || {})) {
-          selfChecks.push([stage.root + '/' + area.root + '/package.json', 'change', 'READY']);
-        }
-      } else if (stage.status === 'uninitialized') {
-        const first = Object.values(stage.artifacts)[0];
-        const stageScope = manifest.scopes.find((scope) =>
-          scope.selector?.type === 'stage' && scope.selector.stage === stageId,
-        );
-        const hasUnreadyUpstream = (stageScope?.dependencies || []).some((dependencyId) => {
-          const dependency = manifest.scopes.find((scope) => scope.id === dependencyId);
-          const dependencyStage = ['static', 'workspace'].includes(dependency?.selector?.type)
-            ? null
-            : dependency?.selector?.stage;
-          return dependencyStage && dependencyStage !== stageId && project.stages?.[dependencyStage]?.status !== 'active';
-        });
-        selfChecks.push(hasUnreadyUpstream
-          ? [stage.root + '/' + first.internalModel, 'change', 'BLOCKED', 'AIH_UPSTREAM_NOT_READY']
-          : [stage.root + '/' + first.internalModel, 'change', 'READY']);
-        selfChecks.push([stage.root + '/' + first.internalModel, 'readiness', 'BLOCKED', 'AIH_STAGE_UNINITIALIZED']);
-      } else {
-        selfChecks.push([stage.root + '/README.md', 'change', 'BLOCKED', stage.blockerCode]);
-      }
-    }
-    for (const [path, intent, status, code] of selfChecks) {
-      const result = resolveHarness(manifest, project, [path], intent, root);
-      if (result.status !== status || (code && !result.blockers.some((item) => item.code === code))) {
-        block('AIH_SCOPE_INVALID', 'resolver self-check 失败：' + path, path);
+        const matches = (await readdir(repositoryFile(root, boundDirectory))).filter((name) => name.endsWith(suffix));
+        if (matches.length === 0) issue(issues, 'AIH_ENTRYPOINT_MISSING', '模板本地 test executor 没有匹配文件：' + pattern, boundDirectory);
       }
     }
   }
 }
 
-const result = {
-  status: blockers.length === 0 ? 'PASS' : 'BLOCKED',
-  blockerCount: blockers.length,
-  blockers,
-};
+export async function validateScaffold(rootInput = process.cwd()) {
+  const root = resolve(rootInput);
+  const issues = [];
+  let project;
+  let manifest;
+  let projectSchema;
+  let manifestSchema;
+  try {
+    [project, manifest, projectSchema, manifestSchema] = await Promise.all([
+      readYaml(root, 'psp.project.yaml'),
+      readJson(root, '.psp/harness/harness.manifest.json'),
+      readJson(root, '.psp/harness/schemas/project.schema.json'),
+      readJson(root, '.psp/harness/schemas/harness-manifest.schema.json'),
+    ]);
+  } catch (error) {
+    return { status: 'FAIL', issues: [{ code: 'AIH_MANIFEST_UNREADABLE', message: error.message }] };
+  }
 
-if (json) console.log(JSON.stringify(result, null, 2));
-else if (result.status === 'PASS') console.log('[PASS] Repository Harness 契约校验通过。');
-else for (const item of blockers) console.error('[' + item.code + '] (' + (item.location || 'unknown') + ') ' + item.message);
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  const validateProject = ajv.compile(projectSchema);
+  if (!validateProject(project)) issue(issues, 'AIH_SCHEMA_INVALID', '根项目绑定不符合脚手架 Schema：' + schemaMessages(validateProject.errors));
+  const validateManifest = ajv.compile(manifestSchema);
+  if (!validateManifest(manifest)) issue(issues, 'AIH_SCHEMA_INVALID', '根 Manifest 不符合脚手架 Schema：' + schemaMessages(validateManifest.errors));
+  if (issues.length > 0) return { status: 'FAIL', issues };
 
-if (result.status !== 'PASS') process.exitCode = 1;
+  if (project.kind !== 'PSPScaffoldProject' || manifest.repositoryKind !== 'scaffold') {
+    issue(issues, 'AIH_SCAFFOLD_CONTEXT_INVALID', '根项目与根 Manifest 必须明确绑定为脚手架上下文。');
+  }
+  if (project.harness.manifest !== manifest.entrypoints.manifest) {
+    issue(issues, 'AIH_PROJECT_BINDING_INVALID', '根项目绑定的 Manifest 与 Manifest 自身入口不一致。');
+  }
+
+  const declaredPaths = new Set([
+    ...Object.values(manifest.entrypoints),
+    ...Object.values(manifest.schemas),
+    manifest.adapters.codexProject,
+    manifest.adapters.hookConfig,
+    ...manifest.adapters.hookScripts,
+    ...manifest.adapters.repositorySkills,
+    ...manifest.readOrder,
+    manifest.scaffoldPolicy.continuousIntegration.workflow,
+    manifest.scaffoldPolicy.continuousIntegration.runner,
+    project.runtime.entrypoint,
+    project.runtime.dispatcher,
+    project.template.root,
+    joinRepositoryPath(project.template.root, project.template.project),
+    joinRepositoryPath(project.template.root, project.template.manifest),
+  ]);
+  for (const path of declaredPaths) if (!await pathExists(root, path)) issue(issues, 'AIH_ENTRYPOINT_MISSING', '声明入口不存在：' + path, path);
+
+  const packageJson = await readJson(root, 'package.json');
+  const actualScripts = Object.keys(packageJson.scripts || {});
+  if (!sameMembers(actualScripts, manifest.scaffoldPolicy.packageScripts)) {
+    issue(issues, 'AIH_COMMAND_INVALID', '根 package.json scripts 必须与脚手架允许列表完全一致。');
+  }
+  const commandIds = manifest.commands.map((command) => command.id);
+  const commandScripts = manifest.commands.map((command) => command.npmScript);
+  if (new Set(commandIds).size !== commandIds.length || new Set(commandScripts).size !== commandScripts.length) {
+    issue(issues, 'AIH_COMMAND_INVALID', '根工程命令 id 或 npmScript 重复。');
+  }
+  for (const command of manifest.commands) {
+    if (!packageJson.scripts?.[command.npmScript] || command.run !== 'npm run ' + command.npmScript) {
+      issue(issues, 'AIH_COMMAND_INVALID', '根工程命令未准确绑定 package.json：' + command.id);
+    }
+  }
+  const knownCommands = new Set(commandIds);
+  const profileIds = manifest.validationProfiles.map((profile) => profile.id);
+  if (new Set(profileIds).size !== profileIds.length) issue(issues, 'AIH_PROFILE_INVALID', '验证 Profile id 重复。');
+  for (const profile of manifest.validationProfiles) {
+    if (profile.commands[0] !== 'harness' || profile.commands.some((id) => !knownCommands.has(id))) {
+      issue(issues, 'AIH_PROFILE_INVALID', 'Profile 必须先运行 harness 且只能引用已登记命令：' + profile.id);
+    }
+  }
+  const knownProfiles = new Set(profileIds);
+  const scopeIds = manifest.scopes.map((scope) => scope.id);
+  if (new Set(scopeIds).size !== scopeIds.length) issue(issues, 'AIH_SCOPE_INVALID', 'Scope id 重复。');
+  for (const scope of manifest.scopes) {
+    if (!knownProfiles.has(scope.defaultProfile) || !knownProfiles.has(scope.readinessProfile)) {
+      issue(issues, 'AIH_SCOPE_INVALID', 'Scope 引用未知 Profile：' + scope.id);
+    }
+  }
+
+  try {
+    const workflow = await readYaml(root, manifest.scaffoldPolicy.continuousIntegration.workflow);
+    validateContinuousIntegration(workflow, manifest.scaffoldPolicy.continuousIntegration, issues);
+  } catch (error) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '无法读取持续集成工作流：' + error.message, manifest.scaffoldPolicy.continuousIntegration.workflow);
+  }
+
+  const rootSkillPolicy = manifest.scaffoldPolicy.rootSkills;
+  const actualRootSkills = await skillNames(root, rootSkillPolicy.root);
+  if (!sameMembers(actualRootSkills, rootSkillPolicy.allowed)) {
+    issue(issues, 'AIH_SCAFFOLD_CONTEXT_INVALID', '根仓库可发现 Skill 与允许列表不一致：' + actualRootSkills.join(', '), rootSkillPolicy.root);
+  }
+  const templateSkillPolicy = manifest.scaffoldPolicy.templateSkills;
+  const actualTemplateSkills = await skillNames(root, templateSkillPolicy.root);
+  for (const required of templateSkillPolicy.required) {
+    if (!actualTemplateSkills.includes(required)) issue(issues, 'AIH_TEMPLATE_INVALID', '工作区模板缺少本地 Skill：' + required, templateSkillPolicy.root);
+  }
+
+  const instructionContents = [];
+  for (const surface of manifest.scaffoldPolicy.textContracts) {
+    if (!await pathExists(root, surface.path)) {
+      issue(issues, 'AIH_ENTRYPOINT_MISSING', '文本契约入口不存在：' + surface.path, surface.path);
+      continue;
+    }
+    const content = await readFile(repositoryFile(root, surface.path), 'utf8');
+    instructionContents.push({ id: surface.id, content });
+    for (const required of surface.requiredText) if (!content.includes(required)) issue(issues, 'AIH_SCAFFOLD_CONTEXT_INVALID', surface.id + ' 缺少声明文本：' + required, surface.path);
+    for (const forbidden of surface.forbiddenText) if (content.includes(forbidden)) issue(issues, 'AIH_SCAFFOLD_CONTEXT_INVALID', surface.id + ' 含禁止文本：' + forbidden, surface.path);
+  }
+  for (let left = 0; left < instructionContents.length; left += 1) {
+    for (let right = left + 1; right < instructionContents.length; right += 1) {
+      if (instructionContents[left].content === instructionContents[right].content) issue(issues, 'AIH_SCAFFOLD_CONTEXT_INVALID', '根与模板 Agent 说明不得相同。');
+    }
+  }
+
+  const templateRoot = project.template.root;
+  for (const path of await pollutedDirectories(root, templateRoot, manifest.scaffoldPolicy.templatePurity.forbiddenDirectoryNames)) {
+    issue(issues, 'AIH_TEMPLATE_POLLUTED', '工作区模板含禁止目录：' + path, path);
+  }
+
+  let templateProject;
+  let templateManifest;
+  try {
+    templateProject = await readYaml(root, joinRepositoryPath(templateRoot, project.template.project));
+    templateManifest = await readJson(root, joinRepositoryPath(templateRoot, project.template.manifest));
+    const templateProjectSchema = await readJson(root, joinRepositoryPath(templateRoot, templateManifest.schemas.project));
+    const templateManifestSchema = await readJson(root, joinRepositoryPath(templateRoot, templateManifest.schemas.manifest));
+    const templateAjv = new Ajv2020({ allErrors: true, strict: false });
+    const checkTemplateProject = templateAjv.compile(templateProjectSchema);
+    if (!checkTemplateProject(templateProject)) issue(issues, 'AIH_TEMPLATE_INVALID', '模板项目绑定 Schema 失败：' + schemaMessages(checkTemplateProject.errors));
+    const checkTemplateManifest = templateAjv.compile(templateManifestSchema);
+    if (!checkTemplateManifest(templateManifest)) issue(issues, 'AIH_TEMPLATE_INVALID', '模板 Manifest Schema 失败：' + schemaMessages(checkTemplateManifest.errors));
+  } catch (error) {
+    issue(issues, 'AIH_TEMPLATE_INVALID', '无法读取或编译工作区模板治理：' + error.message);
+  }
+
+  if (templateProject && templateManifest) {
+    if (templateProject.kind !== 'PSPProject' || templateProject.harness?.manifest !== project.template.manifest) {
+      issue(issues, 'AIH_TEMPLATE_INVALID', '模板必须是拥有本地 Manifest 的 PSPProject。');
+    }
+    const marker = manifest.scaffoldPolicy.templatePurity.stageMarker;
+    for (const [stageId, stage] of Object.entries(templateProject.stages || {})) {
+      if (stage.status !== 'uninitialized') issue(issues, 'AIH_TEMPLATE_INVALID', '模板阶段必须是 uninitialized：' + stageId);
+      const stagePath = joinRepositoryPath(templateRoot, stage.root);
+      if (!await pathExists(root, stagePath)) {
+        issue(issues, 'AIH_TEMPLATE_INVALID', '模板阶段根目录不存在：' + stageId, stagePath);
+        continue;
+      }
+      const entries = (await readdir(repositoryFile(root, stagePath))).sort();
+      if (!sameMembers(entries, [marker])) issue(issues, 'AIH_TEMPLATE_POLLUTED', '模板阶段根目录只能包含 ' + marker + '：' + stageId, stagePath);
+    }
+    for (const domain of templateManifest.domainRegistry || []) {
+      if (!domain.root.startsWith('.agents/skills/') || Object.hasOwn(domain, 'mirrors')) {
+        issue(issues, 'AIH_TEMPLATE_INVALID', '生成工作区领域 Skill 必须是本地绑定且不得声明镜像：' + domain.id);
+      }
+      if (!await pathExists(root, joinRepositoryPath(templateRoot, domain.root, 'SKILL.md'))) {
+        issue(issues, 'AIH_ENTRYPOINT_MISSING', '模板领域 Skill 入口不存在：' + domain.root, joinRepositoryPath(templateRoot, domain.root));
+      }
+    }
+    const templatePackage = await readJson(root, joinRepositoryPath(templateRoot, 'package.json'));
+    for (const item of [...(templateManifest.commands || []), ...(templateManifest.operations || [])]) {
+      if (!templatePackage.scripts?.[item.npmScript]) issue(issues, 'AIH_COMMAND_INVALID', '模板 Manifest 命令未绑定本地 package.json：' + item.npmScript);
+    }
+    await executorPathsExist(root, templateRoot, templateManifest, issues);
+  }
+
+  return { status: issues.length === 0 ? 'PASS' : 'FAIL', issues };
+}
+
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  const rootIndex = process.argv.indexOf('--root');
+  const result = await validateScaffold(rootIndex >= 0 ? process.argv[rootIndex + 1] : process.cwd());
+  if (process.argv.includes('--json')) console.log(JSON.stringify({ status: result.status, blockers: result.issues }, null, 2));
+  else if (result.status === 'PASS') console.log('[PASS] pre-sdd 脚手架 Harness 校验通过。');
+  else for (const item of result.issues) console.error('[' + item.code + '] ' + item.message + (item.path ? ' (' + item.path + ')' : ''));
+  if (result.status !== 'PASS') process.exitCode = 1;
+}

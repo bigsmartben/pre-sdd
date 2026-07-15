@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/artifacts/system-boundary.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "system", "useCases", "actorInteractions", "subsystems", "externalSystems", "constraints", "gates", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "SystemBoundarySpecification"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "mission", "includedResponsibilities", "excludedResponsibilities"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nullableText"},
+        "mission": {"$ref": "#/$defs/nullableText"},
+        "includedResponsibilities": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "excludedResponsibilities": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "useCases": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+    "actorInteractions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actor", "useCases", "interaction"],
+        "properties": {
+          "actor": {"$ref": "#/$defs/actorId"},
+          "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+          "interaction": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "subsystems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "purpose", "actors", "useCases", "includedResponsibilities", "excludedResponsibilities", "capabilities", "dependencies"],
+        "properties": {
+          "id": {"$ref": "#/$defs/subsystemId"},
+          "name": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1},
+          "actors": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/actorId"}},
+          "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+          "includedResponsibilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "excludedResponsibilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "description", "useCases", "inputs", "outputs", "technicalValidationRequired"],
+              "properties": {
+                "id": {"$ref": "#/$defs/capabilityId"},
+                "name": {"type": "string", "minLength": 1},
+                "description": {"type": "string", "minLength": 1},
+                "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+                "inputs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/ioModel"}},
+                "outputs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/ioModel"}},
+                "technicalValidationRequired": {"type": "boolean"}
+              }
+            }
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "target", "reason"],
+              "properties": {
+                "type": {"enum": ["subsystem", "external-system"]},
+                "target": {"type": "string", "pattern": "^(SUBSYSTEM|EXT)-[0-9]{3}$"},
+                "reason": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
+    },
+    "externalSystems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "responsibility", "interaction", "useCases", "dataExchanged", "trustBoundary"],
+        "properties": {
+          "id": {"$ref": "#/$defs/externalSystemId"},
+          "name": {"type": "string", "minLength": 1},
+          "responsibility": {"type": "string", "minLength": 1},
+          "interaction": {"type": "string", "minLength": 1},
+          "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+          "dataExchanged": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "trustBoundary": {"enum": ["internal", "external"]}
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "statement", "status", "useCases"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^ARCH-CONSTRAINT-[0-9]{3}$"},
+          "source": {"enum": ["product", "regulatory", "operational", "assumption"]},
+          "statement": {"type": "string", "minLength": 1},
+          "status": {"enum": ["confirmed", "gap"]},
+          "useCases": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}}
+        }
+      }
+    },
+    "gates": {"$ref": "#/$defs/gates"},
+    "gaps": {"$ref": "#/$defs/gaps"}
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "version", "upstreamArtifact"],
+      "properties": {
+        "status": {"enum": ["draft", "ready"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "upstreamArtifact": {"const": "capabilities"}
+      }
+    },
+    "nullableText": {"type": ["string", "null"], "minLength": 1},
+    "actorId": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+    "useCaseId": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
+    "subsystemId": {"type": "string", "pattern": "^SUBSYSTEM-[0-9]{3}$"},
+    "capabilityId": {"type": "string", "pattern": "^ARCH-CAP-[0-9]{3}$"},
+    "externalSystemId": {"type": "string", "pattern": "^EXT-[0-9]{3}$"},
+    "ioModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "required"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+        "description": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "checked"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "checked": {"type": "boolean"}
+      }
+    },
+    "gates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gate"}},
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field", "reason"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"},
+        "field": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  }
+}

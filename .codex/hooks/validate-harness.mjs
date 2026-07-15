@@ -41,7 +41,7 @@ if (gitRoot.status !== 0) {
 
 const root = gitRoot.stdout.trim();
 const validator = join(root, '.psp', 'harness', 'scripts', 'validate-harness.mjs');
-const requiredDependencies = ['ajv', 'toml', 'yaml', 'picomatch'];
+const requiredDependencies = ['ajv', 'yaml'];
 
 if (!existsSync(validator)) {
   emit(

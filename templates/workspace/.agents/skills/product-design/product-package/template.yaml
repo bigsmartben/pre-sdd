@@ -1,0 +1,26 @@
+apiVersion: psp.dev/v1
+kind: ProductPackage
+metadata:
+  status: draft
+  version: 0.1.0
+overview:
+  productName: null
+  productGoal: null
+  targetUsers: null
+  coreValue: null
+primaryChain:
+  - capabilities
+  - interactions
+  - canonical-ui-prototype
+supportingArtifacts: []
+gates:
+  - id: overview-defined
+    label: Product Overview 的名称、目标、目标用户与核心价值均已定义
+    checked: false
+  - id: product-overview-boundary-reviewed
+    label: Product Idea 未越权写入 Use Case、交互或架构事实
+    checked: false
+gaps:
+  - id: GAP-001
+    field: overview
+    reason: Product Idea 概览仍缺少待用户澄清的事实

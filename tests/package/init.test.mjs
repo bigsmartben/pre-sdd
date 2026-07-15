@@ -65,6 +65,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
     '01-product-design/PSP.md',
     '01-product-design/UC.md',
     '01-product-design/HTML-Mock',
+    '01-product-design/Canonical-UI-Prototype',
     '01-product-design/.psp/models',
     '02-architecture-design/README.md',
     '02-architecture-design/技术验证',
@@ -78,6 +79,50 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   const architectureStrict = runCli(['harness', 'validate:architecture:strict', '--workspace', target]);
   assert.notEqual(architectureStrict.status, 0);
   assert.match(architectureStrict.stderr + architectureStrict.stdout, /AIH_STAGE_UNINITIALIZED/);
+});
+
+test('scaffold source and generated workspace keep separate project contexts', async () => {
+  const scaffoldProject = parseYaml(await readFile(resolve(repositoryRoot, 'psp.project.yaml'), 'utf8'));
+  const templateProject = parseYaml(await readFile(resolve(repositoryRoot, 'templates/workspace/psp.project.yaml'), 'utf8'));
+  assert.equal(scaffoldProject.kind, 'PSPScaffoldProject');
+  assert.equal(Object.hasOwn(scaffoldProject, 'stages'), false);
+  assert.equal(templateProject.kind, 'PSPProject');
+  assert.ok(templateProject.stages['product-design']);
+  assert.ok(templateProject.stages['architecture-design']);
+
+  for (const forbidden of ['product-design', 'architecture-design']) {
+    assert.equal(await exists(resolve(repositoryRoot, '.agents/skills', forbidden, 'SKILL.md')), false);
+    assert.equal(await exists(resolve(repositoryRoot, 'templates/workspace/.agents/skills', forbidden, 'SKILL.md')), true);
+  }
+  assert.equal(await findDirectory(resolve(repositoryRoot, 'templates/workspace'), 'node_modules'), null);
+});
+
+test('global runtime executes the generated workspace local domain validator', async () => {
+  const target = await temporaryDirectory('pre-sdd-local-executor-');
+  assert.equal(runCli(['init', target]).status, 0);
+  const validator = resolve(target, '.agents/skills/product-design/scripts/validate.mjs');
+  await writeFile(validator, "console.error('[AIH_EXECUTOR_AUTHORITY_INVALID] local-executor-probe');\nprocess.exitCode = 73;\n", 'utf8');
+
+  const validation = runCli(['harness', 'validate:product', '--workspace', target]);
+  assert.notEqual(validation.status, 0);
+  assert.match(validation.stderr + validation.stdout, /AIH_EXECUTOR_AUTHORITY_INVALID.*local-executor-probe/);
+  assert.equal(await findDirectory(target, 'node_modules'), null);
+});
+
+test('generated workspace runs its local Harness and domain test suites', async () => {
+  const target = await temporaryDirectory('pre-sdd-local-tests-');
+  assert.equal(runCli(['init', target]).status, 0);
+  const suites = new Map([
+    ['test:harness', /repository-relative path normalization rejects traversal and absolute paths/],
+    ['test:product', /uninitialized product stage is a valid empty scaffold but cannot pass readiness/],
+    ['test:architecture', /architecture empty scaffold passes structure and blocks readiness/],
+  ]);
+  for (const [command, executedTest] of suites) {
+    const execution = runCli(['harness', command, '--workspace', target]);
+    assert.equal(execution.status, 0, command + '\n' + execution.stderr + execution.stdout);
+    assert.match(execution.stderr + execution.stdout, executedTest, command + ' 未执行本地测试文件。');
+  }
+  assert.equal(await findDirectory(target, 'node_modules'), null);
 });
 
 test('initialization blocks owned paths without touching user files', async () => {
@@ -99,17 +144,39 @@ test('global runtime typechecks and builds an initialized product without local 
   assert.equal(product.status, 0, product.stderr + product.stdout);
   const typecheck = runCli(['harness', 'typecheck', '--workspace', target]);
   assert.equal(typecheck.status, 0, typecheck.stderr + typecheck.stdout);
-  const build = runCli(['harness', 'build', '--workspace', target]);
+  const build = runCli(['harness', 'workspace:build', '--workspace', target]);
   assert.equal(build.status, 0, build.stderr + build.stdout);
-  assert.equal(await exists(resolve(target, '01-product-design/HTML-Mock/dist/index.html')), true);
+  const browserAcceptance = runCli(['harness', 'validate:canonical-ui-runtime', '--workspace', target]);
+  assert.equal(browserAcceptance.status, 0, browserAcceptance.stderr + browserAcceptance.stdout);
+  assert.equal(await exists(resolve(target, '01-product-design/Canonical-UI-Prototype/dist/index.html')), true);
   assert.equal(await findDirectory(target, 'node_modules'), null);
+});
+
+test('Vite and browser execution are registered in the Product Design domain Skill', async () => {
+  const manifest = JSON.parse(await readFile(resolve(repositoryRoot, 'templates/workspace/.psp/harness/harness.manifest.json'), 'utf8'));
+  for (const id of ['canonical-ui-typecheck', 'canonical-ui-build', 'canonical-ui-runtime', 'canonical-ui-dev', 'canonical-ui-install-browser']) {
+    const command = manifest.commands.find((item) => item.id === id);
+    assert.equal(command.domain, 'product-design');
+    assert.match(command.executor.path, /^\.agents\/skills\/product-design\/canonical-ui-prototype\//);
+  }
+  for (const code of [
+    'AIH_SOURCE_CAPTURE_BLOCKED',
+    'AIH_SOURCE_COVERAGE_FAILED',
+    'AIH_CANONICAL_UI_NETWORK_FAILED',
+    'AIH_CANONICAL_UI_CONSOLE_FAILED',
+    'AIH_CANONICAL_UI_VISUAL_FAILED',
+    'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED',
+    'AIH_CANONICAL_UI_ASSET_FAILED',
+  ]) assert.ok(manifest.blockers.some((item) => item.code === code), code);
 });
 
 test('package allowlist includes runtime and template but excludes root workspace state', async () => {
   const packageJson = JSON.parse(await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'));
   assert.equal(packageJson.name, 'pre-sdd');
+  assert.equal(packageJson.version, '0.2.0');
   assert.equal(packageJson.scripts.build, undefined);
   assert.equal(packageJson.bin['pre-sdd'], './bin/pre-sdd.mjs');
+  assert.equal(packageJson.dependencies['axe-core'], '^4.12.1');
 
   const packed = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json'], {
     cwd: repositoryRoot,
@@ -121,8 +188,20 @@ test('package allowlist includes runtime and template but excludes root workspac
   const files = new Set(JSON.parse(packed.stdout)[0].files.map((item) => item.path));
   assert.ok(files.has('bin/pre-sdd.mjs'));
   assert.ok(files.has('runtime/dispatch.mjs'));
+  assert.ok(files.has('runtime/register-dependency-loader.mjs'));
+  assert.ok(files.has('runtime/resolve-package-dependencies.mjs'));
   assert.ok(files.has('templates/workspace/package-lock.json'));
   assert.ok(files.has('templates/workspace/.psp/harness/harness.manifest.json'));
+  assert.ok(files.has('templates/workspace/.psp/harness/HARNESS-BOUNDARY.md'));
+  assert.ok(files.has('templates/workspace/.psp/harness/scripts/invoke-pre-sdd.mjs'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/architecture-design/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/template/src/spec/canonical-ui.ts'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/references/figma-ingestion.md'));
+  assert.equal([...files].some((path) => path.includes('HTML-Mock') || path.includes('html-mock')), false);
+  assert.equal([...files].some((path) => path.includes('/.psp/domains/')), false);
   assert.equal([...files].some((path) => path.startsWith('.psp/')), false);
   assert.equal([...files].some((path) => path.startsWith('01-product-design/')), false);
 });

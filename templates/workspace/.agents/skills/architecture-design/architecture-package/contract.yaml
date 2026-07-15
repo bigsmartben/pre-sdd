@@ -1,0 +1,34 @@
+apiVersion: psp.dev/v1
+kind: ArtifactContract
+metadata:
+  id: architecture-package
+  version: 2.1.0
+spec:
+  stage: architecture-design
+  internalModelFormat: yaml
+  outputRole: user-artifact
+  purpose: 声明架构设计 Package 的范围、上游基线、产物顺序与交付门禁。
+  inputs:
+    artifacts:
+      - capabilities
+      - system-boundary
+      - conceptual-model
+      - technical-validation
+    directoryRole: supporting-input
+  owns:
+    - 架构目标与约束
+    - Product Design 上游基线
+    - Package 产物读取顺序
+    - Package 级 readiness gate
+  excludes:
+    - 新增或改写产品事实
+    - 详细实现计划
+    - 生产代码
+  domainRules:
+    - architecture-upstream-baseline
+    - architecture-artifact-order
+    - architecture-overview-complete
+  readiness:
+    requiredStatus: ready
+    requireNoGaps: true
+    requireAllGates: true

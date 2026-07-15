@@ -1,69 +1,11 @@
 apiVersion: psp.dev/v1
-kind: PSPProject
+kind: PSPScaffoldProject
 harness:
   manifest: .psp/harness/harness.manifest.json
-stages:
-  product-design:
-    status: uninitialized
-    root: templates/workspace/01-product-design
-    artifacts:
-      product-package:
-        internalModel: .psp/models/product-package.yaml
-        outputs:
-          - path: PSP.md
-            role: user-artifact
-      capabilities:
-        internalModel: .psp/models/use-cases.yaml
-        outputs:
-          - path: UC.md
-            role: user-artifact
-      interactions:
-        internalModel: .psp/models/wireflow-mid.yaml
-        outputs:
-          - path: wireflow-mid.md
-            role: user-artifact
-      ui-spec:
-        internalModel: .psp/models/html-mock.yaml
-        outputs:
-          - path: HTML-Mock/README.md
-            role: user-artifact
-      component-catalog:
-        internalModel: .psp/models/html-mock-components.yaml
-        outputs:
-          - path: HTML-Mock/components/README.md
-            role: user-artifact
-      traceability:
-        internalModel: .psp/models/traceability.json
-        outputs:
-          - path: HTML-Mock/src/spec/traceability.ts
-            role: generated-support
-    areas:
-      html-mock:
-        root: HTML-Mock
-  architecture-design:
-    status: uninitialized
-    root: templates/workspace/02-architecture-design
-    artifacts:
-      architecture-package:
-        internalModel: .psp/models/architecture-package.yaml
-        outputs:
-          - path: README.md
-            role: user-artifact
-      system-boundary:
-        internalModel: .psp/models/system-boundary.yaml
-        outputs:
-          - path: 系统边界.md
-            role: user-artifact
-      conceptual-model:
-        internalModel: .psp/models/conceptual-model.yaml
-        outputs:
-          - path: 概念建模.md
-            role: user-artifact
-      technical-validation:
-        internalModel: .psp/models/technical-validation.yaml
-        outputs:
-          - path: 技术验证/README.md
-            role: user-artifact
-    areas:
-      technical-validation:
-        root: 技术验证
+template:
+  root: templates/workspace
+  project: psp.project.yaml
+  manifest: .psp/harness/harness.manifest.json
+runtime:
+  entrypoint: bin/pre-sdd.mjs
+  dispatcher: runtime/dispatch.mjs

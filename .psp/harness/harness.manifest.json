@@ -1,613 +1,215 @@
 {
-  "$schema": "./schemas/harness-manifest.schema.json",
-  "name": "psp-repository-ai-coding-harness",
-  "version": "9.0.0",
-  "runtime": {
-    "protocol": "pre-sdd-harness/v1",
-    "command": "pre-sdd",
-    "fallbackPackage": "git+https://github.com/bigsmartben/pre-sdd.git"
-  },
+  "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
+  "name": "pre-sdd-scaffold-harness",
+  "version": "12.0.0",
+  "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
     "protocol": ".psp/harness/HARNESS.md",
+    "standard": ".psp/harness/HARNESS-BOUNDARY.md",
     "project": "psp.project.yaml",
     "manifest": ".psp/harness/harness.manifest.json",
     "repository": "README.md"
   },
   "schemas": {
     "manifest": ".psp/harness/schemas/harness-manifest.schema.json",
-    "project": ".psp/harness/schemas/project.schema.json",
-    "contract": ".psp/harness/schemas/artifact-contract.schema.json"
+    "project": ".psp/harness/schemas/project.schema.json"
   },
-  "codex": {
-    "projectConfig": ".codex/config.toml",
+  "adapters": {
+    "codexProject": ".codex/config.toml",
     "hookConfig": ".codex/hooks.json",
     "hookScripts": [".codex/hooks/validate-harness.mjs"],
-    "repositorySkills": [
-      ".agents/skills/apply-repository-harness/SKILL.md",
-      ".agents/skills/build-product-html-mock/SKILL.md"
-    ]
+    "repositorySkills": [".agents/skills/apply-repository-harness/SKILL.md"]
   },
   "readOrder": [
     "AGENTS.md",
-    ".psp/harness/HARNESS.md",
     "psp.project.yaml",
-    ".psp/harness/harness.manifest.json"
+    ".psp/harness/HARNESS.md",
+    ".psp/harness/HARNESS-BOUNDARY.md",
+    ".psp/harness/harness.manifest.json",
+    "package.json",
+    "templates/workspace/AGENTS.md",
+    "templates/workspace/psp.project.yaml"
   ],
-  "artifactRegistry": [
-    {
-      "id": "product-package",
-      "stage": "product-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/product-package.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/product-package.schema.json",
-      "template": ".psp/harness/templates/product-package.template.yaml",
-      "renderer": "product-package-markdown"
+  "scaffoldPolicy": {
+    "rootSkills": {
+      "root": ".agents/skills",
+      "allowed": ["apply-repository-harness"]
     },
-    {
-      "id": "capabilities",
-      "stage": "product-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/capabilities.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/capabilities.schema.json",
-      "template": ".psp/harness/templates/capabilities.template.yaml",
-      "renderer": "capabilities-markdown"
+    "templateSkills": {
+      "root": "templates/workspace/.agents/skills",
+      "required": ["apply-repository-harness", "product-design", "architecture-design"]
     },
-    {
-      "id": "interactions",
-      "stage": "product-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/interactions.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/interactions.schema.json",
-      "template": ".psp/harness/templates/interactions.template.yaml",
-      "renderer": "interactions-markdown"
-    },
-    {
-      "id": "ui-spec",
-      "stage": "product-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/ui-spec.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/ui-spec.schema.json",
-      "template": ".psp/harness/templates/ui-spec.template.yaml",
-      "renderer": "ui-spec-markdown"
-    },
-    {
-      "id": "component-catalog",
-      "stage": "product-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/component-catalog.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/component-catalog.schema.json",
-      "template": ".psp/harness/templates/component-catalog.template.yaml",
-      "renderer": "component-catalog-markdown"
-    },
-    {
-      "id": "traceability",
-      "stage": "product-design",
-      "format": "json",
-      "contract": ".psp/harness/contracts/traceability.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/traceability.schema.json",
-      "template": ".psp/harness/templates/traceability.template.json",
-      "renderer": "traceability-typescript"
-    },
-    {
-      "id": "architecture-package",
-      "stage": "architecture-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/architecture-package.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/architecture-package.schema.json",
-      "template": ".psp/harness/templates/architecture-package.template.yaml",
-      "renderer": "architecture-package-markdown"
-    },
-    {
-      "id": "system-boundary",
-      "stage": "architecture-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/system-boundary.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/system-boundary.schema.json",
-      "template": ".psp/harness/templates/system-boundary.template.yaml",
-      "renderer": "system-boundary-markdown"
-    },
-    {
-      "id": "conceptual-model",
-      "stage": "architecture-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/conceptual-model.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/conceptual-model.schema.json",
-      "template": ".psp/harness/templates/conceptual-model.template.yaml",
-      "renderer": "conceptual-model-markdown"
-    },
-    {
-      "id": "technical-validation",
-      "stage": "architecture-design",
-      "format": "yaml",
-      "contract": ".psp/harness/contracts/technical-validation.contract.yaml",
-      "schema": ".psp/harness/schemas/artifacts/technical-validation.schema.json",
-      "template": ".psp/harness/templates/technical-validation.template.yaml",
-      "renderer": "technical-validation-markdown"
-    }
-  ],
-  "operations": [
-    {
-      "id": "initialize-workspace",
-      "kind": "workspace",
-      "npmScript": "init:workspace",
-      "run": "npm run init:workspace",
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-workspace.mjs"}
-    },
-    {
-      "id": "initialize-product",
-      "kind": "stage",
-      "npmScript": "init:product",
-      "run": "npm run init:product",
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-product.mjs"},
-      "stage": "product-design",
-      "fromState": "uninitialized",
-      "toState": "active",
-      "areaTemplates": {
-        "html-mock": ".psp/harness/templates/ui-prototype"
+    "textContracts": [
+      {
+        "id": "scaffold-instructions",
+        "path": "AGENTS.md",
+        "requiredText": ["脚手架源仓库（Scaffold Repository）", "PSPScaffoldProject", "不得改用包内模板副本"],
+        "forbiddenText": ["仓库交付链为"]
+      },
+      {
+        "id": "workspace-instructions",
+        "path": "templates/workspace/AGENTS.md",
+        "requiredText": ["生成工作区（Generated Workspace）", "Canonical UI Prototype", "PSPProject"],
+        "forbiddenText": ["PSPScaffoldProject"]
+      },
+      {
+        "id": "scaffold-standard",
+        "path": ".psp/harness/HARNESS-BOUNDARY.md",
+        "requiredText": ["四层模型", "生成仓库本地拥有领域 Skill 与执行事实", "AIH_EXECUTOR_AUTHORITY_INVALID", "持续集成工作流从 Manifest"],
+        "forbiddenText": ["根 Manifest 只登记领域"]
+      },
+      {
+        "id": "scaffold-readme",
+        "path": "README.md",
+        "requiredText": ["脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", ".psp/harness/scripts/run-ci-validation.mjs"],
+        "forbiddenText": ["根目录是软件包源码、开发 Harness 和仓库领域 Skill"]
+      },
+      {
+        "id": "workspace-readme",
+        "path": "templates/workspace/README.md",
+        "requiredText": ["生成工作区（Generated Workspace）", "不是 `pre-sdd` 脚手架源仓库", "本地 Manifest 声明的路径加载"],
+        "forbiddenText": ["npm install --global"]
+      },
+      {
+        "id": "workspace-harness-boundary",
+        "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
+        "requiredText": ["生成工作区 Harness 职责边界", "本地执行事实", "不得改用包内 `templates/workspace/` 副本"],
+        "forbiddenText": ["脚手架固化要求"]
       }
+    ],
+    "templatePurity": {
+      "stageMarker": ".gitkeep",
+      "forbiddenDirectoryNames": ["node_modules", "dist", ".vite", "evidence"]
     },
-    {
-      "id": "initialize-architecture",
-      "kind": "stage",
-      "npmScript": "init:architecture",
-      "run": "npm run init:architecture",
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-architecture.mjs"},
-      "stage": "architecture-design",
-      "fromState": "uninitialized",
-      "toState": "active",
-      "areaTemplates": {
-        "technical-validation": ".psp/harness/templates/technical-validation"
-      }
+    "packageScripts": [
+      "validate:harness",
+      "harness:resolve",
+      "test:harness",
+      "test:package",
+      "test",
+      "check",
+      "pack:check"
+    ],
+    "execution": {
+      "executorAuthority": "generated-workspace-local",
+      "dependencyAuthority": "packaged-runtime",
+      "testWorkspace": "os-temporary-copy",
+      "runtimeEvidence": "os-temporary-directory"
+    },
+    "continuousIntegration": {
+      "workflow": ".github/workflows/harness-governance.yml",
+      "runner": ".psp/harness/scripts/run-ci-validation.mjs",
+      "job": "harness-governance",
+      "triggers": ["pull_request", "push"],
+      "protectedBranches": ["main"],
+      "runsOn": "ubuntu-latest",
+      "nodeVersion": "22",
+      "checkoutAction": "actions/checkout@v4",
+      "setupNodeAction": "actions/setup-node@v4",
+      "installCommand": "npm ci"
     }
-  ],
+  },
   "commands": [
     {
       "id": "harness",
       "npmScript": "validate:harness",
       "run": "npm run validate:harness",
-      "purpose": "校验 Harness、项目绑定、Contract、Codex 接入与 resolver",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-harness.mjs"}
-    },
-    {
-      "id": "workspace-structure",
-      "npmScript": "validate:workspace",
-      "run": "npm run validate:workspace",
-      "purpose": "校验纯脚手架目录骨架、阶段空状态和用户实例隔离",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/init-workspace.mjs", "args": ["--dry-run"]}
+      "purpose": "校验脚手架项目绑定、模板纯净性、上下文隔离与工程命令",
+      "blocking": true
     },
     {
       "id": "test-harness",
       "npmScript": "test:harness",
       "run": "npm run test:harness",
-      "purpose": "运行 Harness contract tests",
-      "blocking": true,
-      "executor": {"kind": "node-test", "paths": [".psp/harness/tests/harness/*.test.mjs"]}
+      "purpose": "运行脚手架硬治理回归测试",
+      "blocking": true
     },
     {
-      "id": "test-product",
-      "npmScript": "test:product",
-      "run": "npm run test:product",
-      "purpose": "运行 UC、Wireflow Mid、HTML Mock 与支撑追溯的 contract tests",
-      "blocking": true,
-      "executor": {"kind": "node-test", "paths": [".psp/harness/tests/product/*.test.mjs"]}
+      "id": "test-package",
+      "npmScript": "test:package",
+      "run": "npm run test:package",
+      "purpose": "在临时目录验证初始化、生成工作区本地执行与包行为",
+      "blocking": true
     },
     {
-      "id": "product-structure",
-      "npmScript": "validate:product",
-      "run": "npm run validate:product",
-      "purpose": "校验 UC → Wireflow Mid → HTML Mock 结构、场景覆盖、代码入口和生成一致性，允许显式 draft gap",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-product.mjs"}
-    },
-    {
-      "id": "product-strict",
-      "npmScript": "validate:product:strict",
-      "run": "npm run validate:product:strict",
-      "purpose": "校验产品 Markdown 用户产物与 HTML Mock 可执行证据是否达到下游可消费状态",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-product.mjs", "args": ["--strict"]}
-    },
-    {
-      "id": "html-mock-input",
-      "npmScript": "validate:html-mock-input",
-      "run": "npm run validate:html-mock-input",
-      "purpose": "在 HTML 编码前校验 Product Package、Use Case、Wireflow 与设计来源证据已可消费",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-html-mock-input.mjs"}
-    },
-    {
-      "id": "typecheck",
-      "npmScript": "typecheck",
-      "run": "npm run typecheck",
-      "purpose": "校验绑定的 HTML Mock TypeScript",
-      "blocking": true,
-      "executor": {"kind": "runtime", "capability": "typecheck"}
-    },
-    {
-      "id": "build",
-      "npmScript": "workspace:build",
-      "run": "npm run workspace:build",
-      "purpose": "构建绑定的 HTML Mock",
-      "blocking": true,
-      "executor": {"kind": "runtime", "capability": "build"}
-    },
-    {
-      "id": "html-mock-runtime",
-      "npmScript": "validate:html-mock-runtime",
-      "run": "npm run validate:html-mock-runtime",
-      "purpose": "在全部必测视口运行 HTML 场景、检查 DOM/状态/反馈/资源使用并生成截图证据",
-      "blocking": true,
-      "executor": {"kind": "runtime", "capability": "html-mock-runtime"}
-    },
-    {
-      "id": "test-architecture",
-      "npmScript": "test:architecture",
-      "run": "npm run test:architecture",
-      "purpose": "运行架构 Markdown 用户产物、内部模型、技术选型与代码验证脚手架 contract tests",
-      "blocking": true,
-      "executor": {"kind": "node-test", "paths": [".psp/harness/tests/architecture/*.test.mjs"]}
-    },
-    {
-      "id": "architecture-structure",
-      "npmScript": "validate:architecture",
-      "run": "npm run validate:architecture",
-      "purpose": "校验架构实例结构、上游引用、代码证据和生成一致性，允许显式 draft gap",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-architecture.mjs"}
-    },
-    {
-      "id": "architecture-strict",
-      "npmScript": "validate:architecture:strict",
-      "run": "npm run validate:architecture:strict",
-      "purpose": "校验架构 Markdown 用户产物是否达到 Spec-Kit 可消费状态",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/validate-architecture.mjs", "args": ["--strict"]}
-    },
-    {
-      "id": "html-mock-dev",
-      "npmScript": "dev",
-      "run": "npm run dev",
-      "purpose": "启动绑定的 HTML Mock 开发服务器",
-      "blocking": true,
-      "executor": {"kind": "runtime", "capability": "dev"}
-    },
-    {
-      "id": "install-browser",
-      "npmScript": "install:browser",
-      "run": "npm run install:browser",
-      "purpose": "显式安装 Playwright Chromium 浏览器运行时",
-      "blocking": true,
-      "executor": {"kind": "runtime", "capability": "install-browser"}
-    },
-    {
-      "id": "render-product",
-      "npmScript": "render:product",
-      "run": "npm run render:product",
-      "purpose": "从内部模型生成产品 Markdown 与机器支撑",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-artifacts.mjs"}
-    },
-    {
-      "id": "render-architecture",
-      "npmScript": "render:architecture",
-      "run": "npm run render:architecture",
-      "purpose": "从内部模型生成架构 Markdown",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-architecture.mjs"}
-    },
-    {
-      "id": "check-product-outputs",
-      "npmScript": "check:outputs",
-      "run": "npm run check:outputs",
-      "purpose": "检查产品生成结果漂移",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-artifacts.mjs", "args": ["--check"]}
-    },
-    {
-      "id": "check-architecture-outputs",
-      "npmScript": "check:architecture-outputs",
-      "run": "npm run check:architecture-outputs",
-      "purpose": "检查架构生成结果漂移",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/render-architecture.mjs", "args": ["--check"]}
-    },
-    {
-      "id": "verify-architecture",
-      "npmScript": "verify:architecture",
-      "run": "npm run verify:architecture",
-      "purpose": "运行绑定的架构技术验证脚本",
-      "blocking": true,
-      "executor": {"kind": "area-script", "area": "technical-validation", "script": "verify"}
-    },
-    {
-      "id": "harness-resolve",
-      "npmScript": "harness:resolve",
-      "run": "npm run harness:resolve",
-      "purpose": "解析变更路径对应的 Scope 与 Profile",
-      "blocking": true,
-      "executor": {"kind": "module", "path": ".psp/harness/scripts/resolve-validation.mjs"}
+      "id": "pack-check",
+      "npmScript": "pack:check",
+      "run": "npm run pack:check",
+      "purpose": "校验 npm 包发布清单",
+      "blocking": true
     }
   ],
   "validationProfiles": [
-    {
-      "id": "workspace-scaffold",
-      "commands": ["harness", "workspace-structure", "test-harness", "test-product", "product-structure", "test-architecture", "architecture-structure"]
-    },
-    {
-      "id": "repository-harness",
-      "commands": ["harness", "test-harness"]
-    },
-    {
-      "id": "product-framework",
-      "commands": ["harness", "test-product", "product-structure"]
-    },
-    {
-      "id": "product-uninitialized",
-      "commands": ["harness", "test-product", "product-structure"]
-    },
-    {
-      "id": "product-structure",
-      "commands": ["harness", "product-structure"]
-    },
-    {
-      "id": "product-delivery",
-      "commands": ["harness", "test-product", "product-structure", "html-mock-input", "typecheck", "build", "html-mock-runtime", "product-strict"]
-    },
-    {
-      "id": "html-mock",
-      "commands": ["harness", "product-structure", "html-mock-input", "typecheck", "build", "html-mock-runtime"]
-    },
-    {
-      "id": "architecture-framework",
-      "commands": ["harness", "test-architecture", "architecture-structure"]
-    },
-    {
-      "id": "architecture-uninitialized",
-      "commands": ["harness", "test-architecture", "architecture-structure"]
-    },
-    {
-      "id": "architecture-structure",
-      "commands": ["harness", "architecture-structure"]
-    },
-    {
-      "id": "architecture-delivery",
-      "commands": ["harness", "test-architecture", "architecture-structure", "architecture-strict"]
-    },
-    {
-      "id": "technical-validation",
-      "commands": ["harness", "test-architecture", "architecture-structure"]
-    }
+    {"id": "scaffold-governance", "commands": ["harness", "test-harness"]},
+    {"id": "scaffold-runtime", "commands": ["harness", "test-harness", "test-package"]},
+    {"id": "scaffold-package", "commands": ["harness", "test-harness", "test-package", "pack-check"]}
   ],
   "scopes": [
     {
-      "id": "workspace-scaffold",
-      "kind": "workspace",
-      "selectionGroup": "workspace",
-      "priority": 300,
-      "status": "active",
-      "selector": {
-        "type": "workspace",
-        "marker": ".gitkeep"
-      },
-      "defaultProfile": "workspace-scaffold",
-      "readinessProfile": "workspace-scaffold"
-    },
-    {
-      "id": "repository-harness",
+      "id": "scaffold-governance",
       "kind": "repository",
-      "selectionGroup": "repository",
+      "selectionGroup": "scaffold-governance",
       "priority": 100,
       "status": "active",
       "selector": {
         "type": "static",
-        "paths": [
-          "AGENTS.md",
-          "README.md",
-          "package.json",
-          "package-lock.json",
-          "psp.project.yaml",
-          "bin/**",
-          "runtime/**",
-          "01-product-design/**",
-          "02-architecture-design/**",
-          "templates/workspace/AGENTS.md",
-          "templates/workspace/README.md",
-          "templates/workspace/package.json",
-          "templates/workspace/package-lock.json",
-          "templates/workspace/psp.project.yaml",
-          "templates/workspace/.gitignore",
-          "templates/workspace/.codex/**",
-          "templates/workspace/.agents/**",
-          "templates/workspace/.psp/harness/**",
-          "tests/package/**",
-          ".codex/**",
-          ".agents/skills/**",
-          ".psp/harness/**"
-        ]
+        "paths": ["AGENTS.md", "README.md", "psp.project.yaml", ".gitignore", ".agents/skills/**", ".codex/**", ".github/**", ".psp/harness/**"]
       },
-      "defaultProfile": "repository-harness",
-      "readinessProfile": "repository-harness"
+      "defaultProfile": "scaffold-governance",
+      "readinessProfile": "scaffold-governance"
     },
     {
-      "id": "product-framework",
-      "kind": "validator",
-      "selectionGroup": "product-framework",
-      "priority": 200,
-      "status": "active",
-      "selector": {
-        "type": "static",
-        "paths": [
-          ".psp/harness/contracts/product-package.contract.yaml",
-          ".psp/harness/contracts/capabilities.contract.yaml",
-          ".psp/harness/contracts/interactions.contract.yaml",
-          ".psp/harness/contracts/ui-spec.contract.yaml",
-          ".psp/harness/contracts/component-catalog.contract.yaml",
-          ".psp/harness/contracts/traceability.contract.yaml",
-          ".psp/harness/schemas/artifacts/product-package.schema.json",
-          ".psp/harness/schemas/artifacts/capabilities.schema.json",
-          ".psp/harness/schemas/artifacts/interactions.schema.json",
-          ".psp/harness/schemas/artifacts/ui-spec.schema.json",
-          ".psp/harness/schemas/artifacts/component-catalog.schema.json",
-          ".psp/harness/schemas/artifacts/traceability.schema.json",
-          ".psp/harness/templates/product-package.template.yaml",
-          ".psp/harness/templates/capabilities.template.yaml",
-          ".psp/harness/templates/interactions.template.yaml",
-          ".psp/harness/templates/ui-spec.template.yaml",
-          ".psp/harness/templates/component-catalog.template.yaml",
-          ".psp/harness/templates/traceability.template.json",
-          ".psp/harness/templates/ui-prototype/**",
-          ".psp/harness/scripts/validate-product.mjs",
-          ".psp/harness/scripts/validate-html-mock-input.mjs",
-          ".psp/harness/scripts/validate-html-mock-runtime.mjs",
-          ".psp/harness/scripts/lib/html-mock-evidence.mjs",
-          ".psp/harness/scripts/init-product.mjs",
-          ".psp/harness/scripts/render-artifacts.mjs",
-          ".psp/harness/scripts/lib/rendering.mjs",
-          ".psp/harness/tests/product/**"
-        ]
-      },
-      "defaultProfile": "product-framework",
-      "readinessProfile": "product-framework"
-    },
-    {
-      "id": "architecture-framework",
-      "kind": "validator",
-      "selectionGroup": "architecture-framework",
-      "priority": 200,
-      "status": "active",
-      "selector": {
-        "type": "static",
-        "paths": [
-          ".psp/harness/contracts/architecture-package.contract.yaml",
-          ".psp/harness/contracts/system-boundary.contract.yaml",
-          ".psp/harness/contracts/conceptual-model.contract.yaml",
-          ".psp/harness/contracts/technical-validation.contract.yaml",
-          ".psp/harness/schemas/artifacts/architecture-package.schema.json",
-          ".psp/harness/schemas/artifacts/system-boundary.schema.json",
-          ".psp/harness/schemas/artifacts/conceptual-model.schema.json",
-          ".psp/harness/schemas/artifacts/technical-validation.schema.json",
-          ".psp/harness/templates/architecture-package.template.yaml",
-          ".psp/harness/templates/system-boundary.template.yaml",
-          ".psp/harness/templates/conceptual-model.template.yaml",
-          ".psp/harness/templates/technical-validation.template.yaml",
-          ".psp/harness/templates/technical-validation/**",
-          ".psp/harness/scripts/validate-architecture.mjs",
-          ".psp/harness/scripts/init-architecture.mjs",
-          ".psp/harness/scripts/render-architecture.mjs",
-          ".psp/harness/scripts/lib/rendering.mjs",
-          ".psp/harness/tests/architecture/**"
-        ]
-      },
-      "defaultProfile": "architecture-framework",
-      "readinessProfile": "architecture-framework"
-    },
-    {
-      "id": "product-design",
-      "kind": "stage",
-      "selectionGroup": "product-design",
+      "id": "scaffold-runtime",
+      "kind": "runtime",
+      "selectionGroup": "scaffold-runtime",
       "priority": 100,
       "status": "active",
-      "selector": {
-        "type": "stage",
-        "stage": "product-design"
-      },
-      "defaultProfile": "product-structure",
-      "readinessProfile": "product-delivery",
-      "uninitializedProfile": "product-uninitialized"
+      "selector": {"type": "static", "paths": ["package.json", "package-lock.json", "bin/**", "runtime/**"]},
+      "defaultProfile": "scaffold-runtime",
+      "readinessProfile": "scaffold-runtime"
     },
     {
-      "id": "html-mock",
-      "kind": "subtree",
-      "selectionGroup": "product-design",
-      "priority": 200,
-      "status": "active",
-      "selector": {
-        "type": "area",
-        "stage": "product-design",
-        "area": "html-mock"
-      },
-      "defaultProfile": "html-mock",
-      "readinessProfile": "product-delivery",
-      "uninitializedProfile": "product-uninitialized",
-      "dependencies": ["product-design"]
-    },
-    {
-      "id": "architecture-design",
-      "kind": "stage",
-      "selectionGroup": "architecture-design",
+      "id": "workspace-template",
+      "kind": "template",
+      "selectionGroup": "workspace-template",
       "priority": 100,
       "status": "active",
-      "selector": {
-        "type": "stage",
-        "stage": "architecture-design"
-      },
-      "defaultProfile": "architecture-structure",
-      "readinessProfile": "architecture-delivery",
-      "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": ["product-design"]
+      "selector": {"type": "static", "paths": ["templates/workspace/**"]},
+      "defaultProfile": "scaffold-package",
+      "readinessProfile": "scaffold-package"
     },
     {
-      "id": "technical-validation",
-      "kind": "subtree",
-      "selectionGroup": "architecture-design",
-      "priority": 200,
+      "id": "package-tests",
+      "kind": "tests",
+      "selectionGroup": "package-tests",
+      "priority": 100,
       "status": "active",
-      "selector": {
-        "type": "area",
-        "stage": "architecture-design",
-        "area": "technical-validation"
-      },
-      "defaultProfile": "technical-validation",
-      "readinessProfile": "architecture-delivery",
-      "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": ["architecture-design"]
+      "selector": {"type": "static", "paths": ["tests/package/**"]},
+      "defaultProfile": "scaffold-package",
+      "readinessProfile": "scaffold-package"
     }
   ],
-  "capabilities": {
-    "test": {"status": "available", "command": "test"},
-    "lint": {"status": "unavailable", "reason": "仓库尚未声明 lint script"},
-    "typecheck": {"status": "available", "command": "typecheck"},
-    "build": {"status": "available", "command": "workspace:build"}
-  },
-  "handoff": {
+  "evidenceReport": {
     "requiredFields": ["scope", "changes", "validation", "residuals"],
     "validationStates": ["PASS", "FAIL", "BLOCKED", "NOT_RUN"]
   },
   "blockers": [
-    {"code": "AIH_PROJECT_BINDING_INVALID", "severity": "blocker", "owner": "repository-harness", "meaning": "项目绑定缺失、越界、重复或引用未知逻辑对象"},
-    {"code": "AIH_CONTRACT_INVALID", "severity": "blocker", "owner": "repository-harness", "meaning": "Artifact Contract 缺失、结构非法或与 registry 不一致"},
-    {"code": "AIH_ARTIFACT_SCHEMA_FAILED", "severity": "high", "owner": "product-framework", "meaning": "Harness 内部结构化模型不符合对应 Schema"},
-    {"code": "AIH_ARTIFACT_INCOMPLETE", "severity": "blocker", "owner": "product-design", "meaning": "规格内容仍是 draft、存在 gap 或未满足严格门禁"},
-    {"code": "AIH_SOURCE_INTEGRITY_FAILED", "severity": "high", "owner": "product-framework", "meaning": "设计来源缺少可复现本地证据、证据不可读或内容哈希不匹配"},
-    {"code": "AIH_REFERENCE_UNRESOLVED", "severity": "high", "owner": "product-design", "meaning": "跨产物标识符引用无法解析"},
-    {"code": "AIH_GENERATED_DRIFT", "severity": "high", "owner": "product-framework", "meaning": "Markdown 用户产物或机器生成支撑与内部模型不一致，或 output 被单独修改"},
-    {"code": "AIH_UPSTREAM_NOT_READY", "severity": "blocker", "owner": "product-design", "meaning": "下游工作要求的上游严格门禁未通过"},
-    {"code": "AIH_ARCHITECTURE_UNAVAILABLE", "severity": "blocker", "owner": "repository-harness", "meaning": "项目将架构阶段显式绑定为 unavailable，架构写入被阻断"},
-    {"code": "AIH_TECHNICAL_VALIDATION_FAILED", "severity": "blocker", "owner": "architecture-design", "meaning": "技术选型代码验证失败、被环境阻断或没有形成可审阅证据"},
-    {"code": "AIH_SCOPE_UNRESOLVED", "severity": "blocker", "owner": "repository-harness", "meaning": "输入路径无法归入任何已声明 Scope"},
-    {"code": "AIH_PATH_INVALID", "severity": "high", "owner": "repository-harness", "meaning": "仓库路径使用绝对路径、反斜杠、目录跳转或非法 glob"},
-    {"code": "AIH_PATH_OUTSIDE_ROOT", "severity": "blocker", "owner": "repository-harness", "meaning": "解析后的路径位于仓库根目录之外"},
-    {"code": "AIH_MANIFEST_UNREADABLE", "severity": "blocker", "owner": "repository-harness", "meaning": "Harness manifest 缺失或不是有效 JSON"},
-    {"code": "AIH_SCHEMA_INVALID", "severity": "blocker", "owner": "repository-harness", "meaning": "Harness、项目或 Contract Schema 无法编译或验证失败"},
-    {"code": "AIH_ENTRYPOINT_MISSING", "severity": "high", "owner": "repository-harness", "meaning": "声明的入口、Contract、Schema、模板、内部模型或 output 不存在"},
-    {"code": "AIH_COMMAND_INVALID", "severity": "high", "owner": "repository-harness", "meaning": "命令重复、未声明或与 package.json 不一致"},
-    {"code": "AIH_PROFILE_INVALID", "severity": "high", "owner": "repository-harness", "meaning": "Profile 重复、引用未知命令或缺少 Harness 自检"},
-    {"code": "AIH_SCOPE_INVALID", "severity": "high", "owner": "repository-harness", "meaning": "Scope 重复、引用未知 Profile、阶段、区域、依赖或 blocker"},
-    {"code": "AIH_CODEX_ADAPTER_INVALID", "severity": "high", "owner": "repository-harness", "meaning": "Codex config、Hook 或 Repository Skill 不符合适配器契约"},
-    {"code": "AIH_HARNESS_COUPLED", "severity": "blocker", "owner": "repository-harness", "meaning": "Harness Framework 硬编码了项目绑定中的用户目录"},
-    {"code": "AIH_HOOK_DEGRADED", "severity": "medium", "owner": "repository-harness", "meaning": "SessionStart Hook 缺少依赖或无法定位仓库"},
-    {"code": "AIH_RUNTIME_UNAVAILABLE", "severity": "blocker", "owner": "repository-harness", "meaning": "pre-sdd 全局运行时与一次性回退均不可用"},
-    {"code": "AIH_RUNTIME_INCOMPATIBLE", "severity": "blocker", "owner": "repository-harness", "meaning": "工作区 Harness 协议与 pre-sdd 运行时不兼容"},
-    {"code": "AIH_VALIDATION_FAILED", "severity": "blocker", "owner": "repository-harness", "meaning": "必需验证命令返回非零"},
-    {"code": "AIH_BROWSER_UNAVAILABLE", "severity": "blocker", "owner": "repository-harness", "meaning": "HTML Mock 浏览器运行时未安装或不可启动"},
-    {"code": "AIH_HTML_MOCK_RUNTIME_FAILED", "severity": "blocker", "owner": "product-design", "meaning": "HTML Mock 路由、DOM、场景、状态、反馈、资源使用或必测视口运行验证失败"},
-    {"code": "AIH_USER_CHANGE_COLLISION", "severity": "blocker", "owner": "repository-harness", "meaning": "目标位置存在无法安全合并的用户改动"},
-    {"code": "AIH_WORKSPACE_NOT_EMPTY", "severity": "blocker", "owner": "repository-harness", "meaning": "纯脚手架初始化要求所有可用阶段均未初始化且不存在用户实例"},
-    {"code": "AIH_STAGE_UNINITIALIZED", "severity": "blocker", "owner": "repository-harness", "meaning": "阶段绑定有效但尚未创建任何用户实例，不能执行 readiness 或实例操作"},
-    {"code": "AIH_PARTIAL_INITIALIZATION", "severity": "blocker", "owner": "repository-harness", "meaning": "uninitialized 阶段出现部分用户文件，生命周期状态不一致"},
-    {"code": "AIH_STAGE_ALREADY_INITIALIZED", "severity": "blocker", "owner": "repository-harness", "meaning": "阶段已经 active，不能再次执行初始化 operation"}
+    {"code": "AIH_PROJECT_BINDING_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架项目绑定缺失、越界或引用无效"},
+    {"code": "AIH_MANIFEST_UNREADABLE", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架 Manifest 缺失或不是有效 JSON"},
+    {"code": "AIH_SCHEMA_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架或工作区模板的 Schema 校验失败"},
+    {"code": "AIH_ENTRYPOINT_MISSING", "severity": "high", "owner": "scaffold-harness", "meaning": "声明的脚手架、模板或运行时入口不存在"},
+    {"code": "AIH_COMMAND_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "工程命令缺失、重复或与 package.json 不一致"},
+    {"code": "AIH_PROFILE_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "验证 Profile 重复或引用未知工程命令"},
+    {"code": "AIH_SCOPE_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "Scope 重复或引用未知验证 Profile"},
+    {"code": "AIH_SCOPE_UNRESOLVED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "变更路径无法归入任何脚手架 Scope"},
+    {"code": "AIH_PATH_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "输入路径不是合法的仓库相对 POSIX 路径"},
+    {"code": "AIH_PATH_OUTSIDE_ROOT", "severity": "blocker", "owner": "scaffold-harness", "meaning": "解析路径位于脚手架仓库根目录之外"},
+    {"code": "AIH_SCAFFOLD_CONTEXT_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架根仓库与生成工作区职责或 Agent 入口发生混用"},
+    {"code": "AIH_TEMPLATE_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板绑定、初始阶段状态或本地治理结构无效"},
+    {"code": "AIH_TEMPLATE_POLLUTED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板含用户实例、依赖目录、构建输出或运行证据"},
+    {"code": "AIH_EXECUTOR_AUTHORITY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "运行时没有执行生成工作区 Manifest 声明的本地执行器"},
+    {"code": "AIH_CI_POLICY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "持续集成工作流未按 Manifest 调用 Resolver 驱动的统一门禁"},
+    {"code": "AIH_VALIDATION_FAILED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "必需脚手架工程门禁返回非零"}
   ]
 }

@@ -1,0 +1,41 @@
+apiVersion: psp.dev/v1
+kind: ArtifactContract
+metadata:
+  id: technical-validation
+  version: 3.0.0
+spec:
+  stage: architecture-design
+  internalModelFormat: yaml
+  outputRole: user-artifact
+  purpose: 从已批准 Use Case 与系统边界中提取需要验证的关键能力，为每个关键能力建立技术选型结论与真实代码测试通过结论的映射。
+  inputs:
+    artifacts:
+      - capabilities
+      - system-boundary
+    directoryRole: supporting-input
+  owns:
+    - 子系统能力到技术决策的追溯
+    - 关键能力及其系统边界输入输出
+    - 技术选型标准、候选项和最终选择
+    - 可执行可行性实验与代码入口
+    - 脱敏执行证据
+    - 可供后续迭代复用的选型结论与适用限制
+  excludes:
+    - 概念模型、数据库 Schema 或对象覆盖率
+    - 未标记为需要技术验证的架构能力
+    - 真实密钥或 Token
+    - 用 Mock 结果冒充三方 API 实测
+    - 生产集成实现
+  domainRules:
+    - technical-validation-reference-integrity
+    - technical-validation-required-capability-coverage
+    - technical-selection-boundary-integrity
+    - technical-selection-decision-complete
+    - technical-validation-code-exists
+    - technical-validation-runner-contract
+    - technical-validation-code-result-mapping
+    - technical-validation-secret-free
+  readiness:
+    requiredStatus: ready
+    requireNoGaps: true
+    requireAllGates: true

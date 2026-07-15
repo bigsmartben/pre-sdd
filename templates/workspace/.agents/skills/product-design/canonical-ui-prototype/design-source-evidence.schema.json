@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/domains/product-design/design-source-evidence.schema.json",
+  "title": "Canonical UI Design Source Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sourceId", "kind", "location", "capturedAt", "items"],
+  "properties": {
+    "version": {"const": "2.0.0"},
+    "sourceId": {"$ref": "#/$defs/id"},
+    "kind": {"enum": ["figma", "screenshot", "export", "other"]},
+    "location": {"type": "string", "minLength": 1},
+    "capturedAt": {"$ref": "#/$defs/timestamp"},
+    "nodeId": {"$ref": "#/$defs/nodeId"},
+    "items": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/item"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "figma"}}, "required": ["kind"]},
+      "then": {
+        "required": ["nodeId"],
+        "properties": {
+          "nodeId": {"$ref": "#/$defs/nodeId"},
+          "location": {"$ref": "#/$defs/figmaLocation"},
+          "items": {
+            "type": "array",
+            "allOf": [
+              {"contains": {"type": "object", "properties": {"role": {"const": "design-context"}}, "required": ["role"]}},
+              {"contains": {"type": "object", "properties": {"role": {"const": "screenshot"}}, "required": ["role"]}}
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+    "nodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
+    "figmaLocation": {"type": "string", "pattern": "^https://(?:www\\.)?figma\\.com/design/[^/?#]+/[^?#]+\\?[^#]*node-id=[0-9]+[-:][0-9]+(?:&[^#]*)?$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
+    "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "path", "sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "role": {"enum": ["design-context", "screenshot", "variable-definitions", "asset", "code-connect-map"]},
+        "path": {"$ref": "#/$defs/path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

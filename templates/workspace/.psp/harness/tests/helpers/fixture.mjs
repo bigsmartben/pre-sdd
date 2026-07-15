@@ -6,7 +6,6 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { readFile, writeFile } from 'node:fs/promises';
 
 export const repositoryRoot = resolve(process.env.PSP_REPOSITORY_ROOT || resolve(import.meta.dirname, '../../../..'));
-export const runtimeRoot = resolve(process.env.PRE_SDD_RUNTIME_WORKSPACE || repositoryRoot);
 const repositoryProject = parseYaml(await readFile(resolve(repositoryRoot, 'psp.project.yaml'), 'utf8'));
 export const project = structuredClone(repositoryProject);
 for (const stage of Object.values(project.stages)) {
@@ -31,6 +30,11 @@ export async function temporaryRepository() {
   ]) {
     await cp(resolve(repositoryRoot, item), resolve(target, item), { recursive: true });
   }
+  for (const domain of manifest.domainRegistry || []) {
+    for (const mirror of domain.mirrors || []) {
+      await cp(resolve(repositoryRoot, mirror), resolve(target, mirror), { recursive: true });
+    }
+  }
   await writeFile(resolve(target, 'psp.project.yaml'), stringifyYaml(project), 'utf8');
   for (const stage of Object.values(project.stages)) {
     if (stage.status === 'unavailable') continue;
@@ -45,14 +49,13 @@ export async function cleanupTemporaryRepositories() {
 }
 
 export function runScript(script, fixtureRoot, args = []) {
-  const result = spawnSync(process.execPath, [resolve(runtimeRoot, script), ...args], {
+  const result = spawnSync(process.execPath, [resolve(repositoryRoot, script), ...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     env: {
       ...process.env,
       PSP_REPOSITORY_ROOT: fixtureRoot,
       AI_HARNESS_ROOT: fixtureRoot,
-      PRE_SDD_RUNTIME_WORKSPACE: runtimeRoot,
     },
   });
   let output;

@@ -23,9 +23,18 @@
       "required": ["stage", "internalModelFormat", "outputRole", "purpose", "owns", "excludes", "domainRules", "readiness"],
       "properties": {
         "stage": {"$ref": "#/$defs/identifier"},
-        "internalModelFormat": {"enum": ["yaml", "json"]},
+        "internalModelFormat": {"enum": ["yaml", "json", "typescript"]},
         "outputRole": {"enum": ["user-artifact", "generated-support"]},
         "purpose": {"type": "string", "minLength": 1},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifacts", "directoryRole"],
+          "properties": {
+            "artifacts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+            "directoryRole": {"const": "supporting-input"}
+          }
+        },
         "owns": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "excludes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "domainRules": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},

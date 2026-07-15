@@ -1,0 +1,24 @@
+apiVersion: psp.dev/v1
+kind: TechnicalValidationSpecification
+metadata:
+  status: draft
+  version: 0.1.0
+  upstreamArtifacts:
+    - capabilities
+    - system-boundary
+decisions: []
+experiments: []
+gates:
+  - id: required-capabilities-covered
+    label: 每个标记为需要技术验证的关键能力都有技术选型结论
+    checked: false
+  - id: input-output-models-bound
+    label: 技术决策只引用 Use Case 与系统边界中已定义的关键能力
+    checked: false
+  - id: feasibility-evidence-reviewed
+    label: 最终选型映射到源代码哈希一致的真实代码测试通过结论且不包含敏感信息
+    checked: false
+gaps:
+  - id: GAP-001
+    field: decisions
+    reason: 尚未从 Use Case 与系统边界提取需要真实代码验证的关键能力

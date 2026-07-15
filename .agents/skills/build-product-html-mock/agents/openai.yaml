@@ -1,4 +1,0 @@
-interface:
-  display_name: "Build Product HTML Mock"
-  short_description: "Build verified HTML Mocks from product and Figma sources"
-  default_prompt: "Use $build-product-html-mock to turn ready product specifications and source-backed Figma evidence into a browser-validated repository HTML Mock."

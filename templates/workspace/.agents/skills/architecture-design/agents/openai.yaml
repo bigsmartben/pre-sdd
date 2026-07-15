@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture Design Domain"
+  short_description: "编写并验证架构设计领域产物与技术验证"
+  default_prompt: "Use $architecture-design to implement the requested architecture artifact from validated product facts and registered Harness gates."

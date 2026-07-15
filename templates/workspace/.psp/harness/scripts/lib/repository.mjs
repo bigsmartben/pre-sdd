@@ -121,12 +121,38 @@ export function artifactPaths(project, artifactId, stageId) {
   const stage = project.stages?.[stageId];
   const binding = stage?.artifacts?.[artifactId];
   if (!stage || !binding) return null;
-  const outputs = binding.outputs.map((output) => ({
+  const projectionBindings = binding.projections || binding.outputs || [];
+  const outputs = projectionBindings.map((output) => ({
     path: joinRepositoryPath(stage.root, output.path),
     role: output.role,
   }));
+  const inputRoot = binding.inputRoot
+    ? joinRepositoryPath(stage.root, binding.inputRoot)
+    : null;
+  if (binding.authority?.kind === 'area') {
+    const area = stage.areas?.[binding.authority.area];
+    if (!area) return null;
+    const authorityPath = joinRepositoryPath(
+      stage.root,
+      area.root,
+      binding.authority.semanticEntry,
+    );
+    return {
+      authorityKind: 'area',
+      authorityPath,
+      inputRoot,
+      area: binding.authority.area,
+      semanticEntry: binding.authority.semanticEntry,
+      outputPaths: outputs.map((output) => output.path),
+      outputs,
+    };
+  }
+  const authorityPath = joinRepositoryPath(stage.root, binding.internalModel);
   return {
-    internalModel: joinRepositoryPath(stage.root, binding.internalModel),
+    authorityKind: 'internal-model',
+    authorityPath,
+    inputRoot,
+    internalModel: authorityPath,
     outputPaths: outputs.map((output) => output.path),
     outputs,
   };

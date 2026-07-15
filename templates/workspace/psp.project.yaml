@@ -22,44 +22,43 @@ stages:
         outputs:
           - path: wireflow-mid.md
             role: user-artifact
-      ui-spec:
-        internalModel: .psp/models/html-mock.yaml
-        outputs:
-          - path: HTML-Mock/README.md
-            role: user-artifact
-      component-catalog:
-        internalModel: .psp/models/html-mock-components.yaml
-        outputs:
-          - path: HTML-Mock/components/README.md
-            role: user-artifact
-      traceability:
-        internalModel: .psp/models/traceability.json
-        outputs:
-          - path: HTML-Mock/src/spec/traceability.ts
+      canonical-ui-prototype:
+        authority:
+          kind: area
+          area: canonical-ui-prototype
+          semanticEntry: src/spec/canonical-ui.ts
+        projections:
+          - path: .psp/models/canonical-ui-prototype.json
             role: generated-support
+          - path: Canonical-UI-Prototype/README.md
+            role: user-artifact
     areas:
-      html-mock:
-        root: HTML-Mock
+      canonical-ui-prototype:
+        root: Canonical-UI-Prototype
   architecture-design:
     status: uninitialized
     root: 02-architecture-design
     artifacts:
       architecture-package:
+        inputRoot: inputs/architecture-package
         internalModel: .psp/models/architecture-package.yaml
         outputs:
           - path: README.md
             role: user-artifact
       system-boundary:
+        inputRoot: inputs/system-boundary
         internalModel: .psp/models/system-boundary.yaml
         outputs:
           - path: 系统边界.md
             role: user-artifact
       conceptual-model:
+        inputRoot: inputs/conceptual-model
         internalModel: .psp/models/conceptual-model.yaml
         outputs:
           - path: 概念建模.md
             role: user-artifact
       technical-validation:
+        inputRoot: inputs/technical-validation
         internalModel: .psp/models/technical-validation.yaml
         outputs:
           - path: 技术验证/README.md

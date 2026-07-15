@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness dev",
-    "build": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness build",
+    "workspace:build": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness workspace:build",
+    "build": "npm run workspace:build",
     "typecheck": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness typecheck",
     "install:browser": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness install:browser",
     "validate": "npm run validate:product",
@@ -13,9 +14,10 @@
     "validate:harness": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:harness",
     "validate:workspace": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:workspace",
     "validate:product": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:product",
+    "validate:product-overview": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:product-overview",
+    "validate:use-cases": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:use-cases",
+    "validate:wireflow": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:wireflow",
     "validate:product:strict": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:product:strict",
-    "validate:html-mock-input": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:html-mock-input",
-    "validate:html-mock-runtime": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:html-mock-runtime",
     "validate:architecture": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:architecture",
     "validate:architecture:strict": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:architecture:strict",
     "init:workspace": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness init:workspace",
@@ -32,6 +34,9 @@
     "test:architecture": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness test:architecture",
     "test": "npm run test:harness && npm run test:product && npm run test:architecture",
     "check": "npm test && npm run validate:harness && npm run validate:product && npm run validate:architecture",
-    "check:strict": "npm test && npm run validate:harness && npm run validate:product:strict && npm run validate:architecture:strict"
+    "check:strict": "npm test && npm run validate:harness && npm run validate:product:strict && npm run validate:architecture:strict",
+    "validate:canonical-ui-input": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:canonical-ui-input",
+    "validate:canonical-ui-runtime": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:canonical-ui-runtime",
+    "handoff": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness handoff"
   }
 }

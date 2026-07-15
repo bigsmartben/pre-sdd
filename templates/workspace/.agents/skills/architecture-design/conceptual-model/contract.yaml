@@ -1,0 +1,38 @@
+apiVersion: psp.dev/v1
+kind: ArtifactContract
+metadata:
+  id: conceptual-model
+  version: 2.1.0
+spec:
+  stage: architecture-design
+  internalModelFormat: yaml
+  outputRole: user-artifact
+  purpose: 从 UC 与子系统能力中提取关键对象实体，定义字段、唯一键、约束、归一/继承关系以及跨 UC 的对象数据流与生命周期。
+  inputs:
+    artifacts:
+      - capabilities
+      - system-boundary
+    directoryRole: supporting-input
+  owns:
+    - 关键对象实体及规范名称
+    - 核心字段、唯一键与业务约束
+    - 对象归一、关联、组合与泛化继承关系
+    - 对象在不同 Use Case 中的数据流和生命周期
+    - Use Case、子系统能力到对象实体的追溯
+  excludes:
+    - 数据库 Schema
+    - API DTO
+    - 框架类图
+  domainRules:
+    - conceptual-model-reference-integrity
+    - conceptual-model-field-key-integrity
+    - conceptual-model-name-normalization
+    - conceptual-model-use-case-coverage
+    - conceptual-model-capability-coverage
+    - conceptual-model-object-flow-coverage
+    - conceptual-model-lifecycle-integrity
+    - conceptual-model-relationship-integrity
+  readiness:
+    requiredStatus: ready
+    requireNoGaps: true
+    requireAllGates: true

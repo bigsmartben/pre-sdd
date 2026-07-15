@@ -23,6 +23,11 @@ try {
   result = {
     status: 'BLOCKED',
     scopes: [],
+    upstreamScopes: [],
+    downstreamConsumers: [],
+    upstreamProfiles: [],
+    upstreamCommandIds: [],
+    upstreamCommands: [],
     profiles: [],
     commandIds: [],
     commands: [],
