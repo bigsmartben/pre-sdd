@@ -57,7 +57,7 @@ flowchart LR
 | 用户操作 | 命令示例 | 影响范围 |
 |---|---|---|
 | 安装 `pre-sdd` | `npm install --global git+https://github.com/bigsmartben/pre-sdd.git` | 安装创建新工作区的工具 |
-| 更新 `pre-sdd` | `npm update --global pre-sdd` | 只影响以后创建的新工作区 |
+| 更新 `pre-sdd` | `npm install --global git+https://github.com/bigsmartben/pre-sdd.git` | 重新安装最新版工具，只影响以后创建的新工作区 |
 | 初始化工作区 | `pre-sdd init .` | 在目标目录生成一个固定版本的工作区 |
 
 `pre-sdd harness` 是 Agent（智能代理）与 Harness Adapter（治理适配器）的内部调度入口，不属于公共用户接口。

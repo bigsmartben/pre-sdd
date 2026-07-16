@@ -33,7 +33,7 @@ flowchart LR
 | 操作 | 命令 | 什么时候用 |
 |---|---|---|
 | 安装 `pre-sdd` | `npm install --global git+https://github.com/bigsmartben/pre-sdd.git` | 第一次使用 |
-| 更新 `pre-sdd` | `npm update --global pre-sdd` | 为以后创建的新工作区更新工具 |
+| 更新 `pre-sdd` | `npm install --global git+https://github.com/bigsmartben/pre-sdd.git` | 为以后创建的新工作区重新安装最新版工具 |
 | 创建工作区 | `pre-sdd init .` | 在准备好的目录中执行一次 |
 
 准备一个新目录并创建工作区：
@@ -212,6 +212,6 @@ http://localhost:4173/?annotate=1
 | 用例完成后必须先做界面吗 | 不必须。可以直接开始架构设计。 |
 | 界面地址打不开 | 请智能代理重新启动本地服务并提供实际可访问地址；不要用本地 HTML 文件路径代替。 |
 | 为什么界面地址带有 `annotate=1` | 它用于默认打开不一致标记工具，方便框选问题并复制带标记截图。 |
-| 更新全局 `pre-sdd` 会改变旧工作区吗 | 不会。更新只影响以后创建的新工作区。 |
+| 更新全局 `pre-sdd` 会改变旧工作区吗 | 不会。重新执行 Git 安装命令只影响以后创建的新工作区。 |
 
 如果安装或创建工作区失败，请保留完整错误信息并交给脚手架维护者处理，不要手工补写缺失文件。
