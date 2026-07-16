@@ -161,6 +161,38 @@ if (project && manifest) {
         if (projectValid && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)) {
           block('AIH_CONTRACT_INVALID', 'Contract outputRole 与项目 Artifact binding 不一致。', registry.contract);
         }
+        const registeredProjections = new Map((registry.projections || []).map((item) => [item.id, item]));
+        const contractProjections = new Map((contract?.spec?.projections || []).map((item) => [item.id, item]));
+        if (registry.renderer && registry.projections) {
+          block('AIH_CONTRACT_INVALID', 'Artifact 只能声明 renderer 或 projections，不能同时声明。', registry.id);
+        }
+        if (registeredProjections.size !== (registry.projections || []).length || contractProjections.size !== (contract?.spec?.projections || []).length) {
+          block('AIH_CONTRACT_INVALID', 'Projection id 必须唯一。', registry.contract);
+        }
+        if (registry.projections) {
+          if (
+            registeredProjections.size !== contractProjections.size
+            || [...registeredProjections.keys()].some((id) => !contractProjections.has(id))
+          ) {
+            block('AIH_CONTRACT_INVALID', 'Manifest 与 Contract 的 projection 声明不一致。', registry.contract);
+          }
+          for (const output of boundOutputs) {
+            const projection = contractProjections.get(output.projection);
+            if (!projection) {
+              block('AIH_PROJECT_BINDING_INVALID', 'Artifact output 未绑定已登记 projection：' + (output.projection || 'missing'), registry.id);
+            } else if (projection.outputRole !== output.role) {
+              block('AIH_CONTRACT_INVALID', 'Projection outputRole 与项目绑定不一致：' + output.projection, registry.contract);
+            }
+          }
+          for (const projectionId of registeredProjections.keys()) {
+            if (!boundOutputs.some((output) => output.projection === projectionId)) {
+              block('AIH_PROJECT_BINDING_INVALID', '已登记 projection 缺少项目输出绑定：' + projectionId, registry.id);
+            }
+          }
+        } else {
+          if (contractProjections.size > 0) block('AIH_CONTRACT_INVALID', '单 renderer Artifact 不得声明多 projection Contract。', registry.contract);
+          if (boundOutputs.some((output) => output.projection)) block('AIH_PROJECT_BINDING_INVALID', '单 renderer Artifact output 不得声明 projection。', registry.id);
+        }
       } catch (error) {
         block('AIH_CONTRACT_INVALID', error.message, registry.contract);
       }

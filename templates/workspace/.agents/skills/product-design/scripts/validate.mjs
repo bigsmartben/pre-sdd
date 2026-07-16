@@ -22,7 +22,7 @@ const readinessStep = process.argv.includes('--strict')
   : stepIndex >= 0 ? process.argv[stepIndex + 1] : null;
 const strict = readinessStep !== null;
 const json = process.argv.includes('--json');
-const validSteps = new Set(['product-overview', 'use-cases', 'wireflow', 'canonical-ui-prototype']);
+const validSteps = new Set(['use-cases', 'wireflow', 'canonical-ui-prototype']);
 const blockers = [];
 const warnings = [];
 
@@ -48,10 +48,9 @@ function requireReferences(values, available, location, label) {
 }
 
 function readinessArtifacts(step) {
-  if (step === 'product-overview') return new Set(['product-package']);
-  if (step === 'use-cases') return new Set(['product-package', 'capabilities']);
-  if (step === 'wireflow') return new Set(['product-package', 'capabilities', 'interactions']);
-  return new Set(['product-package', 'capabilities', 'interactions', 'canonical-ui-prototype']);
+  if (step === 'use-cases') return new Set(['capabilities']);
+  if (step === 'wireflow') return new Set(['capabilities', 'interactions']);
+  return new Set(['capabilities', 'interactions', 'canonical-ui-prototype']);
 }
 
 if (strict && !validSteps.has(readinessStep)) block('AIH_COMMAND_INVALID', '未知产品步骤：' + readinessStep, 'step');
@@ -91,14 +90,9 @@ try {
       }
     }
 
-    const product = models.get('product-package');
     const capabilities = models.get('capabilities');
     const interactions = models.get('interactions');
     const canonical = models.get('canonical-ui-prototype');
-    if (product && JSON.stringify(product.primaryChain) !== JSON.stringify(['capabilities', 'interactions', 'canonical-ui-prototype'])) {
-      block('AIH_REFERENCE_UNRESOLVED', 'Product Package 主链必须为 capabilities → interactions → canonical-ui-prototype。', 'product-package.primaryChain');
-    }
-
     const useCaseIds = ids(capabilities?.useCases, 'capabilities.useCases');
     const wireflowIds = ids(interactions?.wireflows, 'interactions.wireflows');
     const wireflowStateIds = ids(interactions?.interactionStates, 'interactions.interactionStates');

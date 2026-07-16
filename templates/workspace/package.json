@@ -29,7 +29,6 @@
     "validate:harness": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:harness",
     "validate:workspace": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:workspace",
     "validate:product": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:product",
-    "validate:product-overview": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:product-overview",
     "validate:use-cases": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:use-cases",
     "validate:wireflow": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:wireflow",
     "validate:product:strict": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness validate:product:strict",

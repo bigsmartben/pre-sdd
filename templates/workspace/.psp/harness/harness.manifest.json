@@ -48,17 +48,6 @@
   ],
   "artifactRegistry": [
     {
-      "id": "product-package",
-      "stage": "product-design",
-      "domain": "product-design",
-      "authorityKind": "internal-model",
-      "format": "yaml",
-      "contract": ".agents/skills/product-design/product-package/contract.yaml",
-      "schema": ".agents/skills/product-design/product-package/schema.json",
-      "template": ".agents/skills/product-design/product-package/template.yaml",
-      "renderer": "product-package-markdown"
-    },
-    {
       "id": "capabilities",
       "stage": "product-design",
       "domain": "product-design",
@@ -67,7 +56,16 @@
       "contract": ".agents/skills/product-design/capabilities/contract.yaml",
       "schema": ".agents/skills/product-design/capabilities/schema.json",
       "template": ".agents/skills/product-design/capabilities/template.yaml",
-      "renderer": "capabilities-markdown"
+      "projections": [
+        {
+          "id": "use-cases-document",
+          "renderer": "capabilities-markdown"
+        },
+        {
+          "id": "product-package-summary",
+          "renderer": "product-package-summary-markdown"
+        }
+      ]
     },
     {
       "id": "interactions",
@@ -214,7 +212,6 @@
       "domain": "product-design",
       "stage": "product-design",
       "artifacts": [
-        "product-package",
         "capabilities",
         "interactions"
       ]
@@ -345,22 +342,6 @@
         "path": ".agents/skills/product-design/scripts/validate.mjs",
         "args": [
           "--strict"
-        ]
-      }
-    },
-    {
-      "id": "product-overview-strict",
-      "npmScript": "validate:product-overview",
-      "run": "npm run validate:product-overview",
-      "purpose": "校验 Product Overview 是否可移交给 Use Cases",
-      "blocking": true,
-      "domain": "product-design",
-      "executor": {
-        "kind": "module",
-        "path": ".agents/skills/product-design/scripts/validate.mjs",
-        "args": [
-          "--step",
-          "product-overview"
         ]
       }
     },
@@ -625,13 +606,6 @@
       ]
     },
     {
-      "id": "product-overview-readiness",
-      "commands": [
-        "harness",
-        "product-overview-strict"
-      ]
-    },
-    {
       "id": "use-cases-readiness",
       "commands": [
         "harness",
@@ -837,27 +811,6 @@
       "uninitializedProfile": "product-uninitialized"
     },
     {
-      "id": "product-overview",
-      "kind": "artifact",
-      "domain": "product-design",
-      "selectionGroup": "product-design",
-      "priority": 350,
-      "status": "active",
-      "selector": {
-        "type": "artifact",
-        "stage": "product-design",
-        "artifacts": [
-          "product-package"
-        ]
-      },
-      "defaultProfile": "product-overview-readiness",
-      "readinessProfile": "product-overview-readiness",
-      "uninitializedProfile": "product-uninitialized",
-      "handoffConsumers": [
-        "use-cases"
-      ]
-    },
-    {
       "id": "use-cases",
       "kind": "artifact",
       "domain": "product-design",
@@ -874,9 +827,6 @@
       "defaultProfile": "use-cases-readiness",
       "readinessProfile": "use-cases-readiness",
       "uninitializedProfile": "product-uninitialized",
-      "dependencies": [
-        "product-overview"
-      ],
       "handoffConsumers": [
         "wireflow",
         "architecture-design"

@@ -138,7 +138,7 @@ test('generic initialization creates Canonical UI Prototype and removes old arti
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
   assert.equal(stage.status, 'active');
-  assert.deepEqual(Object.keys(stage.artifacts), ['product-package', 'capabilities', 'interactions', 'canonical-ui-prototype']);
+  assert.deepEqual(Object.keys(stage.artifacts), ['capabilities', 'interactions', 'canonical-ui-prototype']);
   assert.equal(stage.areas['canonical-ui-prototype'].root, 'Canonical-UI-Prototype');
   assert.equal(stage.artifacts['html-mock'], undefined);
   const prototypeRoot = resolve(root, stage.root, stage.areas['canonical-ui-prototype'].root);
@@ -164,68 +164,77 @@ test('generic initialization creates Canonical UI Prototype and removes old arti
   assert.ok((await stat(resolve(prototypeRoot, 'public/vendor/html2canvas-1.4.1.min.js'))).isFile());
 });
 
-test('artifact operation commits YAML and Markdown from one candidate and rejects stale writers', async () => {
+test('Use Cases transaction commits authority, full document, and Product Package summary from one candidate', async () => {
   const root = await temporaryRepository();
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
-  const artifact = await readArtifact(root, stage, stage.artifacts['product-package']);
-  artifact.data.overview.productName = '原子事务产品';
-  const candidate = resolve(root, '.psp/candidate-product-package.yaml');
+  const binding = stage.artifacts.capabilities;
+  const artifact = await readArtifact(root, stage, binding);
+  const ucPath = resolve(root, stage.root, binding.outputs.find((output) => output.projection === 'use-cases-document').path);
+  const summaryPath = resolve(root, stage.root, binding.outputs.find((output) => output.projection === 'product-package-summary').path);
+  artifact.data.intent.productName = '原子事务产品';
+  const candidate = resolve(root, '.psp/candidate-use-cases.yaml');
   await writeFile(candidate, stringifyYaml(artifact.data));
   const before = await readFile(artifact.path, 'utf8');
   const applied = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-product-artifact',
-    '--artifact', 'product-package',
+    '--artifact', 'capabilities',
     '--input', candidate,
     '--expected-sha256', digest(before),
     '--json',
   ]);
   assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
   const authority = await readFile(artifact.path, 'utf8');
-  const markdown = await readFile(resolve(root, stage.root, stage.artifacts['product-package'].outputs[0].path), 'utf8');
+  const ucMarkdown = await readFile(ucPath, 'utf8');
+  const summaryMarkdown = await readFile(summaryPath, 'utf8');
   assert.match(authority, /原子事务产品/);
-  assert.match(markdown, /原子事务产品/);
-  assert.match(markdown, new RegExp('sourceSha256: ' + digest(authority)));
+  assert.match(ucMarkdown, /原子事务产品/);
+  assert.match(summaryMarkdown, /原子事务产品/);
+  assert.match(summaryMarkdown, /intent\.productName/);
+  assert.match(ucMarkdown, new RegExp('sourceSha256: ' + digest(authority)));
+  assert.match(summaryMarkdown, new RegExp('sourceSha256: ' + digest(authority)));
 
-  artifact.data.overview.productName = '过期写入';
+  artifact.data.intent.productName = '过期写入';
   await writeFile(candidate, stringifyYaml(artifact.data));
   const stale = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-product-artifact',
-    '--artifact', 'product-package',
+    '--artifact', 'capabilities',
     '--input', candidate,
     '--expected-sha256', digest(before),
     '--json',
   ]);
   assert.ok(codes(stale).has('AIH_USER_CHANGE_COLLISION'));
   assert.equal(await readFile(artifact.path, 'utf8'), authority);
-  assert.equal(await readFile(resolve(root, stage.root, stage.artifacts['product-package'].outputs[0].path), 'utf8'), markdown);
+  assert.equal(await readFile(ucPath, 'utf8'), ucMarkdown);
+  assert.equal(await readFile(summaryPath, 'utf8'), summaryMarkdown);
 });
 
-test('artifact operation rolls both files back when the second replacement fails', async () => {
+test('Use Cases transaction rolls all three targets back after a partial replacement failure', async () => {
   const root = await temporaryRepository();
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
-  const artifact = await readArtifact(root, stage, stage.artifacts['product-package']);
-  const outputPath = resolve(root, stage.root, stage.artifacts['product-package'].outputs[0].path);
+  const binding = stage.artifacts.capabilities;
+  const artifact = await readArtifact(root, stage, binding);
+  const outputPaths = binding.outputs.map((output) => resolve(root, stage.root, output.path));
   const beforeAuthority = await readFile(artifact.path, 'utf8');
-  const beforeMarkdown = await readFile(outputPath, 'utf8');
-  artifact.data.overview.productName = '不得留下的部分提交';
-  const candidate = resolve(root, '.psp/candidate-product-package.yaml');
+  const beforeMarkdown = await Promise.all(outputPaths.map((path) => readFile(path, 'utf8')));
+  artifact.data.intent.productName = '不得留下的部分提交';
+  const candidate = resolve(root, '.psp/candidate-use-cases.yaml');
   await writeFile(candidate, stringifyYaml(artifact.data));
   const failed = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-product-artifact',
-    '--artifact', 'product-package',
+    '--artifact', 'capabilities',
     '--input', candidate,
     '--expected-sha256', digest(beforeAuthority),
     '--json',
   ], { environment: { AI_HARNESS_TRANSACTION_FAIL_AFTER_RENAMES: '1' } });
   assert.ok(codes(failed).has('AIH_ARTIFACT_TRANSACTION_FAILED'));
   assert.equal(await readFile(artifact.path, 'utf8'), beforeAuthority);
-  assert.equal(await readFile(outputPath, 'utf8'), beforeMarkdown);
+  assert.deepEqual(await Promise.all(outputPaths.map((path) => readFile(path, 'utf8'))), beforeMarkdown);
 });
 
 test('artifact operation completes a journaled commit after a process crash', async () => {
@@ -234,15 +243,16 @@ test('artifact operation completes a journaled commit after a process crash', as
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
-  const artifact = await readArtifact(root, stage, stage.artifacts['product-package']);
-  const outputPath = resolve(root, stage.root, stage.artifacts['product-package'].outputs[0].path);
+  const binding = stage.artifacts.capabilities;
+  const artifact = await readArtifact(root, stage, binding);
+  const outputPaths = binding.outputs.map((output) => resolve(root, stage.root, output.path));
   const before = await readFile(artifact.path, 'utf8');
-  artifact.data.overview.productName = '崩溃恢复产品';
-  const candidate = resolve(root, '.psp/candidate-product-package.yaml');
+  artifact.data.intent.productName = '崩溃恢复产品';
+  const candidate = resolve(root, '.psp/candidate-use-cases.yaml');
   await writeFile(candidate, stringifyYaml(artifact.data));
   const crashed = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-product-artifact',
-    '--artifact', 'product-package',
+    '--artifact', 'capabilities',
     '--input', candidate,
     '--expected-sha256', digest(before),
     '--json',
@@ -251,16 +261,27 @@ test('artifact operation completes a journaled commit after a process crash', as
   const partiallyCommittedAuthority = await readFile(artifact.path, 'utf8');
   const recovered = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-product-artifact',
-    '--artifact', 'product-package',
+    '--artifact', 'capabilities',
     '--input', candidate,
     '--expected-sha256', digest(partiallyCommittedAuthority),
     '--json',
   ]);
   assert.equal(recovered.exitCode, 0, JSON.stringify(recovered.output, null, 2));
   assert.match(await readFile(artifact.path, 'utf8'), /崩溃恢复产品/);
-  assert.match(await readFile(outputPath, 'utf8'), /崩溃恢复产品/);
-  await assert.rejects(stat(resolve(root, '.psp/transactions/product-package.json')), { code: 'ENOENT' });
-  await assert.rejects(stat(resolve(root, '.psp/transactions/product-package.lock')), { code: 'ENOENT' });
+  for (const outputPath of outputPaths) assert.match(await readFile(outputPath, 'utf8'), /崩溃恢复产品/);
+  await assert.rejects(stat(resolve(root, '.psp/transactions/capabilities.json')), { code: 'ENOENT' });
+  await assert.rejects(stat(resolve(root, '.psp/transactions/capabilities.lock')), { code: 'ENOENT' });
+});
+
+test('Use Cases readiness detects drift in the Product Package summary projection', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const summary = stage.artifacts.capabilities.outputs.find((output) => output.projection === 'product-package-summary');
+  await appendFile(resolve(root, stage.root, summary.path), '\nmanual summary edit\n');
+  const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+  assert.ok(codes(result).has('AIH_GENERATED_DRIFT'));
 });
 
 test('static semantic entry generates deterministic hidden JSON and README projections', async () => {

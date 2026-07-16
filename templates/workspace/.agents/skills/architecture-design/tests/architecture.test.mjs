@@ -29,19 +29,11 @@ async function completeUseCasesFixture(root) {
   assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
-  const product = await readArtifact(root, stage, stage.artifacts['product-package']);
   const capabilities = await readArtifact(root, stage, stage.artifacts.capabilities);
-
-  markReady(product.data);
-  product.data.overview = {
-    productName: '示例产品',
-    productGoal: '验证 Use Cases 到架构的独立移交',
-    targetUsers: '规格作者',
-    coreValue: '提供确定性规格交付',
-  };
 
   markReady(capabilities.data);
   capabilities.data.intent = {
+    productName: '示例产品',
     productConcept: '规格验证工具',
     problem: '规格错误只能在交付后被发现',
     businessGoal: '减少不一致规格',
@@ -73,7 +65,7 @@ async function completeUseCasesFixture(root) {
     relationships: [],
   }];
 
-  await Promise.all([writeArtifact(product), writeArtifact(capabilities)]);
+  await writeArtifact(capabilities);
   const render = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--json']);
   assert.equal(render.exitCode, 0, JSON.stringify(render.output, null, 2));
 }

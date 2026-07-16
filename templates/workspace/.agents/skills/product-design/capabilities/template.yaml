@@ -4,6 +4,7 @@ metadata:
   status: draft
   version: 0.1.0
 intent:
+  productName: null
   productConcept: null
   problem: null
   businessGoal: null

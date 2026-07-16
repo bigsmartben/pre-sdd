@@ -44,18 +44,26 @@ test('resolver maps Canonical UI authority and projections to one artifact scope
   const result = resolveHarness(manifest, active, [path], 'change', repositoryRoot);
   assert.equal(result.status, 'READY', JSON.stringify(result.blockers));
   assert.deepEqual(result.scopes, ['canonical-ui-prototype']);
-  assert.deepEqual(result.upstreamScopes, ['product-overview', 'use-cases', 'wireflow']);
+  assert.deepEqual(result.upstreamScopes, ['use-cases', 'wireflow']);
   assert.deepEqual(result.downstreamConsumers, []);
 });
 
 test('Use Cases is the only product handoff source for Architecture Design', () => {
   const active = structuredClone(project);
   active.stages['product-design'].status = 'active';
-  const path = active.stages['product-design'].root + '/' + active.stages['product-design'].artifacts.capabilities.internalModel;
-  const result = resolveHarness(manifest, active, [path], 'change', repositoryRoot);
-  assert.equal(result.status, 'READY', JSON.stringify(result.blockers));
-  assert.deepEqual(result.scopes, ['use-cases']);
-  assert.deepEqual(result.downstreamConsumers, ['wireflow', 'architecture-design']);
+  const stage = active.stages['product-design'];
+  const binding = stage.artifacts.capabilities;
+  const authority = resolveHarness(manifest, active, [stage.root + '/' + binding.internalModel], 'change', repositoryRoot);
+  assert.equal(authority.status, 'READY', JSON.stringify(authority.blockers));
+  assert.deepEqual(authority.scopes, ['use-cases']);
+  assert.deepEqual(authority.upstreamScopes, []);
+  assert.deepEqual(authority.downstreamConsumers, ['wireflow', 'architecture-design']);
+  for (const output of binding.outputs) {
+    const projection = resolveHarness(manifest, active, [stage.root + '/' + output.path], 'change', repositoryRoot);
+    assert.equal(projection.status, 'BLOCKED');
+    assert.deepEqual(projection.scopes, ['use-cases']);
+    assert.ok(projection.blockers.some((blocker) => blocker.code === 'AIH_GENERATED_DRIFT'));
+  }
 });
 
 test('User Harness declares only internal handoff consumers', () => {
@@ -70,10 +78,21 @@ test('Harness validator accepts registered domains and rejects a vertical path o
   assert.equal(pass.exitCode, 0, JSON.stringify(pass.output, null, 2));
   const root = await temporaryRepository();
   await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
-    value.artifactRegistry.find((item) => item.id === 'product-package').schema = '.psp/harness/schemas/project.schema.json';
+    value.artifactRegistry.find((item) => item.id === 'capabilities').schema = '.psp/harness/schemas/project.schema.json';
   });
   const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
   assert.ok(codes(invalid).has('AIH_DOMAIN_BOUNDARY_INVALID'));
+});
+
+test('Harness rejects an unregistered Product Package summary projection binding', async () => {
+  const root = await temporaryRepository();
+  const projectPath = resolve(root, 'psp.project.yaml');
+  const bound = parseYaml(await readFile(projectPath, 'utf8'));
+  bound.stages['product-design'].artifacts.capabilities.outputs
+    .find((output) => output.path === 'PSP.md').projection = 'unknown-summary';
+  await writeFile(projectPath, stringifyYaml(bound));
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_PROJECT_BINDING_INVALID'));
 });
 
 test('Harness does not require domain-semantic blocker codes', async () => {
@@ -109,7 +128,7 @@ test('handoff returns a transient PASS receipt without initializing downstream',
   await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
     value.commands.push({ id: 'fixture-pass', npmScript: 'fixture:pass', run: 'npm run fixture:pass', purpose: 'fixture', blocking: true, executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' } });
     value.validationProfiles.find((item) => item.id === 'product-delivery').commands = ['fixture-pass'];
-    for (const scopeId of ['product-overview', 'use-cases', 'wireflow']) {
+    for (const scopeId of ['use-cases', 'wireflow']) {
       value.scopes.find((item) => item.id === scopeId).readinessProfile = 'product-delivery';
     }
   });
@@ -145,7 +164,7 @@ test('handoff executes commands in manifest order and marks commands after failu
       { id: 'fixture-notrun', npmScript: 'fixture:notrun', run: 'npm run fixture:notrun', purpose: 'fixture', blocking: true, executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' } },
     );
     value.validationProfiles.find((item) => item.id === 'product-delivery').commands = ['fixture-pass', 'fixture-fail', 'fixture-notrun'];
-    for (const scopeId of ['product-overview', 'use-cases', 'wireflow']) {
+    for (const scopeId of ['use-cases', 'wireflow']) {
       value.scopes.find((item) => item.id === scopeId).readinessProfile = 'product-delivery';
     }
   });

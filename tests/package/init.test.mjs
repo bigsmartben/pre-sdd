@@ -311,27 +311,32 @@ test('generated workspace applies an artifact transaction through its local runt
   assert.equal(initialized.status, 0, initialized.stderr + initialized.stdout);
   const project = parseYaml(await readFile(resolve(target, 'psp.project.yaml'), 'utf8'));
   const stage = project.stages['product-design'];
-  const binding = stage.artifacts['product-package'];
+  const binding = stage.artifacts.capabilities;
   const modelPath = resolve(target, stage.root, binding.internalModel);
-  const markdownPath = resolve(target, stage.root, binding.outputs[0].path);
+  const ucPath = resolve(target, stage.root, binding.outputs.find((output) => output.projection === 'use-cases-document').path);
+  const summaryPath = resolve(target, stage.root, binding.outputs.find((output) => output.projection === 'product-package-summary').path);
   const before = await readFile(modelPath, 'utf8');
   const candidate = parseYaml(before);
-  candidate.overview.productName = '本地事务执行验证';
-  const candidatePath = resolve(target, 'candidate-product-package.yaml');
+  candidate.intent.productName = '本地事务执行验证';
+  const candidatePath = resolve(target, 'candidate-use-cases.yaml');
   await writeFile(candidatePath, stringifyYaml(candidate), 'utf8');
   const expectedSha256 = createHash('sha256').update(before).digest('hex');
   const applied = runWorkspaceScript('apply:product-artifact', target, {}, [
-    '--artifact', 'product-package',
+    '--artifact', 'capabilities',
     '--input', candidatePath,
     '--expected-sha256', expectedSha256,
     '--json',
   ]);
   assert.equal(applied.status, 0, applied.stderr + applied.stdout);
   const authority = await readFile(modelPath, 'utf8');
-  const markdown = await readFile(markdownPath, 'utf8');
+  const ucMarkdown = await readFile(ucPath, 'utf8');
+  const summaryMarkdown = await readFile(summaryPath, 'utf8');
   assert.match(authority, /本地事务执行验证/);
-  assert.match(markdown, /本地事务执行验证/);
-  assert.match(markdown, new RegExp('sourceSha256: ' + createHash('sha256').update(authority).digest('hex')));
+  assert.match(ucMarkdown, /本地事务执行验证/);
+  assert.match(summaryMarkdown, /本地事务执行验证/);
+  const sourceSha256 = createHash('sha256').update(authority).digest('hex');
+  assert.match(ucMarkdown, new RegExp('sourceSha256: ' + sourceSha256));
+  assert.match(summaryMarkdown, new RegExp('sourceSha256: ' + sourceSha256));
 
   const legacyRender = runWorkspaceScript('render:product', target);
   assert.notEqual(legacyRender.status, 0);

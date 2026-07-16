@@ -10,11 +10,11 @@
 
 例如：
 
-> 请根据这段产品想法整理产品概览：为小型设计团队提供一个可追踪评审意见的协作工具。
+> 请根据这段产品想法整理 Use Cases（用例）：为小型设计团队提供一个可追踪评审意见的协作工具。
 
 Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次需要的阶段，在临时位置准备候选结构化数据，再通过已登记的产物事务一次生成权威 YAML 与面向使用者的 Markdown，最后执行当前范围要求的验证。完成当前产物不会自动开始下游工作；是否继续仍由使用者明确决定。
 
-阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次只请求产品概览时，产品阶段初始化也会创建 `UC.md` 与页面流程模板；Agent 仍只能填写和验证产品概览事实。
+阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化也会创建 `PSP.md` 摘要、页面流程模板和界面工程；Agent 仍只能填写和验证 Use Cases 事实。
 
 ## 初始状态
 
@@ -33,18 +33,18 @@ Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次�
 
 ```mermaid
 flowchart LR
-    I["Product Idea<br/>产品想法（使用者输入）"] --> O["Product Overview<br/>产品概览"]
-    O --> U["Use Cases<br/>用例"]
+    I["Product Idea<br/>产品想法（使用者输入）"] --> U["Use Cases<br/>用例（唯一产品事实）"]
+    U -.只读摘要投影.-> O["Product Package / PSP.md<br/>产品摘要"]
     U --> W["Wireflow<br/>页面流程"]
     W --> C["Canonical UI Prototype<br/>规范界面原型"]
     U --> A["Architecture Design<br/>架构设计"]
 ```
 
-“Product Idea（产品想法）”是使用者提供的输入；进入工作区后形成的第一个正式产物是 “Product Overview（产品概览）”。Architecture Design 只依赖已通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。
+“Product Idea（产品想法）”是使用者提供的输入；进入工作区后形成的第一个权威产物是 Use Cases。Product Package / `PSP.md` 只从 Use Cases 内部模型确定性生成摘要，不拥有独立产品事实、readiness、依赖或 handoff。Architecture Design 只依赖已通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。
 
 每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
 
-例如，产品概览通过后，Agent 必须取得从 `product-overview` 到 `use-cases` 的移交凭证；只有使用者随后明确要求编写用例，Agent 才会开始 Use Cases。
+例如，Use Cases 通过后，Agent 必须分别在使用者明确请求下游时取得到 `wireflow` 或 `architecture-design` 的移交凭证；生成 `PSP.md` 摘要不构成独立生命周期步骤。
 
 当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
 
@@ -54,22 +54,20 @@ flowchart LR
 
 | 当前产物 | 权威入口 | 正式用户产物 |
 |---|---|---|
-| Product Overview（产品概览） | `01-product-design/.psp/models/product-package.yaml` | `01-product-design/PSP.md` |
-| Use Cases（用例） | `01-product-design/.psp/models/use-cases.yaml` | `01-product-design/UC.md` |
+| Use Cases（用例） | `01-product-design/.psp/models/use-cases.yaml` | `01-product-design/UC.md` 与只读摘要 `01-product-design/PSP.md` |
 | Wireflow（页面流程） | `01-product-design/.psp/models/wireflow-mid.yaml` | `01-product-design/wireflow-mid.md` |
 | Canonical UI Prototype（规范界面原型） | `01-product-design/Canonical-UI-Prototype/src/spec/canonical-ui.ts` | 可执行界面与 `01-product-design/Canonical-UI-Prototype/README.md` |
 | Architecture Design（架构设计） | `02-architecture-design/.psp/models/*.yaml` | `02-architecture-design/README.md`、`02-architecture-design/系统边界.md`、`02-architecture-design/概念建模.md` 与 `02-architecture-design/技术验证/README.md` |
 
-例如，调整一个用例时，Agent 先在临时文件准备候选数据，再使用 `apply-product-artifact` 提交 `use-cases.yaml` 与 `UC.md`。直接修改其中任何一个目标文件，或单独运行 `render:product`，都会被视为不符合日常更新协议。
+例如，调整一个用例时，Agent 先在临时文件准备候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml`、`UC.md` 与 `PSP.md`。直接修改其中任何一个目标文件，或单独运行 `render:product`，都会被视为不符合日常更新协议；Validator 会把任一摘要漂移报告为 `AIH_GENERATED_DRIFT`。
 
 ## 阶段初始化后的关键结构
 
-产品阶段初始化后会创建三个结构化模型、对应的 Markdown 产物，以及规范界面原型的本地工程：
+产品阶段初始化后会创建两个 YAML 权威模型、一个 JSON 支撑投影、三个 Markdown 产物，以及规范界面原型的本地工程：
 
 ```text
 01-product-design/
 ├─ .psp/models/
-│  ├─ product-package.yaml
 │  ├─ use-cases.yaml
 │  ├─ wireflow-mid.yaml
 │  └─ canonical-ui-prototype.json
@@ -83,6 +81,21 @@ flowchart LR
    ├─ README.md
    └─ package.json
 ```
+
+其中不存在 `product-package.yaml`：`PSP.md` 与 `UC.md` 共享 `use-cases.yaml` 这一权威来源。
+
+## 旧 Product Package 的迁入策略
+
+本工作区不提供更新、升级、迁移或同步操作；全局 `pre-sdd` 更新不会改写既有工作区。旧工作区继续使用其本地快照。若要把旧内容带入新版工作区，必须新建工作区并显式审查以下映射：
+
+| 旧字段 | 新权威位置 | 冲突处理 |
+|---|---|---|
+| `overview.productName` | `intent.productName` | 两边名称不同则记录 gap，不自动选边 |
+| `overview.productGoal` | `intent.businessGoal` | 已有业务目标不一致时保留两份输入并请求确认 |
+| `overview.targetUsers` | `actors[]` | 旧字段是自由文本，必须拆分并确认 Actor，不自动解析后覆盖 |
+| `overview.coreValue` | `useCases[].value` | 无法归属具体 Use Case 的内容记录为 gap |
+
+`primaryChain`、`supportingArtifacts`、旧 Product Package gates 和 handoff 信息属于旧治理模型，不迁入产品事实。迁入完成后只能通过 Use Cases 产物事务生成新的 `UC.md` 与 `PSP.md`，不得从旧 `PSP.md` 反向生成用例。
 
 架构阶段只有在 `use-cases` 到 `architecture-design` 的上游移交通过后才能初始化。初始化后的关键结构如下：
 
@@ -192,7 +205,7 @@ flowchart LR
 
 | Owner（所有者） | Owns（负责） | Does Not Own（不负责） | Example（例子） |
 |---|---|---|---|
-| Agent（智能代理） | 使用者对话、当前范围、产物编写、结果解释 | 绕过门禁、自动推进 | 使用者只要求产品概览时，不自动编写用例 |
+| Agent（智能代理） | 使用者对话、当前范围、产物编写、结果解释 | 绕过门禁、自动推进 | 使用者只要求 Use Cases 时，不自动开始 Wireflow |
 | Harness（执行控制体系） | 输入输出、路径、Scope（范围）、依赖、生命周期、命令、状态与移交 | 产品或架构语义 | 检查 Manifest 声明的文件是否存在，不判断产品目标是否合理 |
 | Domain Skill（领域能力） | 领域工作流、Contract、Schema、模板、追溯、渲染器和领域 Validator | 使用者审批、阶段推进、路径推断 | 产品设计能力检查用例场景是否完整 |
 | Canonical UI Prototype（规范界面原型） | 可执行界面和 `src/spec/canonical-ui.ts` 语义事实 | 下游平台映射和代码生成规则 | 按页面流程表达界面状态，但不决定使用 React 或 Vue |

@@ -9,15 +9,6 @@ import {
   stringifyStructured,
 } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 
-const LABELS = {
-  capabilities: 'UC Specification',
-  interactions: 'Wireflow Mid-Fidelity Specification',
-  'canonical-ui-prototype': 'Canonical UI Prototype',
-  'system-boundary': '系统边界',
-  'conceptual-model': '概念建模',
-  'technical-validation': '技术验证',
-};
-
 function text(value) {
   return value === null || value === undefined || value === ''
     ? '未提供（见显式 gaps）'
@@ -74,59 +65,50 @@ function gaps(data) {
   ];
 }
 
-function relativeLink(from, to) {
-  const value = posix.relative(posix.dirname(from), to);
-  return value.startsWith('.') ? value : './' + value;
-}
-
-function renderProductPackage(data, context) {
-  const lines = header('Product Specification Package', data, context);
+function renderProductPackageSummary(data, context) {
+  const targetUsers = data.actors.map((actor) => actor.name + '（' + actor.id + '）');
+  const coreValues = [...new Set(data.useCases.map((useCase) => useCase.value))];
+  const lines = header('Product Package Summary', data, context);
   lines.push(
-    '本文件是产品设计 Package 的正式用户产物；隐藏结构化模型只服务于生成和机器校验，不属于用户交付物。',
+    '本文件是 Use Cases 权威模型的只读摘要投影，不拥有独立产品事实，也不得单独编辑。所有摘要字段均可追溯到同一次产物事务提交的 `use-cases.yaml`。',
     '',
-    '## Product Overview',
+    '## Product Summary',
     '',
-    '- 产品名称：' + text(data.overview.productName),
-    '- 产品目标：' + text(data.overview.productGoal),
-    '- 目标用户：' + text(data.overview.targetUsers),
-    '- 核心价值：' + text(data.overview.coreValue),
-    '- 当前版本：' + data.metadata.version,
+    table(
+      ['摘要字段', '投影值', '权威来源'],
+      [
+        ['产品名称', data.intent.productName, 'intent.productName'],
+        ['产品概念', data.intent.productConcept, 'intent.productConcept'],
+        ['待解决问题', data.intent.problem, 'intent.problem'],
+        ['产品目标', data.intent.businessGoal, 'intent.businessGoal'],
+        ['成功信号', data.intent.successSignal, 'intent.successSignal'],
+        ['目标用户', targetUsers.join('；'), 'actors[].name / actors[].id'],
+        ['核心价值', coreValues.join('；'), 'useCases[].value'],
+      ],
+    ),
     '',
-    '## Primary Delivery Chain',
+    '## Product Scope',
     '',
-  );
-  for (const artifactId of data.primaryChain) {
-    const artifact = context.artifacts[artifactId];
-    const target = artifact?.outputs?.find((output) => output.role === 'user-artifact')?.path;
-    lines.push('- [' + LABELS[artifactId] + '](' + relativeLink(context.output, target) + ')');
-  }
-  lines.push(
+    '### Included',
     '',
-    '## Supporting Artifacts',
+    list(data.productScope.included),
     '',
-  );
-  for (const artifactId of data.supportingArtifacts) {
-    const artifact = context.artifacts[artifactId];
-    const target = artifact?.outputs?.find((output) => output.role === 'user-artifact')?.path;
-    lines.push(target
-      ? '- [' + LABELS[artifactId] + '](' + relativeLink(context.output, target) + ')'
-      : '- ' + LABELS[artifactId] + '（机器生成支撑，不作为用户产物）');
-  }
-  lines.push(
+    '### Excluded',
     '',
-    '## Reading Protocol',
+    list(data.productScope.excluded),
     '',
-    '1. 本文件只拥有 Product Overview（产品概览）事实，不代表后续产物已经开始。',
-    '2. Use Case（用例）→ Wireflow（交互流程）→ Canonical UI Prototype（规范界面原型）只能消费通过门禁的上游事实，不得反向改写。',
-    '3. Canonical UI Prototype 的可执行界面及 TypeScript 语义入口共同构成正式界面规格。',
-    '4. 遇到 gap（缺口）或冲突时停止下游推导，并反馈对应上游用户产物。',
+    '## Use Case Index',
     '',
-    '## Abstraction Boundary',
+    table(
+      ['Use Case', '名称', 'Actor', '目标', '价值'],
+      data.useCases.map((useCase) => [useCase.id, useCase.name, useCase.actor, useCase.goal, useCase.value]),
+    ),
     '',
-    '- UC Specification 定义产品行为事实，不定义 Screen 或实现。',
-    '- Wireflow Mid 定义 Screen、内容层级、Control、状态和分支流转，不定义代码组件。',
-    '- Canonical UI Prototype 将 Wireflow 转成可运行、可操作、可审阅的正式界面规格。',
-    '- 本 Package 不拥有软件架构和生产实现事实。',
+    '## Projection Rules',
+    '',
+    '1. 本摘要只能由 Use Cases 权威模型确定性生成；不存在从 `PSP.md` 反向更新 `use-cases.yaml` 的路径。',
+    '2. 依赖、readiness（就绪）和 handoff（移交）关系只由 Harness Manifest 管理，不写入产品内容模型。',
+    '3. 修改 Use Cases 时，产物事务必须原子更新 `UC.md` 与本摘要；任一文件漂移都会被 Validator（校验器）阻断。',
     '',
     ...gates(data),
     ...gaps(data),
@@ -141,6 +123,7 @@ function renderCapabilities(data, context) {
     '',
     '## 产品意图',
     '',
+    '- 产品名称：' + text(data.intent.productName),
     '- 产品概念：' + text(data.intent.productConcept),
     '- 待解决问题：' + text(data.intent.problem),
     '- 业务目标：' + text(data.intent.businessGoal),
@@ -350,7 +333,7 @@ function renderInteractions(data, context) {
 }
 
 const RENDERERS = {
-  'product-package-markdown': renderProductPackage,
+  'product-package-summary-markdown': renderProductPackageSummary,
   'capabilities-markdown': renderCapabilities,
   'interactions-markdown': renderInteractions,
 };
@@ -361,12 +344,16 @@ function structuredHash(data, format) {
 }
 
 function outputsForArtifact(registry, paths, data, allArtifacts, project, sourceSha256) {
-  const renderer = RENDERERS[registry.renderer];
-  if (!renderer) throw new Error('未知 renderer：' + registry.renderer);
   return paths.outputs.map((output) => {
+    const projection = registry.projections?.find((item) => item.id === output.projection);
+    const rendererId = projection?.renderer || registry.renderer;
+    const renderer = RENDERERS[rendererId];
+    if (registry.projections && !projection) throw new Error('未知 projection：' + registry.id + ' / ' + output.projection);
+    if (!renderer) throw new Error('未知 renderer：' + rendererId);
     const target = output.path;
     return {
       artifact: registry.id,
+      projection: output.projection,
       internalModel: paths.authorityPath,
       output: target,
       role: output.role,

@@ -133,6 +133,7 @@ export function artifactPaths(project, artifactId, stageId) {
   const outputs = projectionBindings.map((output) => ({
     path: joinRepositoryPath(stage.root, output.path),
     role: output.role,
+    projection: output.projection || null,
   }));
   const inputRoot = binding.inputRoot
     ? joinRepositoryPath(stage.root, binding.inputRoot)

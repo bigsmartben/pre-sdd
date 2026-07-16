@@ -11,8 +11,9 @@
     "intent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["productConcept", "problem", "businessGoal", "successSignal"],
+      "required": ["productName", "productConcept", "problem", "businessGoal", "successSignal"],
       "properties": {
+        "productName": {"$ref": "#/$defs/nullableText"},
         "productConcept": {"$ref": "#/$defs/nullableText"},
         "problem": {"$ref": "#/$defs/nullableText"},
         "businessGoal": {"$ref": "#/$defs/nullableText"},

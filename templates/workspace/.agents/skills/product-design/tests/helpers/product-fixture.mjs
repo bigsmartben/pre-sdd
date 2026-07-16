@@ -37,20 +37,12 @@ export async function completeProductFixture(root) {
   assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
-  const product = await readArtifact(root, stage, stage.artifacts['product-package']);
   const capabilities = await readArtifact(root, stage, stage.artifacts.capabilities);
   const interactions = await readArtifact(root, stage, stage.artifacts.interactions);
 
-  markReady(product.data);
-  product.data.overview = {
-    productName: '示例产品',
-    productGoal: '验证 Harness 严格门禁',
-    targetUsers: '规格作者',
-    coreValue: '提供确定性规格交付',
-  };
-
   markReady(capabilities.data);
   capabilities.data.intent = {
+    productName: '示例产品',
     productConcept: '规格验证工具',
     problem: '产品规格中的结构与引用错误只能在交付后被发现',
     businessGoal: '减少不一致规格',
@@ -488,7 +480,6 @@ export async function completeProductFixture(root) {
   );
 
   await Promise.all([
-    writeArtifact(product),
     writeArtifact(capabilities),
     writeArtifact(interactions),
   ]);

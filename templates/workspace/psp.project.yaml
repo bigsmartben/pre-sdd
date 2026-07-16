@@ -7,16 +7,15 @@ stages:
     status: uninitialized
     root: 01-product-design
     artifacts:
-      product-package:
-        internalModel: .psp/models/product-package.yaml
-        outputs:
-          - path: PSP.md
-            role: user-artifact
       capabilities:
         internalModel: .psp/models/use-cases.yaml
         outputs:
           - path: UC.md
             role: user-artifact
+            projection: use-cases-document
+          - path: PSP.md
+            role: user-artifact
+            projection: product-package-summary
       interactions:
         internalModel: .psp/models/wireflow-mid.yaml
         outputs:
