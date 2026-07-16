@@ -82,7 +82,7 @@
           "required": ["executorAuthority", "dependencyAuthority", "testWorkspace", "runtimeEvidence"],
           "properties": {
             "executorAuthority": {"const": "generated-workspace-local"},
-            "dependencyAuthority": {"const": "packaged-runtime"},
+            "dependencyAuthority": {"const": "generated-workspace-package-lock"},
             "testWorkspace": {"const": "os-temporary-copy"},
             "runtimeEvidence": {"const": "os-temporary-directory"}
           }

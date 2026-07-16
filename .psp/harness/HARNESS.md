@@ -8,8 +8,8 @@
 |---|---|---|---|
 | 脚手架源仓库（Scaffold Repository） | 仓库根目录 | 模板、运行时、测试、打包与发布工程 | 产品或架构用户阶段 |
 | 工作区模板（Workspace Template） | `templates/workspace/` | 生成工作区初始文件 | 活跃用户实例与运行证据 |
-| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` | 通用命令分发与依赖环境 | 目标工作区的本地执行事实 |
-| 生成工作区（Generated Workspace） | `pre-sdd init` 的目标目录 | 本地 Manifest、领域 Skill、Contract、Schema、Validator 与用户产物 | 脚手架源仓库维护规则 |
+| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` | 安装、更新、新工作区初始化与内部命令分发 | 既有工作区的运行配置和本地执行事实 |
+| 生成工作区（Generated Workspace） | `pre-sdd init` 的目标目录 | 本地 `package.json`、`package-lock.json`、Manifest、领域 Skill、Contract、Schema、Validator 与用户产物 | 脚手架源仓库维护规则和全局工具后续版本 |
 
 ## 解析与变更
 
@@ -28,7 +28,9 @@
 - 模板项目必须保持全部可用阶段为 `uninitialized`，阶段根目录只能包含 Manifest 声明的工作区标记。
 - 模板必须包含 Manifest 声明的本地领域 Skill，且不得包含镜像绑定、`node_modules`、构建输出或运行证据。
 - 根与模板 `AGENTS.md` 必须相互独立，并满足各自声明的文本契约。
-- 包运行时必须执行目标工作区 Manifest 声明的本地 executor（执行器）；包内模板只用于初始化，不得作为执行替身。
+- 面向用户的命令操作只包括安装、更新和 `pre-sdd init .`；`pre-sdd harness` 是 Agent 与 Harness 的内部入口。
+- 既有工作区不提供更新、升级、迁移或同步；本地 `package.json` 与 `package-lock.json` 固定运行配置，因此全局工具不承担旧工作区跨版本兼容。
+- 工作区锁定的运行时必须执行目标工作区 Manifest 声明的本地 executor（执行器）；包内模板只用于初始化，不得作为执行替身。
 - 持续集成（Continuous Integration）工作流只能调用 Manifest 登记的统一执行器；该执行器必须先用 Resolver 覆盖全部仓库路径，再按返回顺序实际执行所有命令。
 
 上述规则由 Schema 先校验结构，再由 `validate-harness.mjs` 完成跨文件校验。Validator 只解释脚手架工程结构，不解释产品或架构内容。

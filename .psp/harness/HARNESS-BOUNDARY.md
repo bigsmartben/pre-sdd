@@ -9,18 +9,37 @@ flowchart LR
     S["Scaffold Repository<br/>脚手架源仓库"] --> T["Workspace Template<br/>工作区模板"]
     S --> R["Packaged Runtime<br/>打包运行时"]
     T -->|"pre-sdd init"| W["Generated Workspace<br/>生成工作区"]
-    R -->|"提供依赖与通用执行环境"| W
-    W -->|"本地 Manifest 与 Executor"| E["本地领域执行事实"]
+    R -->|"只参与生成新工作区"| W
+    W --> P["本地 package.json 与 package-lock.json<br/>固定工作区运行配置"]
+    P --> E["本地 Manifest、Skill 与 Executor<br/>本地领域执行事实"]
 ```
 
 | 上下文 | 唯一事实来源 | 例子 |
 |---|---|---|
 | 脚手架源仓库（Scaffold Repository） | 根 `PSPScaffoldProject`、根 Harness、工程测试 | 校验模板纯净性和发布清单 |
 | 工作区模板（Workspace Template） | `templates/workspace/` | 初始化时复制的本地 Harness 与领域 Skill |
-| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` 与包依赖 | 为本地 Validator 提供 Node.js 依赖 |
-| 生成工作区（Generated Workspace） | 目标仓库本地 `PSPProject`、Manifest、Skill、Contract、Schema、Validator | 修改本地产品 Validator 后，下一次执行立即采用该修改 |
+| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` 与包依赖 | 安装或更新后的命令行工具只生成未来的新工作区 |
+| 生成工作区（Generated Workspace） | 目标仓库本地 `PSPProject`、`package.json`、`package-lock.json`、Manifest、Skill、Contract、Schema、Validator | 全局 `pre-sdd` 更新后，既有工作区仍按自己的锁定配置运行 |
 
-核心规则：脚手架仓库生产工作区，模板定义工作区初始形态，全局运行时提供执行环境，生成仓库本地拥有领域 Skill 与执行事实。
+核心规则：脚手架仓库生产工作区，模板定义工作区初始形态，全局命令行工具只参与安装、更新和初始化；生成仓库本地拥有运行配置、领域 Skill 与执行事实。
+
+## 用户命令面与工作区生命周期
+
+面向用户的命令操作只有三项；这是公共用户接口（Public User Interface）的完整集合：
+
+| 用户操作 | 命令示例 | 影响范围 |
+|---|---|---|
+| 安装 `pre-sdd` | `npm install --global git+https://github.com/bigsmartben/pre-sdd.git` | 安装用于创建新工作区的命令行工具 |
+| 更新 `pre-sdd` | `npm update --global pre-sdd` | 只影响以后创建的新工作区 |
+| 初始化工作区 | `pre-sdd init .` | 在目标目录生成一个固定版本的工作区 |
+
+`pre-sdd harness` 是 Agent（智能代理）与 Harness Adapter（执行控制适配器）的内部调度入口，不属于公共用户接口。用户初始化后只需用自然语言指定当前产物；Agent 通过生成工作区的本地 Node.js 包管理器脚本执行解析、初始化、校验和移交。
+
+既有工作区不提供 update（更新）、upgrade（升级）、migrate（迁移）或 sync（同步）操作。工作区一经生成，就由本地 `package.json` 与 `package-lock.json` 固定其运行依赖和命令入口；本地 Manifest、Skill、Contract、Schema 与 Validator 固定其执行事实。全局 `pre-sdd` 的后续更新不得被既有工作区自动采用。
+
+因此，架构不建立“新版全局 `pre-sdd` 命令行工具兼容旧工作区”的跨版本兼容契约。新版只需保证自己生成的新工作区内部一致并通过初始化门禁；旧工作区继续依靠自身锁定配置保持当下可用。
+
+例如，使用者先用版本甲初始化 `product-a`，随后把全局工具更新为版本乙并初始化 `product-b`。`product-a` 仍使用版本甲写入的工作区配置，`product-b` 使用版本乙模板；版本乙不得接管或改写 `product-a`。
 
 ## Harness 职责边界
 
@@ -45,8 +64,10 @@ Harness 只拥有与语义和内容效果无关的结构化硬治理：输入输
 
 ## 运行时规则
 
+- 全局 `pre-sdd` 只拥有新工作区生成能力；初始化成功后不再成为该工作区的运行时权威。
+- 生成工作区的 `package.json` 与 `package-lock.json` 是运行依赖与命令解析的唯一事实来源；Agent 只能通过工作区本地 Node.js 包管理器脚本进入执行链。
 - Manifest 的 `executor.path` 相对于目标生成工作区解析，实际执行目标工作区本地文件。
-- 打包运行时可以提供 Ajv、YAML、Vite、Playwright 等依赖，但不得把 `templates/workspace/` 中的执行器当作目标工作区执行器。
+- 工作区锁定的运行依赖可以提供 Ajv、YAML、Vite、Playwright 等通用能力，但不得把 `templates/workspace/` 中的执行器当作目标工作区执行器。
 - 运行证据写入操作系统临时目录，不写入模板。
 
 例如，初始化临时工作区后，把本地产品 Validator 改成固定失败；再次运行对应命令必须读到该失败。若命令仍通过，说明运行时错误使用了包内模板副本，应以 `AIH_EXECUTOR_AUTHORITY_INVALID` 阻断。

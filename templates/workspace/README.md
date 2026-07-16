@@ -47,7 +47,9 @@ Product Overview / 产品概览
 
 `inputs/` 是非权威支撑输入，`.psp/models/` 是领域权威模型，Markdown 是正式用户产物；三者不得混用。Architecture Design 只读取通过门禁的 Use Cases，不依赖 Canonical UI Prototype。
 
-## 常用命令
+## Agent 内部命令
+
+以下命令由 Agent（智能代理）和 Harness Adapter（执行控制适配器）根据用户意图调用，不是用户命令：
 
 ```bash
 npm run harness:resolve -- --intent change --path <实际变更路径> --json
@@ -57,7 +59,9 @@ npm run validate:architecture
 npm run handoff -- --from <source-scope> --to <consumer-scope> --json
 ```
 
-工作区命令通过全局或一次性 `pre-sdd` 运行时取得依赖，但执行器从当前工作区本地 Manifest 声明的路径加载。本地领域 Skill、Contract、Schema、模板、渲染器和 Validator 不由包内模板副本替代。
+工作区本地 `package.json` 与 `package-lock.json` 固定运行配置，命令执行器从当前工作区本地 Manifest 声明的路径加载。本地领域 Skill、Contract、Schema、模板、渲染器和 Validator 不由包内模板副本替代。
+
+本工作区不提供更新、升级、迁移或同步操作。全局 `pre-sdd` 后续更新只影响新初始化的工作区，不得改变当前工作区的运行配置；当前工作区也不依赖新版全局命令行工具兼容旧工作区。
 
 ## 职责边界
 

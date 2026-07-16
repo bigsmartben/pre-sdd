@@ -30,7 +30,9 @@ flowchart LR
 
 ## 本地执行事实
 
-工作区本地 Manifest、领域 Skill、Contract、Schema、模板、渲染器和 Validator 是执行唯一事实来源。全局 `pre-sdd` 运行时可以提供依赖与通用执行环境，但必须执行当前工作区本地 `executor.path`，不得改用包内 `templates/workspace/` 副本。
+工作区本地 `package.json` 与 `package-lock.json` 是运行配置唯一事实来源；本地 Manifest、领域 Skill、Contract、Schema、模板、渲染器和 Validator 是治理与领域执行唯一事实来源。Agent 必须通过本地 Node.js 包管理器脚本执行当前工作区的 `executor.path`，不得改用包内 `templates/workspace/` 副本。
+
+全局 `pre-sdd` 只负责安装、更新和生成新工作区。当前工作区不提供更新、升级、迁移或同步操作，也不自动采用后来更新的全局运行时；因此不要求新版全局命令行工具兼容本工作区。
 
 例如，用户修改当前工作区 `.agents/skills/product-design/scripts/validate.mjs` 后，下一次 `npm run validate:product` 必须立即采用该修改。
 

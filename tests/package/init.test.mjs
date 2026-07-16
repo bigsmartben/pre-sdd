@@ -186,6 +186,8 @@ test('package allowlist includes runtime and template but excludes root workspac
   });
   assert.equal(packed.status, 0, packed.stderr);
   const files = new Set(JSON.parse(packed.stdout)[0].files.map((item) => item.path));
+  assert.ok(files.has('README.md'));
+  assert.ok(files.has('QUICKSTART.md'));
   assert.ok(files.has('bin/pre-sdd.mjs'));
   assert.ok(files.has('runtime/dispatch.mjs'));
   assert.ok(files.has('runtime/register-dependency-loader.mjs'));

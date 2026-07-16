@@ -10,7 +10,8 @@
     "bin/",
     "runtime/",
     "templates/workspace/",
-    "README.md"
+    "README.md",
+    "QUICKSTART.md"
   ],
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

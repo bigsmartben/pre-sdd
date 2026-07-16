@@ -56,25 +56,31 @@
       {
         "id": "scaffold-standard",
         "path": ".psp/harness/HARNESS-BOUNDARY.md",
-        "requiredText": ["四层模型", "生成仓库本地拥有领域 Skill 与执行事实", "AIH_EXECUTOR_AUTHORITY_INVALID", "持续集成工作流从 Manifest"],
+        "requiredText": ["四层模型", "用户命令面与工作区生命周期", "生成仓库本地拥有运行配置、领域 Skill 与执行事实", "既有工作区不提供 update（更新）、upgrade（升级）、migrate（迁移）或 sync（同步）操作", "AIH_EXECUTOR_AUTHORITY_INVALID", "持续集成工作流从 Manifest"],
         "forbiddenText": ["根 Manifest 只登记领域"]
       },
       {
         "id": "scaffold-readme",
         "path": "README.md",
-        "requiredText": ["脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", ".psp/harness/scripts/run-ci-validation.mjs"],
+        "requiredText": ["开发者视角（Developer View）", "脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", "既有工作区不提供更新或升级操作", ".psp/harness/scripts/run-ci-validation.mjs", "QUICKSTART.md"],
         "forbiddenText": ["根目录是软件包源码、开发 Harness 和仓库领域 Skill"]
+      },
+      {
+        "id": "scaffold-quickstart",
+        "path": "QUICKSTART.md",
+        "requiredText": ["使用者视角（User View）", "用户命令只有三项", "npm update --global pre-sdd", "pre-sdd init", "目标工作区本地文件"],
+        "forbiddenText": ["pre-sdd harness", "npm exec", "npm run", ".psp/harness/scripts/run-ci-validation.mjs"]
       },
       {
         "id": "workspace-readme",
         "path": "templates/workspace/README.md",
-        "requiredText": ["生成工作区（Generated Workspace）", "不是 `pre-sdd` 脚手架源仓库", "本地 Manifest 声明的路径加载"],
+        "requiredText": ["生成工作区（Generated Workspace）", "不是 `pre-sdd` 脚手架源仓库", "本地 Manifest 声明的路径加载", "本工作区不提供更新、升级、迁移或同步操作"],
         "forbiddenText": ["npm install --global"]
       },
       {
         "id": "workspace-harness-boundary",
         "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
-        "requiredText": ["生成工作区 Harness 职责边界", "本地执行事实", "不得改用包内 `templates/workspace/` 副本"],
+        "requiredText": ["生成工作区 Harness 职责边界", "本地执行事实", "package.json` 与 `package-lock.json", "不提供更新、升级、迁移或同步操作", "不得改用包内 `templates/workspace/` 副本"],
         "forbiddenText": ["脚手架固化要求"]
       }
     ],
@@ -93,7 +99,7 @@
     ],
     "execution": {
       "executorAuthority": "generated-workspace-local",
-      "dependencyAuthority": "packaged-runtime",
+      "dependencyAuthority": "generated-workspace-package-lock",
       "testWorkspace": "os-temporary-copy",
       "runtimeEvidence": "os-temporary-directory"
     },
@@ -154,7 +160,7 @@
       "status": "active",
       "selector": {
         "type": "static",
-        "paths": ["AGENTS.md", "README.md", "psp.project.yaml", ".gitignore", ".agents/skills/**", ".codex/**", ".github/**", ".psp/harness/**"]
+        "paths": ["AGENTS.md", "README.md", "QUICKSTART.md", "psp.project.yaml", ".gitignore", ".agents/skills/**", ".codex/**", ".github/**", ".psp/harness/**"]
       },
       "defaultProfile": "scaffold-governance",
       "readinessProfile": "scaffold-governance"
