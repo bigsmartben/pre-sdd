@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "11.0.0",
+  "version": "12.0.0",
   "runtime": {
     "protocol": "pre-sdd-harness/v2",
     "command": "pre-sdd",
@@ -416,7 +416,7 @@
       "id": "architecture-strict",
       "npmScript": "validate:architecture:strict",
       "run": "npm run validate:architecture:strict",
-      "purpose": "校验架构产物是否达到 Spec-Kit 可消费状态",
+      "purpose": "校验架构产物是否达到当前工作区的严格交付状态",
       "blocking": true,
       "domain": "architecture-design",
       "executor": {
@@ -868,9 +868,6 @@
       "uninitializedProfile": "architecture-uninitialized",
       "dependencies": [
         "use-cases"
-      ],
-      "externalConsumers": [
-        "spec-kit"
       ],
       "domain": "architecture-design"
     },

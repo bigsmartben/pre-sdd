@@ -2,6 +2,8 @@
 
 此目录由 `pre-sdd init` 创建，是业务交付工作区，不是 `pre-sdd` 脚手架源仓库。本地 `psp.project.yaml`、`.psp/harness/` 与 `.agents/skills/` 是本工作区的治理和领域执行唯一事实来源。
 
+本地 `.psp/harness/` 是 User Harness（使用者治理层）：它只约束当前生成工作区，不负责脚手架模板维护，也不与其他工作区共享生命周期或运行事实。
+
 ## 初始状态
 
 工作区初始化只创建两个阶段的空目录骨架，不创建任何用户实例或业务事实。
@@ -21,10 +23,11 @@ Product Overview / 产品概览
       ├─→ Wireflow / 页面流程
       │    → Canonical UI Prototype / 规范界面原型
       └─→ Architecture Design / 架构设计
-           → Spec-Kit / 规格工具包（工作区外）
 ```
 
 每轮只处理用户明确要求的当前产物。当前产物 readiness Profile（就绪配置）全部通过后，Harness 才能执行本次 handoff（移交）门禁；它不保存用户确认，也不自动启动下游。
+
+当前模板只声明工作区内部移交边，不绑定工作区外框架。架构设计通过本地门禁后即形成当前范围的验证结果，后续消费必须由用户另行明确。
 
 ## 架构阶段工程结构
 

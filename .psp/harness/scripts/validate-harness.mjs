@@ -149,6 +149,11 @@ export async function validateScaffold(rootInput = process.cwd()) {
   if (project.harness.manifest !== manifest.entrypoints.manifest) {
     issue(issues, 'AIH_PROJECT_BINDING_INVALID', '根项目绑定的 Manifest 与 Manifest 自身入口不一致。');
   }
+  const governanceModel = manifest.scaffoldPolicy.governanceModel;
+  if (governanceModel.maintainerHarness.projectKind !== project.kind
+    || governanceModel.userHarness.sourceRoot !== project.template.root) {
+    issue(issues, 'AIH_HARNESS_BOUNDARY_INVALID', '双 Harness 项目绑定或模板来源与根项目声明不一致。');
+  }
 
   const declaredPaths = new Set([
     ...Object.values(manifest.entrypoints),
@@ -257,8 +262,16 @@ export async function validateScaffold(rootInput = process.cwd()) {
   }
 
   if (templateProject && templateManifest) {
+    if (templateProject.kind !== governanceModel.userHarness.projectKind) {
+      issue(issues, 'AIH_HARNESS_BOUNDARY_INVALID', '工作区模板项目类型与 User Harness 声明不一致。');
+    }
     if (templateProject.kind !== 'PSPProject' || templateProject.harness?.manifest !== project.template.manifest) {
       issue(issues, 'AIH_TEMPLATE_INVALID', '模板必须是拥有本地 Manifest 的 PSPProject。');
+    }
+    for (const scope of templateManifest.scopes || []) {
+      for (const consumer of scope.externalConsumers || []) {
+        issue(issues, 'AIH_EXTERNAL_FRAMEWORK_BOUNDARY_INVALID', '工作区模板不得绑定外部消费者：' + consumer, joinRepositoryPath(templateRoot, project.template.manifest));
+      }
     }
     const marker = manifest.scaffoldPolicy.templatePurity.stageMarker;
     for (const [stageId, stage] of Object.entries(templateProject.stages || {})) {

@@ -1,7 +1,7 @@
 {
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
-  "version": "12.0.0",
+  "version": "13.0.0",
   "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -32,6 +32,26 @@
     "templates/workspace/psp.project.yaml"
   ],
   "scaffoldPolicy": {
+    "governanceModel": {
+      "maintainerHarness": {
+        "projectKind": "PSPScaffoldProject",
+        "purpose": "scaffold-maintenance",
+        "authority": "scaffold-repository-local",
+        "completion": "validated-scaffold-change"
+      },
+      "userHarness": {
+        "projectKind": "PSPProject",
+        "purpose": "generated-workspace-governance",
+        "sourceRoot": "templates/workspace",
+        "authority": "generated-workspace-local"
+      },
+      "lifecycleIsolation": {
+        "rootDomainLifecycle": "forbidden",
+        "rootDomainHandoff": "forbidden",
+        "templateExternalLifecycle": "forbidden",
+        "crossLifecycleControl": "forbidden"
+      }
+    },
     "rootSkills": {
       "root": ".agents/skills",
       "allowed": ["apply-repository-harness"]
@@ -44,25 +64,25 @@
       {
         "id": "scaffold-instructions",
         "path": "AGENTS.md",
-        "requiredText": ["脚手架源仓库（Scaffold Repository）", "PSPScaffoldProject", "不得改用包内模板副本"],
+        "requiredText": ["脚手架源仓库（Scaffold Repository）", "Maintainer Harness（维护者治理层）", "PSPScaffoldProject", "不得改用包内模板副本"],
         "forbiddenText": ["仓库交付链为"]
       },
       {
         "id": "workspace-instructions",
         "path": "templates/workspace/AGENTS.md",
-        "requiredText": ["生成工作区（Generated Workspace）", "Canonical UI Prototype", "PSPProject"],
+        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "Canonical UI Prototype", "PSPProject"],
         "forbiddenText": ["PSPScaffoldProject"]
       },
       {
         "id": "scaffold-standard",
         "path": ".psp/harness/HARNESS-BOUNDARY.md",
-        "requiredText": ["四层模型", "用户命令面与工作区生命周期", "生成仓库本地拥有运行配置、领域 Skill 与执行事实", "既有工作区不提供 update（更新）、upgrade（升级）、migrate（迁移）或 sync（同步）操作", "AIH_EXECUTOR_AUTHORITY_INVALID", "持续集成工作流从 Manifest"],
+        "requiredText": ["双 Harness（双治理层）模型", "Maintainer Harness（维护者治理层）", "User Harness（使用者治理层）", "四层模型", "用户命令面与工作区生命周期", "生成仓库本地拥有运行配置、领域 Skill 与执行事实", "既有工作区不提供 update（更新）、upgrade（升级）、migrate（迁移）或 sync（同步）操作", "AIH_EXECUTOR_AUTHORITY_INVALID", "持续集成工作流从 Manifest"],
         "forbiddenText": ["根 Manifest 只登记领域"]
       },
       {
         "id": "scaffold-readme",
         "path": "README.md",
-        "requiredText": ["开发者视角（Developer View）", "脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", "既有工作区不提供更新或升级操作", ".psp/harness/scripts/run-ci-validation.mjs", "QUICKSTART.md"],
+        "requiredText": ["开发者视角（Developer View）", "双 Harness（双治理层）模型", "Maintainer Harness（维护者治理层）", "User Harness（使用者治理层）", "脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", "既有工作区不提供更新或升级操作", ".psp/harness/scripts/run-ci-validation.mjs", "QUICKSTART.md"],
         "forbiddenText": ["根目录是软件包源码、开发 Harness 和仓库领域 Skill"]
       },
       {
@@ -74,13 +94,13 @@
       {
         "id": "workspace-readme",
         "path": "templates/workspace/README.md",
-        "requiredText": ["生成工作区（Generated Workspace）", "不是 `pre-sdd` 脚手架源仓库", "本地 Manifest 声明的路径加载", "本工作区不提供更新、升级、迁移或同步操作"],
+        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "不是 `pre-sdd` 脚手架源仓库", "本地 Manifest 声明的路径加载", "本工作区不提供更新、升级、迁移或同步操作"],
         "forbiddenText": ["npm install --global"]
       },
       {
         "id": "workspace-harness-boundary",
         "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
-        "requiredText": ["生成工作区 Harness 职责边界", "本地执行事实", "package.json` 与 `package-lock.json", "不提供更新、升级、迁移或同步操作", "不得改用包内 `templates/workspace/` 副本"],
+        "requiredText": ["生成工作区 Harness 职责边界", "User Harness（使用者治理层）", "本地执行事实", "package.json` 与 `package-lock.json", "不提供更新、升级、迁移或同步操作", "不得改用包内 `templates/workspace/` 副本"],
         "forbiddenText": ["脚手架固化要求"]
       }
     ],
@@ -212,6 +232,8 @@
     {"code": "AIH_PATH_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "输入路径不是合法的仓库相对 POSIX 路径"},
     {"code": "AIH_PATH_OUTSIDE_ROOT", "severity": "blocker", "owner": "scaffold-harness", "meaning": "解析路径位于脚手架仓库根目录之外"},
     {"code": "AIH_SCAFFOLD_CONTEXT_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架根仓库与生成工作区职责或 Agent 入口发生混用"},
+    {"code": "AIH_HARNESS_BOUNDARY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "Maintainer Harness 与 User Harness 的项目绑定、权威来源或生命周期隔离发生混用"},
+    {"code": "AIH_EXTERNAL_FRAMEWORK_BOUNDARY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板绑定了脚手架范围外的外部框架生命周期"},
     {"code": "AIH_TEMPLATE_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板绑定、初始阶段状态或本地治理结构无效"},
     {"code": "AIH_TEMPLATE_POLLUTED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板含用户实例、依赖目录、构建输出或运行证据"},
     {"code": "AIH_EXECUTOR_AUTHORITY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "运行时没有执行生成工作区 Manifest 声明的本地执行器"},

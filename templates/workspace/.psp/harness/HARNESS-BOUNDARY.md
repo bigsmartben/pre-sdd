@@ -1,6 +1,6 @@
 # 生成工作区 Harness 职责边界（Generated Workspace Harness Boundary）
 
-本文件适用于 `pre-sdd init` 创建的 `PSPProject` 工作区。Harness 是与产品语义和内容效果无关的硬治理控制面；领域正确性由工作区本地 Product Design 与 Architecture Design Skill 负责。
+本文件适用于 `pre-sdd init` 创建的 `PSPProject` 工作区。本地 Harness 是 User Harness（使用者治理层），只治理当前生成工作区；它不是脚手架源仓库的 Maintainer Harness，也不反向控制模板、运行时或发布过程。Harness 是与产品语义和内容效果无关的硬治理控制面；领域正确性由工作区本地 Product Design 与 Architecture Design Skill 负责。
 
 ## 职责图
 
@@ -27,6 +27,7 @@ flowchart LR
 - 工程命令按 Manifest 顺序实际执行；失败后的命令标记为 `NOT_RUN`。
 - Harness 原样传递领域 blocker code（阻断码），不解释或修复领域内容。
 - handoff 每次重新执行来源和上游 readiness Profile；`PASS` 凭证不持久化用户确认，也不启动下游。
+- 当前模板只允许 Manifest 明确声明的工作区内部移交边，不绑定工作区外框架生命周期。
 
 ## 本地执行事实
 

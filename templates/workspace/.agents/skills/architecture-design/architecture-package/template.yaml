@@ -23,7 +23,7 @@ gates:
     label: 子系统边界、对象模型与技术选型的抽象边界已审阅
     checked: false
   - id: architecture-approved
-    label: 架构事实与显式约束已批准供 Spec-Kit 消费
+    label: 架构事实与显式约束已批准作为当前工作区正式交付
     checked: false
 gaps:
   - id: GAP-001

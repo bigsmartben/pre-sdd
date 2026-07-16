@@ -58,6 +58,13 @@ test('Use Cases is the only product handoff source for Architecture Design', () 
   assert.deepEqual(result.downstreamConsumers, ['wireflow', 'architecture-design']);
 });
 
+test('User Harness declares only internal handoff consumers', () => {
+  for (const scope of manifest.scopes) assert.deepEqual(scope.externalConsumers || [], [], scope.id);
+  const architecture = manifest.scopes.find((item) => item.id === 'architecture-design');
+  assert.deepEqual(architecture.dependencies, ['use-cases']);
+  assert.deepEqual(architecture.handoffConsumers || [], []);
+});
+
 test('Harness validator accepts registered domains and rejects a vertical path outside its domain', async () => {
   const pass = runScript('.psp/harness/scripts/validate-harness.mjs', repositoryRoot, ['--json']);
   assert.equal(pass.exitCode, 0, JSON.stringify(pass.output, null, 2));

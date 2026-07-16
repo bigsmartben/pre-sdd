@@ -1,6 +1,6 @@
-# Repository-level AI Coding Harness
+# PSP 生成工作区 User Harness（使用者治理层）
 
-本文件只定义硬治理执行协议。路径绑定由仓库根目录 psp.project.yaml 提供；Artifact binding 明确区分输入、权威入口、用户产物、机器投影和临时证据。逻辑 Scope、Domain Registry（领域注册表）、Profile、工程命令、生命周期、移交边与 blocker catalog 的机器事实来源是 harness.manifest.json。产品与架构的 Agent 工作流、Contract、Schema、模板、投影器和领域 Validator 封装在 Manifest 登记的仓库领域 Skill 中；Harness 只检查登记结构、路径边界和执行结果，不解释产品或架构语义。
+本文件只定义生成工作区的硬治理执行协议，不治理 `pre-sdd` 脚手架源仓库。路径绑定由工作区根目录 psp.project.yaml 提供；Artifact binding 明确区分输入、权威入口、用户产物、机器投影和临时证据。逻辑 Scope、Domain Registry（领域注册表）、Profile、工程命令、生命周期、内部移交边与 blocker catalog 的机器事实来源是 harness.manifest.json。产品与架构的 Agent 工作流、Contract、Schema、模板、投影器和领域 Validator 封装在 Manifest 登记的仓库领域 Skill 中；Harness 只检查登记结构、路径边界和执行结果，不解释产品或架构语义。
 
 Harness 与 Agent、领域 Skill 和正式产物之间的完整职责判定规则见 [HARNESS-BOUNDARY.md](./HARNESS-BOUNDARY.md)。
 
@@ -30,7 +30,7 @@ uninitialized 表示目录骨架和路径绑定有效，但用户实例不存在
 
 ## Dependency Evidence / 依赖证据
 
-Manifest 使用 `dependencies` 声明 Artifact Scope 的机器依赖，并使用 `handoffConsumers` 声明内部移交边；仓库外消费者使用 `externalConsumers`。正式移交必须执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 Manifest 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
+Manifest 使用 `dependencies` 声明 Artifact Scope 的机器依赖，并使用 `handoffConsumers` 声明工作区内部移交边。本模板不声明工作区外消费者。正式内部移交必须执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 Manifest 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
 
 ## Verify
 

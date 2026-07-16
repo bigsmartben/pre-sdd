@@ -6,6 +6,12 @@
 - `templates/workspace/` 是生成工作区模板（Workspace Template）的唯一事实来源；`runtime/` 与 `bin/` 是打包运行时（Packaged Runtime）；`pre-sdd init` 生成的目标目录才是业务工作区（Generated Workspace）。
 - 根目录与工作区模板使用不同的项目绑定、Harness 和 Agent 说明。不得用模板的产品交付规则治理根脚手架，也不得用根脚手架规则替代生成工作区的本地治理。
 
+## 双治理层
+
+- 根 `.psp/harness/` 是 Maintainer Harness（维护者治理层），只约束维护者与智能代理如何产生经过验证的脚手架仓库变更。
+- `templates/workspace/.psp/harness/` 是 User Harness（使用者治理层）的模板来源；复制到生成工作区后，只约束该工作区的产品与架构执行。
+- 两者的项目绑定、权威来源、生命周期和移交边必须隔离。根治理不得执行用户产物移交，生成工作区治理不得反向控制脚手架维护。
+
 ## 行为边界
 
 - 根仓库只处理脚手架工程：模板、通用运行时、命令行入口、初始化、打包、发布准备、脚手架测试和根 Harness。

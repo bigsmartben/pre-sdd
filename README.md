@@ -11,6 +11,24 @@
 
 例如：想为一个新产品创建工作区，应阅读 Quickstart（快速开始）；想修改 `pre-sdd init` 复制哪些文件，应阅读本文并修改 `templates/workspace/`。
 
+## 双 Harness（双治理层）模型
+
+| 治理层 | 服务对象 | 权威位置 | 结果 |
+|---|---|---|---|
+| Maintainer Harness（维护者治理层） | 脚手架维护者与维护 Agent | 根 `.psp/harness/` | 经过工程门禁的脚手架仓库变更 |
+| User Harness（使用者治理层） | 脚手架使用者与工作区 Agent | `templates/workspace/.psp/harness/`，初始化后由目标工作区本地拥有 | 当前工作区内受约束的产品或架构执行 |
+
+两者不形成上下级运行关系。根治理负责生产正确的模板，生成工作区治理负责使用自己的本地事实执行；根治理不能执行用户产物移交，生成工作区也不能反向控制脚手架仓库。
+
+```mermaid
+flowchart LR
+    M["Maintainer / 维护者"] --> MH["Maintainer Harness / 维护者治理层"]
+    MH --> S["Scaffold Change / 脚手架变更"]
+    S --> T["User Harness Template / 使用者治理模板"]
+    T -->|"pre-sdd init"| UH["User Harness / 使用者治理层"]
+    UH --> W["Generated Workspace / 生成工作区"]
+```
+
 ## 开发者视角（Developer View）
 
 ### 四个执行上下文
@@ -26,7 +44,7 @@ flowchart LR
 
 | 上下文 | 物理位置 | 负责什么 | 例子 |
 |---|---|---|---|
-| 脚手架源仓库（Scaffold Repository） | 仓库根目录 | 脚手架工程治理、测试与发布准备 | 校验发布包没有混入根目录运行证据 |
+| 脚手架源仓库（Scaffold Repository） | 仓库根目录 | Maintainer Harness、脚手架工程治理、测试与发布准备 | 校验发布包没有混入根目录运行证据 |
 | 工作区模板（Workspace Template） | `templates/workspace/` | 定义新工作区的初始文件 | `pre-sdd init` 会复制其中的 `AGENTS.md` |
 | 打包运行时（Packaged Runtime） | `bin/`、`runtime/` | 提供新工作区生成能力和内部命令分发 | 全局工具更新只影响未来初始化的新工作区 |
 | 生成工作区（Generated Workspace） | 使用者执行 `pre-sdd init` 的目标目录 | 保存锁定的运行配置、业务产物和本地执行事实 | 全局工具升级后仍按自己的 `package-lock.json` 运行 |
@@ -109,6 +127,8 @@ Resolver 会按实际路径缩小命令集合。例如，只改根 README 时通
 | 发布包测试 | `tests/package/**` | 全部门禁，包括发布清单检查 |
 
 这里的 `PASS` 只表示脚手架工程门禁通过，不表示任何产品或架构内容已经就绪。
+
+当前根仓库的 Maintainer Handoff（维护者移交）就是“已验证脚手架变更”：维护者取得上述工程证据后决定是否合并。它不是用户内容，也不会生成产品或架构移交凭证。
 
 ### 模板与运行时边界
 

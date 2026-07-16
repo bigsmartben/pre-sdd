@@ -48,6 +48,7 @@ Technical Validation 的真实代码固定放在 `技术验证/cases/EXP-NNN.cas
 
 - 架构设计单向依赖产品设计，不得从代码或实现便利性反推、修改或伪造产品事实。
 - 架构设计的唯一产品上游是 `capabilities`（Use Cases）；Canonical UI Prototype 不是架构输入、依赖或移交来源。
+- 当前仓库不声明工作区外消费者或外部框架生命周期；架构产物通过本地严格门禁后结束当前范围，后续消费必须由用户另行明确。
 - 固定输入目录、权威模型和正式输出必须保持分离：`inputRoot` 保存支撑输入，`.psp/models/` 保存权威结构化模型，`user-artifact` 保存正式 Markdown 投影。
 - 具体边界、概念模型、架构约束和技术验证规则只由本 Skill 内的 Contract、Schema 与 Validator 定义。
 - status 为 `unavailable` 的上游禁止写入；下游只能显式记录缺口。

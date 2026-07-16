@@ -47,8 +47,48 @@
     "scaffoldPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["rootSkills", "templateSkills", "textContracts", "templatePurity", "packageScripts", "execution", "continuousIntegration"],
+      "required": ["governanceModel", "rootSkills", "templateSkills", "textContracts", "templatePurity", "packageScripts", "execution", "continuousIntegration"],
       "properties": {
+        "governanceModel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maintainerHarness", "userHarness", "lifecycleIsolation"],
+          "properties": {
+            "maintainerHarness": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["projectKind", "purpose", "authority", "completion"],
+              "properties": {
+                "projectKind": {"const": "PSPScaffoldProject"},
+                "purpose": {"const": "scaffold-maintenance"},
+                "authority": {"const": "scaffold-repository-local"},
+                "completion": {"const": "validated-scaffold-change"}
+              }
+            },
+            "userHarness": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["projectKind", "purpose", "sourceRoot", "authority"],
+              "properties": {
+                "projectKind": {"const": "PSPProject"},
+                "purpose": {"const": "generated-workspace-governance"},
+                "sourceRoot": {"$ref": "#/$defs/path"},
+                "authority": {"const": "generated-workspace-local"}
+              }
+            },
+            "lifecycleIsolation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["rootDomainLifecycle", "rootDomainHandoff", "templateExternalLifecycle", "crossLifecycleControl"],
+              "properties": {
+                "rootDomainLifecycle": {"const": "forbidden"},
+                "rootDomainHandoff": {"const": "forbidden"},
+                "templateExternalLifecycle": {"const": "forbidden"},
+                "crossLifecycleControl": {"const": "forbidden"}
+              }
+            }
+          }
+        },
         "rootSkills": {"$ref": "#/$defs/skillPolicy"},
         "templateSkills": {"$ref": "#/$defs/requiredSkillPolicy"},
         "textContracts": {

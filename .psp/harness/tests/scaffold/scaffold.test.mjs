@@ -45,6 +45,26 @@ test('root binding is scaffold-only and validates without domain lifecycle', asy
   assert.equal(Object.hasOwn(project, 'stages'), false);
   for (const forbidden of ['domainRegistry', 'artifactRegistry', 'operations']) assert.equal(Object.hasOwn(manifest, forbidden), false, forbidden);
   assert.equal(manifest.scopes.some((scope) => ['stage', 'artifact', 'domain'].includes(scope.kind)), false);
+  assert.deepEqual(manifest.scaffoldPolicy.governanceModel, {
+    maintainerHarness: {
+      projectKind: 'PSPScaffoldProject',
+      purpose: 'scaffold-maintenance',
+      authority: 'scaffold-repository-local',
+      completion: 'validated-scaffold-change',
+    },
+    userHarness: {
+      projectKind: 'PSPProject',
+      purpose: 'generated-workspace-governance',
+      sourceRoot: 'templates/workspace',
+      authority: 'generated-workspace-local',
+    },
+    lifecycleIsolation: {
+      rootDomainLifecycle: 'forbidden',
+      rootDomainHandoff: 'forbidden',
+      templateExternalLifecycle: 'forbidden',
+      crossLifecycleControl: 'forbidden',
+    },
+  });
   assert.equal((await validateScaffold(repositoryRoot)).status, 'PASS');
 });
 
@@ -141,6 +161,28 @@ test('validator blocks instruction-context collapse', async () => {
   const result = await validateScaffold(root);
   assert.equal(result.status, 'FAIL');
   assert.ok(result.issues.some((item) => item.code === 'AIH_SCAFFOLD_CONTEXT_INVALID'));
+});
+
+test('validator blocks a dual-Harness source binding mismatch', async () => {
+  const root = await fixture();
+  const path = resolve(root, '.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  manifest.scaffoldPolicy.governanceModel.userHarness.sourceRoot = 'templates/other';
+  await writeFile(path, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await validateScaffold(root);
+  assert.equal(result.status, 'FAIL');
+  assert.ok(result.issues.some((item) => item.code === 'AIH_HARNESS_BOUNDARY_INVALID'));
+});
+
+test('validator blocks an external framework lifecycle binding in the workspace template', async () => {
+  const root = await fixture();
+  const path = resolve(root, 'templates/workspace/.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  manifest.scopes.find((item) => item.id === 'architecture-design').externalConsumers = ['downstream-tool'];
+  await writeFile(path, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await validateScaffold(root);
+  assert.equal(result.status, 'FAIL');
+  assert.ok(result.issues.some((item) => item.code === 'AIH_EXTERNAL_FRAMEWORK_BOUNDARY_INVALID'));
 });
 
 test('validator blocks template pollution', async () => {

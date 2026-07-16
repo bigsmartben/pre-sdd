@@ -2,6 +2,8 @@
 
 当前目录是生成工作区（Generated Workspace），由 `pre-sdd init` 创建；项目绑定类型必须是 `PSPProject`。本地 Harness、Manifest 与领域 Skill 是本工作区的执行唯一事实来源；这里不是 `pre-sdd` 脚手架源仓库。
 
+本地 `.psp/harness/` 是 User Harness（使用者治理层），只治理当前生成工作区。它不继承脚手架根目录的 Maintainer Harness，也不得反向控制脚手架模板、运行时或发布流程。
+
 ## 沟通语言
 
 - 与用户沟通、编写规格和说明性文档时，优先使用中文。
@@ -9,7 +11,7 @@
 
 ## 行为边界
 
-- 仓库交付关系为 Product Idea → Use Cases；Use Cases → Wireflow → Canonical UI Prototype；Use Cases → Architecture Design → Spec-Kit。Architecture Design 只依赖通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。Agent 每轮只处理用户明确请求的当前产物，不得把“一句话”自动扩展成全部分支产物。
+- 仓库内部交付关系为 Product Idea → Use Cases；Use Cases → Wireflow → Canonical UI Prototype；Use Cases → Architecture Design。Architecture Design 只依赖通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。当前工作区不绑定任何外部框架生命周期。Agent 每轮只处理用户明确请求的当前产物，不得把“一句话”自动扩展成全部分支产物。
 - 当前产物 readiness 全部通过后，Agent 必须执行 Manifest 声明的 handoff（移交）操作；只有取得本次 `PASS` 凭证，才能在回复中提示移交并结束本轮。只有用户后续明确请求下游工作时，才建立新的执行范围。
 - Harness 只拥有与产品语义和内容效果无关的硬治理：输入输出角色与路径绑定、Scope、上下游依赖、生命周期、工程命令规范与执行、readiness Profile、blocker code 协议和确定的 handoff；不拥有用户对话、审批、`currentStep`、领域语义或自动推进状态。
 - 架构设计单向依赖产品设计；不得从实现便利性反向推导、静默改变或伪造产品事实。
