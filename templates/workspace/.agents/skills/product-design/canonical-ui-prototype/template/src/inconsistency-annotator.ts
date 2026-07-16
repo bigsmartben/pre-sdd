@@ -14,6 +14,7 @@ type SelectionRect = {
 
 type Marker = {
   id: number;
+  pageKey: string;
   pageX: number;
   pageY: number;
   width: number;
@@ -64,6 +65,18 @@ class InconsistencyAnnotator extends HTMLElement {
   private startButton?: HTMLButtonElement;
   private copyButton?: HTMLButtonElement;
   private statusNode?: HTMLElement;
+  private currentPageKey = '';
+  private pageObserver?: MutationObserver;
+  private pageRefreshQueued = false;
+
+  private readonly schedulePageRefresh = (): void => {
+    if (this.pageRefreshQueued) return;
+    this.pageRefreshQueued = true;
+    queueMicrotask(() => {
+      this.pageRefreshQueued = false;
+      this.refreshPageScope();
+    });
+  };
 
   private readonly beginSelection = (): void => {
     if (!this.captureLayer || !this.startButton) return;
@@ -109,6 +122,7 @@ class InconsistencyAnnotator extends HTMLElement {
     const centerY = rect.top + rect.height / 2;
     const marker: Marker = {
       id: this.nextMarkerId,
+      pageKey: this.currentPageKey,
       pageX: rect.left + window.scrollX,
       pageY: rect.top + window.scrollY,
       width: rect.width,
@@ -145,8 +159,15 @@ class InconsistencyAnnotator extends HTMLElement {
   };
 
   private readonly undoLastMarker = (): void => {
-    const marker = this.markers.pop();
-    if (!marker) return;
+    let markerIndex = -1;
+    for (let index = this.markers.length - 1; index >= 0; index -= 1) {
+      if (this.markers[index].pageKey === this.currentPageKey) {
+        markerIndex = index;
+        break;
+      }
+    }
+    if (markerIndex < 0) return;
+    const [marker] = this.markers.splice(markerIndex, 1);
     if (marker.id === this.activeMarkerId) {
       this.activeMarkerId = undefined;
       this.typePicker?.classList.remove('is-active');
@@ -157,16 +178,17 @@ class InconsistencyAnnotator extends HTMLElement {
   };
 
   private readonly clearMarkers = (): void => {
-    this.markers = [];
+    this.markers = this.markers.filter((marker) => marker.pageKey !== this.currentPageKey);
     this.activeMarkerId = undefined;
     this.typePicker?.classList.remove('is-active');
     this.renderMarkers();
     this.refreshControls();
-    this.setStatus('已清空全部标记。');
+    this.setStatus('已清空当前页面的全部标记。');
   };
 
   private readonly copyAnnotatedScreenshot = async (): Promise<void> => {
-    const markers = this.markers.filter((marker): marker is Marker & { type: IssueType } => Boolean(marker.type));
+    const markers = this.currentPageMarkers()
+      .filter((marker): marker is Marker & { type: IssueType } => Boolean(marker.type));
     if (markers.length === 0 || !this.copyButton) return;
 
     this.copyButton.disabled = true;
@@ -203,7 +225,8 @@ class InconsistencyAnnotator extends HTMLElement {
 
   private readonly renderMarkers = (): void => {
     if (!this.markerLayer) return;
-    this.markerLayer.innerHTML = this.markers.map((marker) => {
+    const markers = this.currentPageMarkers();
+    this.markerLayer.innerHTML = markers.map((marker) => {
       const label = marker.type ? ISSUE_LABELS[marker.type] : '待选择类型';
       return `
         <div class="ia-marker" style="left:${marker.pageX - window.scrollX}px;top:${marker.pageY - window.scrollY}px;width:${marker.width}px;height:${marker.height}px">
@@ -212,20 +235,34 @@ class InconsistencyAnnotator extends HTMLElement {
       `;
     }).join('');
     const count = this.querySelector<HTMLElement>('.ia-marker-count');
-    if (count) count.textContent = String(this.markers.length);
+    if (count) count.textContent = String(markers.length);
   };
 
   connectedCallback(): void {
     this.setAttribute('data-review-tool', 'inconsistency-annotator');
     this.renderTool();
+    this.currentPageKey = this.resolvePageKey();
+    this.pageObserver = new MutationObserver(this.schedulePageRefresh);
+    this.pageObserver.observe(document.body, {
+      attributeFilter: ['aria-hidden', 'class', 'data-screen-id', 'hidden', 'style'],
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
     window.addEventListener('scroll', this.renderMarkers, { passive: true });
     window.addEventListener('resize', this.renderMarkers);
+    window.addEventListener('popstate', this.schedulePageRefresh);
+    window.addEventListener('hashchange', this.schedulePageRefresh);
   }
 
   disconnectedCallback(): void {
     window.removeEventListener('scroll', this.renderMarkers);
     window.removeEventListener('resize', this.renderMarkers);
+    window.removeEventListener('popstate', this.schedulePageRefresh);
+    window.removeEventListener('hashchange', this.schedulePageRefresh);
     window.removeEventListener('keydown', this.handleEscape);
+    this.pageObserver?.disconnect();
+    this.pageObserver = undefined;
     document.documentElement.classList.remove('ia-is-selecting');
   }
 
@@ -333,6 +370,39 @@ class InconsistencyAnnotator extends HTMLElement {
     document.documentElement.classList.remove('ia-is-selecting');
     if (this.startButton) this.startButton.textContent = '开始框选';
     window.removeEventListener('keydown', this.handleEscape);
+  }
+
+  private currentPageMarkers(): Marker[] {
+    return this.markers.filter((marker) => marker.pageKey === this.currentPageKey);
+  }
+
+  private refreshPageScope(): void {
+    const pageKey = this.resolvePageKey();
+    if (pageKey === this.currentPageKey) return;
+
+    this.currentPageKey = pageKey;
+    this.cancelDraft();
+    this.finishSelectionMode();
+    this.activeMarkerId = undefined;
+    this.typePicker?.classList.remove('is-active');
+    this.renderMarkers();
+    this.refreshControls();
+    const count = this.currentPageMarkers().length;
+    this.setStatus(count > 0
+      ? `页面已切换，已恢复当前页面的 ${count} 个标记。`
+      : '页面已切换；当前页面还没有标记。');
+  }
+
+  private resolvePageKey(): string {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('annotate');
+    const screenIds = Array.from(document.querySelectorAll<HTMLElement>('[data-screen-id]'))
+      .filter((element) => !this.contains(element) && element.getClientRects().length > 0)
+      .filter((element) => element.getAttribute('aria-hidden') !== 'true')
+      .map((element) => element.dataset.screenId ?? '')
+      .filter(Boolean)
+      .sort();
+    return `${url.pathname}${url.search}${url.hash}::${screenIds.join(',')}`;
   }
 
   private openTypePicker(marker: Marker): void {
@@ -531,9 +601,10 @@ class InconsistencyAnnotator extends HTMLElement {
   }
 
   private refreshControls(): void {
-    const readyToCopy = this.markers.length > 0 && this.markers.every((marker) => Boolean(marker.type));
+    const markers = this.currentPageMarkers();
+    const readyToCopy = markers.length > 0 && markers.every((marker) => Boolean(marker.type));
     if (this.copyButton) this.copyButton.disabled = !readyToCopy;
-    const empty = this.markers.length === 0;
+    const empty = markers.length === 0;
     const undo = this.querySelector<HTMLButtonElement>('[data-action="undo"]');
     const clear = this.querySelector<HTMLButtonElement>('[data-action="clear"]');
     if (undo) undo.disabled = empty;

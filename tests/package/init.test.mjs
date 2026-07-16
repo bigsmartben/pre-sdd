@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 const repositoryRoot = resolve(import.meta.dirname, '../..');
 const entrypoint = resolve(repositoryRoot, 'bin/pre-sdd.mjs');
@@ -26,6 +27,112 @@ function runCli(args, cwd = repositoryRoot) {
     cwd,
     encoding: 'utf8',
     windowsHide: true,
+  });
+}
+
+function runWorkspaceScript(script, cwd, environment = {}, forwarded = []) {
+  const args = ['run', script, ...(forwarded.length ? ['--', ...forwarded] : [])];
+  if (process.env.npm_execpath) {
+    return spawnSync(process.execPath, [process.env.npm_execpath, ...args], {
+      cwd,
+      env: { ...process.env, ...environment },
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+  }
+  return spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, {
+    cwd,
+    env: { ...process.env, ...environment },
+    encoding: 'utf8',
+    windowsHide: true,
+    shell: process.platform === 'win32',
+  });
+}
+
+function workspaceRuntimeEnvironment(workspaceRoot) {
+  const dependencyLoader = '--import=' + pathToFileURL(resolve(
+    workspaceRoot,
+    '.psp/runtime/pre-sdd/runtime/register-dependency-loader.mjs',
+  )).href;
+  const nodeOptions = process.env.NODE_OPTIONS || '';
+  return {
+    ...process.env,
+    PSP_REPOSITORY_ROOT: workspaceRoot,
+    AI_HARNESS_ROOT: workspaceRoot,
+    PRE_SDD_PACKAGE_ROOT: repositoryRoot,
+    PRE_SDD_RUNTIME_ENTRY: resolve(workspaceRoot, '.psp/runtime/pre-sdd/bin/pre-sdd.mjs'),
+    PRE_SDD_DEPENDENCY_ROOT: repositoryRoot,
+    PRE_SDD_DEPENDENCY_ENTRY: resolve(repositoryRoot, 'package.json'),
+    NODE_OPTIONS: nodeOptions.includes(dependencyLoader)
+      ? nodeOptions
+      : [nodeOptions, dependencyLoader].filter(Boolean).join(' '),
+  };
+}
+
+function completeProductWorkspace(workspaceRoot) {
+  const fixtureModule = pathToFileURL(resolve(
+    workspaceRoot,
+    '.agents/skills/product-design/tests/helpers/product-fixture.mjs',
+  )).href;
+  const source = `import { completeProductFixture } from ${JSON.stringify(fixtureModule)}; await completeProductFixture(${JSON.stringify(workspaceRoot)});`;
+  return spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+    cwd: workspaceRoot,
+    env: workspaceRuntimeEnvironment(workspaceRoot),
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+}
+
+function waitForCanonicalUiReady(child, timeoutMilliseconds = 60_000) {
+  return new Promise((resolveReady, rejectReady) => {
+    let output = '';
+    const timeout = setTimeout(() => {
+      cleanup();
+      rejectReady(new Error('等待 Canonical UI Prototype 评审地址超时。\n' + output));
+    }, timeoutMilliseconds);
+    const onData = (chunk) => {
+      output += chunk.toString();
+      const match = output.match(/\[READY\] Canonical UI Prototype 评审地址：(https?:\/\/\S+)/);
+      if (!match) return;
+      cleanup();
+      resolveReady({ url: match[1], output });
+    };
+    const onError = (error) => {
+      cleanup();
+      rejectReady(error);
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      rejectReady(new Error(`Canonical UI Prototype 服务提前退出：code=${code} signal=${signal}\n${output}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      child.stdout.off('data', onData);
+      child.stderr.off('data', onData);
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.once('error', onError);
+    child.once('exit', onExit);
+  });
+}
+
+async function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise((resolveStopped) => {
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolveStopped();
+    };
+    const timeout = setTimeout(() => {
+      child.off('exit', onExit);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      resolveStopped();
+    }, 5_000);
+    child.once('exit', onExit);
+    child.kill('SIGTERM');
   });
 }
 
@@ -57,6 +164,85 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   const project = parseYaml(await readFile(resolve(target, 'psp.project.yaml'), 'utf8'));
   assert.equal(project.stages['product-design'].status, 'uninitialized');
   assert.equal(project.stages['architecture-design'].status, 'uninitialized');
+  const workspacePackage = JSON.parse(await readFile(resolve(target, 'package.json'), 'utf8'));
+  const workspaceLock = JSON.parse(await readFile(resolve(target, 'package-lock.json'), 'utf8'));
+  const workspaceManifest = JSON.parse(await readFile(resolve(target, '.psp/harness/harness.manifest.json'), 'utf8'));
+  assert.deepEqual(workspaceLock.packages[''].dependencies, workspacePackage.dependencies);
+  assert.equal(workspaceManifest.runtime.authority, 'generated-workspace-local');
+  assert.equal(workspaceManifest.runtime.dependencyLock, 'package-lock.json');
+  assert.equal(await exists(resolve(target, workspaceManifest.runtime.entrypoint)), true);
+  assert.equal(await exists(resolve(target, '.psp/runtime/pre-sdd/runtime/dispatch.mjs')), true);
+  assert.equal(await exists(resolve(target, '.gitignore')), true);
+  assert.equal(await exists(resolve(target, '.codex/config.toml')), true);
+  assert.equal(await exists(resolve(target, '.codex/hooks.json')), true);
+  const codexHooks = JSON.parse(await readFile(resolve(target, '.codex/hooks.json'), 'utf8'));
+  const sessionStart = codexHooks.hooks.SessionStart[0].hooks[0];
+  assert.match(sessionStart.command, /git rev-parse --show-toplevel/);
+  assert.match(sessionStart.commandWindows, /git rev-parse --show-toplevel/);
+  const auxiliarySkills = [
+    'capture-figma-design-source',
+    'organize-figma-assets',
+    'figma-component-from-design',
+    'implement-figma-lit-page',
+    'repair-canonical-ui-visual',
+  ];
+  for (const skill of auxiliarySkills) {
+    const skillPath = `.agents/skills/${skill}/SKILL.md`;
+    assert.equal(await exists(resolve(target, skillPath)), true, skillPath);
+    assert.equal(await exists(resolve(target, `.agents/skills/${skill}/agents/openai.yaml`)), true, skill);
+    assert.ok(workspaceManifest.codex.repositorySkills.includes(skillPath), skill);
+  }
+  assert.equal(await exists(resolve(target, '.agents/skills/export-marked-assets/SKILL.md')), false);
+  assert.equal(workspaceManifest.codex.repositorySkills.includes('.agents/skills/export-marked-assets/SKILL.md'), false);
+  const litSkill = await readFile(resolve(target, '.agents/skills/implement-figma-lit-page/SKILL.md'), 'utf8');
+  assert.match(litSkill, /Lit \+ Vite/);
+  assert.doesNotMatch(litSkill, /\bReact\b/i);
+  for (const forbidden of ['react-router', 'zustand', 'bun run', '.tsx', 'src/pages']) {
+    assert.doesNotMatch(litSkill.toLowerCase(), new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), forbidden);
+  }
+  const productSkill = await readFile(resolve(target, '.agents/skills/product-design/SKILL.md'), 'utf8');
+  const captureSkill = await readFile(resolve(target, '.agents/skills/capture-figma-design-source/SKILL.md'), 'utf8');
+  const organizeSkill = await readFile(resolve(target, '.agents/skills/organize-figma-assets/SKILL.md'), 'utf8');
+  const componentSkill = await readFile(resolve(target, '.agents/skills/figma-component-from-design/SKILL.md'), 'utf8');
+  const repairSkill = await readFile(resolve(target, '.agents/skills/repair-canonical-ui-visual/SKILL.md'), 'utf8');
+  const workspaceReadme = await readFile(resolve(target, 'README.md'), 'utf8');
+  assert.doesNotMatch(productSkill, /读取节点设计上下文|获取同一节点截图/);
+  assert.match(productSkill, /\$capture-figma-design-source/);
+  assert.match(productSkill, /\$repair-canonical-ui-visual/);
+  assert.match(captureSkill, /Frame 尺寸/);
+  assert.match(captureSkill, /不得选择或改变 `visualPolicy\.mode`/);
+  assert.match(captureSkill, /\$figma:figma-use/);
+  assert.match(captureSkill, /任何 Figma 节点、变量、组件或图层修改都会使本轮证据失效/);
+  assert.match(captureSkill, /本次采集会话创建并记录的操作系统临时目录/);
+  assert.match(captureSkill, /source-registration\.schema\.json/);
+  assert.match(captureSkill, /不得直接编辑 `canonical-ui\.ts`/);
+  assert.match(captureSkill, /每个导出资源必须以 `role: asset` 出现在同一来源的 `evidence\.json`/);
+  assert.match(captureSkill, /capture-figma-design-source\/scripts\/validate-png-assets\.mjs/);
+  assert.match(captureSkill, /禁止先登记资源事实、后补来源证据/);
+  assert.match(captureSkill, /AIH_SOURCE_INTEGRITY_FAILED/);
+  assert.match(captureSkill, /componentSetNodeId/);
+  assert.match(captureSkill, /mainComponentNodeId/);
+  assert.match(organizeSkill, /\$figma:figma-use/);
+  assert.match(organizeSkill, /已有的来源证据视为失效/);
+  assert.match(organizeSkill, /角色、Variant、Component Property、Override/);
+  assert.match(litSkill, /只有 Figma 链接或范围不明确时停止实现/);
+  assert.doesNotMatch(litSkill, /对 `Export\/` 标记使用 `\$capture-figma-design-source`/);
+  assert.match(componentSkill, /\$figma:figma-use/);
+  assert.match(componentSkill, /\$figma:figma-generate-library/);
+  assert.match(componentSkill, /已有证据视为失效/);
+  assert.match(componentSkill, /Component Abstraction Proposal/);
+  assert.match(componentSkill, /componentVariantCoverage/);
+  assert.match(litSkill, /AIH_COMPONENT_IMPLEMENTATION_MISMATCH/);
+  assert.ok(workspaceReadme.indexOf('Figma 整理或组件创建（完成全部远端写入）') < workspaceReadme.indexOf('冻结最终节点并采集设计上下文、截图和变量'));
+  assert.ok(workspaceReadme.indexOf('冻结最终节点并采集设计上下文、截图和变量') < workspaceReadme.indexOf('导出标记资源并封存 evidence.json 与全部哈希'));
+  assert.equal(await exists(resolve(target, '.agents/skills/capture-figma-design-source/figma-design-context.schema.json')), true);
+  assert.equal(await exists(resolve(target, '.agents/skills/capture-figma-design-source/source-registration.schema.json')), true);
+  assert.equal(await exists(resolve(target, '.agents/skills/product-design/canonical-ui-prototype/repair-action.schema.json')), true);
+  assert.match(repairSkill, /Evidence before edit/);
+  assert.match(repairSkill, /Preserve interactive DOM/);
+  assert.match(repairSkill, /source-resolution/);
+  assert.match(repairSkill, /Repair Action Report/);
+  assert.match(repairSkill, /allowSubjectiveApproximation|不凭视觉感觉/);
   for (const stage of Object.values(project.stages)) {
     assert.equal(await exists(resolve(target, stage.root, '.gitkeep')), true);
     assert.deepEqual(await readdir(resolve(target, stage.root)), ['.gitkeep']);
@@ -90,23 +276,93 @@ test('scaffold source and generated workspace keep separate project contexts', a
   assert.ok(templateProject.stages['product-design']);
   assert.ok(templateProject.stages['architecture-design']);
 
-  for (const forbidden of ['product-design', 'architecture-design']) {
+  for (const forbidden of [
+    'product-design',
+    'architecture-design',
+    'capture-figma-design-source',
+    'organize-figma-assets',
+    'figma-component-from-design',
+    'implement-figma-lit-page',
+    'repair-canonical-ui-visual',
+  ]) {
     assert.equal(await exists(resolve(repositoryRoot, '.agents/skills', forbidden, 'SKILL.md')), false);
     assert.equal(await exists(resolve(repositoryRoot, 'templates/workspace/.agents/skills', forbidden, 'SKILL.md')), true);
   }
+  assert.equal(await exists(resolve(repositoryRoot, 'templates/workspace/.agents/skills/export-marked-assets/SKILL.md')), false);
   assert.equal(await findDirectory(resolve(repositoryRoot, 'templates/workspace'), 'node_modules'), null);
 });
 
-test('global runtime executes the generated workspace local domain validator', async () => {
+test('workspace-local runtime executes the generated workspace local domain validator', async () => {
   const target = await temporaryDirectory('pre-sdd-local-executor-');
   assert.equal(runCli(['init', target]).status, 0);
   const validator = resolve(target, '.agents/skills/product-design/scripts/validate.mjs');
   await writeFile(validator, "console.error('[AIH_EXECUTOR_AUTHORITY_INVALID] local-executor-probe');\nprocess.exitCode = 73;\n", 'utf8');
 
-  const validation = runCli(['harness', 'validate:product', '--workspace', target]);
+  const validation = runWorkspaceScript('validate:product', target);
   assert.notEqual(validation.status, 0);
   assert.match(validation.stderr + validation.stdout, /AIH_EXECUTOR_AUTHORITY_INVALID.*local-executor-probe/);
   assert.equal(await findDirectory(target, 'node_modules'), null);
+});
+
+test('generated workspace applies an artifact transaction through its local runtime', async () => {
+  const target = await temporaryDirectory('pre-sdd-artifact-transaction-');
+  assert.equal(runCli(['init', target]).status, 0);
+  const initialized = runWorkspaceScript('init:product', target);
+  assert.equal(initialized.status, 0, initialized.stderr + initialized.stdout);
+  const project = parseYaml(await readFile(resolve(target, 'psp.project.yaml'), 'utf8'));
+  const stage = project.stages['product-design'];
+  const binding = stage.artifacts['product-package'];
+  const modelPath = resolve(target, stage.root, binding.internalModel);
+  const markdownPath = resolve(target, stage.root, binding.outputs[0].path);
+  const before = await readFile(modelPath, 'utf8');
+  const candidate = parseYaml(before);
+  candidate.overview.productName = '本地事务执行验证';
+  const candidatePath = resolve(target, 'candidate-product-package.yaml');
+  await writeFile(candidatePath, stringifyYaml(candidate), 'utf8');
+  const expectedSha256 = createHash('sha256').update(before).digest('hex');
+  const applied = runWorkspaceScript('apply:product-artifact', target, {}, [
+    '--artifact', 'product-package',
+    '--input', candidatePath,
+    '--expected-sha256', expectedSha256,
+    '--json',
+  ]);
+  assert.equal(applied.status, 0, applied.stderr + applied.stdout);
+  const authority = await readFile(modelPath, 'utf8');
+  const markdown = await readFile(markdownPath, 'utf8');
+  assert.match(authority, /本地事务执行验证/);
+  assert.match(markdown, /本地事务执行验证/);
+  assert.match(markdown, new RegExp('sourceSha256: ' + createHash('sha256').update(authority).digest('hex')));
+
+  const legacyRender = runWorkspaceScript('render:product', target);
+  assert.notEqual(legacyRender.status, 0);
+  assert.match(legacyRender.stderr + legacyRender.stdout, /AIH_COMMAND_INVALID/);
+  assert.equal(await findDirectory(target, 'node_modules'), null);
+});
+
+test('existing workspace ignores a later global runtime entry', async () => {
+  const target = await temporaryDirectory('pre-sdd-pinned-runtime-');
+  assert.equal(runCli(['init', target]).status, 0);
+  const futureGlobalRuntime = resolve(target, 'future-global-runtime.mjs');
+  await writeFile(futureGlobalRuntime, "console.error('[AIH_RUNTIME_INCOMPATIBLE] future-global-runtime-probe');\nprocess.exitCode = 72;\n", 'utf8');
+
+  const validation = runWorkspaceScript('validate:harness', target, {
+    PRE_SDD_RUNTIME_ENTRY: futureGlobalRuntime,
+  });
+  assert.equal(validation.status, 0, validation.stderr + validation.stdout);
+  assert.doesNotMatch(validation.stderr + validation.stdout, /future-global-runtime-probe/);
+  assert.equal(await findDirectory(target, 'node_modules'), null);
+});
+
+test('CLI rejects missing --workspace values before dispatching Harness commands', async () => {
+  for (const args of [
+    ['harness', 'validate:harness', '--workspace'],
+    ['harness', 'validate:harness', '--workspace', '--'],
+  ]) {
+    const result = runCli(args);
+    assert.equal(result.status, 1, result.stderr + result.stdout);
+    assert.match(result.stderr, /PRE_SDD_USAGE_INVALID/);
+    assert.match(result.stderr, /--workspace/);
+  }
 });
 
 test('generated workspace runs its local Harness and domain test suites', async () => {
@@ -118,7 +374,7 @@ test('generated workspace runs its local Harness and domain test suites', async 
     ['test:architecture', /architecture empty scaffold passes structure and blocks readiness/],
   ]);
   for (const [command, executedTest] of suites) {
-    const execution = runCli(['harness', command, '--workspace', target]);
+    const execution = runWorkspaceScript(command, target);
     assert.equal(execution.status, 0, command + '\n' + execution.stderr + execution.stdout);
     assert.match(execution.stderr + execution.stdout, executedTest, command + ' 未执行本地测试文件。');
   }
@@ -137,19 +393,64 @@ test('initialization blocks owned paths without touching user files', async () =
   assert.equal(await exists(resolve(target, '.psp')), false);
 });
 
-test('global runtime typechecks and builds an initialized product without local node_modules', async () => {
+test('workspace-local runtime typechecks and builds an initialized product without local node_modules', async () => {
   const target = await temporaryDirectory('pre-sdd-runtime-');
   assert.equal(runCli(['init', target]).status, 0);
-  const product = runCli(['harness', 'init:product', '--workspace', target]);
+  const product = runWorkspaceScript('init:product', target);
   assert.equal(product.status, 0, product.stderr + product.stdout);
-  const typecheck = runCli(['harness', 'typecheck', '--workspace', target]);
+  const typecheck = runWorkspaceScript('typecheck', target);
   assert.equal(typecheck.status, 0, typecheck.stderr + typecheck.stdout);
-  const build = runCli(['harness', 'workspace:build', '--workspace', target]);
+  const build = runWorkspaceScript('workspace:build', target);
   assert.equal(build.status, 0, build.stderr + build.stdout);
-  const browserAcceptance = runCli(['harness', 'validate:canonical-ui-runtime', '--workspace', target]);
+  const browserAcceptance = runWorkspaceScript('validate:canonical-ui-runtime', target);
   assert.equal(browserAcceptance.status, 0, browserAcceptance.stderr + browserAcceptance.stdout);
   assert.equal(await exists(resolve(target, '01-product-design/Canonical-UI-Prototype/dist/index.html')), true);
   assert.equal(await findDirectory(target, 'node_modules'), null);
+});
+
+test('Canonical UI dev command publishes a reachable annotated HTTP review URL', async () => {
+  const target = await temporaryDirectory('pre-sdd-canonical-ui-dev-');
+  assert.equal(runCli(['init', target]).status, 0);
+
+  const manifest = JSON.parse(await readFile(resolve(target, '.psp/harness/harness.manifest.json'), 'utf8'));
+  const command = manifest.commands.find((item) => item.id === 'canonical-ui-dev');
+  assert.equal(command?.executor?.kind, 'module');
+  const blocked = spawnSync(
+    process.execPath,
+    [resolve(target, ...command.executor.path.split('/')), ...(command.executor.args || [])],
+    {
+      cwd: target,
+      env: workspaceRuntimeEnvironment(target),
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr + blocked.stdout, /AIH_STAGE_UNINITIALIZED|AIH_VISUAL_POLICY_UNRESOLVED/);
+
+  const completed = completeProductWorkspace(target);
+  assert.equal(completed.status, 0, completed.stderr + completed.stdout);
+  const child = spawn(
+    process.execPath,
+    [resolve(target, ...command.executor.path.split('/')), ...(command.executor.args || [])],
+    {
+      cwd: target,
+      env: workspaceRuntimeEnvironment(target),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+  );
+
+  try {
+    const ready = await waitForCanonicalUiReady(child);
+    const reviewUrl = new URL(ready.url);
+    assert.equal(reviewUrl.searchParams.get('annotate'), '1');
+    const response = await fetch(reviewUrl);
+    assert.equal(response.status, 200, ready.output);
+    assert.match(await response.text(), /<script[^>]+src="\/src\/main\.ts"/);
+  } finally {
+    await stopChild(child);
+  }
 });
 
 test('Vite and browser execution are registered in the Product Design domain Skill', async () => {
@@ -159,14 +460,29 @@ test('Vite and browser execution are registered in the Product Design domain Ski
     assert.equal(command.domain, 'product-design');
     assert.match(command.executor.path, /^\.agents\/skills\/product-design\/canonical-ui-prototype\//);
   }
+  const repair = manifest.operations.find((item) => item.id === 'canonical-ui-repair');
+  assert.equal(repair.kind, 'repair');
+  assert.equal(repair.npmScript, 'repair:canonical-ui');
+  assert.equal(repair.artifact, 'canonical-ui-prototype');
+  assert.match(repair.executor.path, /^\.agents\/skills\/product-design\/canonical-ui-prototype\//);
   for (const code of [
     'AIH_SOURCE_CAPTURE_BLOCKED',
     'AIH_SOURCE_COVERAGE_FAILED',
+    'AIH_COMPONENT_ABSTRACTION_UNRESOLVED',
+    'AIH_COMPONENT_MAPPING_INVALID',
+    'AIH_COMPONENT_VARIANT_COVERAGE_FAILED',
+    'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
     'AIH_CANONICAL_UI_NETWORK_FAILED',
     'AIH_CANONICAL_UI_CONSOLE_FAILED',
     'AIH_CANONICAL_UI_VISUAL_FAILED',
     'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED',
     'AIH_CANONICAL_UI_ASSET_FAILED',
+    'AIH_CANONICAL_UI_SERVER_FAILED',
+    'AIH_VISUAL_REPAIR_REQUIRED',
+    'AIH_VISUAL_REPAIR_PACKET_FAILED',
+    'AIH_VISUAL_REPAIR_ACTION_INVALID',
+    'AIH_VISUAL_REPAIR_SCOPE_VIOLATION',
+    'AIH_VISUAL_REPAIR_EXHAUSTED',
   ]) assert.ok(manifest.blockers.some((item) => item.code === code), code);
 });
 
@@ -190,6 +506,7 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.ok(files.has('QUICKSTART.md'));
   assert.ok(files.has('bin/pre-sdd.mjs'));
   assert.ok(files.has('runtime/dispatch.mjs'));
+  assert.ok(files.has('runtime/init.mjs'));
   assert.ok(files.has('runtime/register-dependency-loader.mjs'));
   assert.ok(files.has('runtime/resolve-package-dependencies.mjs'));
   assert.ok(files.has('templates/workspace/package-lock.json'));
@@ -198,10 +515,25 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.ok(files.has('templates/workspace/.psp/harness/scripts/invoke-pre-sdd.mjs'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/architecture-design/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/agents/openai.yaml'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/figma-design-context.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/source-registration.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/scripts/validate-png-assets.mjs'));
+  assert.ok(files.has('templates/workspace/.agents/skills/organize-figma-assets/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-component-from-design/SKILL.md'));
+  assert.equal(files.has('templates/workspace/.agents/skills/export-marked-assets/SKILL.md'), false);
+  assert.equal(files.has('templates/workspace/.agents/skills/export-marked-assets/scripts/validate-png-assets.mjs'), false);
+  assert.ok(files.has('templates/workspace/.agents/skills/implement-figma-lit-page/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui-visual/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui-visual/agents/openai.yaml'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/repair-packet.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/repair-action.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/template/src/spec/canonical-ui.ts'));
-  assert.ok(files.has('templates/workspace/.agents/skills/product-design/references/figma-ingestion.md'));
+  assert.equal(files.has('templates/workspace/.agents/skills/product-design/references/figma-ingestion.md'), false);
   assert.equal([...files].some((path) => path.includes('HTML-Mock') || path.includes('html-mock')), false);
   assert.equal([...files].some((path) => path.includes('/.psp/domains/')), false);
   assert.equal([...files].some((path) => path.startsWith('.psp/')), false);

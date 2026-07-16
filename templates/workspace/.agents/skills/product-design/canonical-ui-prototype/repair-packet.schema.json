@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/domains/product-design/canonical-ui-repair-packet.schema.json",
+  "title": "Canonical UI Visual Repair Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "status",
+    "workspaceRoot",
+    "attempt",
+    "maxAttempts",
+    "repairableBlockerCodes",
+    "allowedImplementationPaths",
+    "actionReportPath",
+    "implementationPolicy",
+    "protectedHashes",
+    "failures",
+    "attempts"
+  ],
+  "properties": {
+    "version": {"const": "4.0.0"},
+    "status": {"enum": ["REPAIR_REQUIRED", "BLOCKED"]},
+    "workspaceRoot": {"type": "string", "minLength": 1},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 3},
+    "maxAttempts": {"const": 3},
+    "repairableBlockerCodes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["AIH_VISUAL_SOURCE_PARITY_FAILED", "AIH_VISUAL_STYLE_BINDING_FAILED"]}
+    },
+    "allowedImplementationPaths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "actionReportPath": {"$ref": "#/$defs/path"},
+    "implementationPolicy": {"$ref": "#/$defs/implementationPolicy"},
+    "protectedHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["businessSemantics", "visualPolicy", "repairPolicy", "protectedFiles"],
+      "properties": {
+        "businessSemantics": {"$ref": "#/$defs/sha256"},
+        "visualPolicy": {"$ref": "#/$defs/sha256"},
+        "repairPolicy": {"$ref": "#/$defs/sha256"},
+        "protectedFiles": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "failures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/failure"}
+    },
+    "attempts": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/attempt"}
+    }
+  },
+  "$comment": "Repair Action Report uses the same action shape; repair.mjs validates both schemas and cross-checks changed paths and source evidence.",
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+    "path": {"type": "string", "minLength": 1},
+    "repositoryPath": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
+    "implementationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceBeforeEdit",
+        "requireSourceResolution",
+        "preserveInteractiveDom",
+        "preferSourceAssets",
+        "allowSubjectiveApproximation",
+        "minimalImplementationScope",
+        "stableComparisonEnvironment",
+        "fixOrder"
+      ],
+      "properties": {
+        "evidenceBeforeEdit": {"const": true},
+        "requireSourceResolution": {"const": true},
+        "preserveInteractiveDom": {"const": true},
+        "preferSourceAssets": {"const": true},
+        "allowSubjectiveApproximation": {"const": false},
+        "minimalImplementationScope": {"const": true},
+        "stableComparisonEnvironment": {"const": true},
+        "fixOrder": {"const": ["source-resolution", "structure", "geometry", "typography", "paint", "effects", "assets"]}
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blockerCode",
+        "assertionId",
+        "sourceId",
+        "sourceKind",
+        "sourceEvidenceItemIds",
+        "checkKind",
+        "routeId",
+        "viewportId",
+        "message",
+        "actualScreenshot"
+      ],
+      "properties": {
+        "blockerCode": {"enum": ["AIH_VISUAL_SOURCE_PARITY_FAILED", "AIH_VISUAL_STYLE_BINDING_FAILED"]},
+        "assertionId": {"$ref": "#/$defs/id"},
+        "sourceId": {"$ref": "#/$defs/id"},
+        "sourceKind": {"enum": ["figma", "screenshot", "export", "other"]},
+        "sourceEvidenceItemIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "designContextEvidenceItemId": {"$ref": "#/$defs/id"},
+        "designContext": {"$ref": "#/$defs/path"},
+        "baselineEvidenceItemId": {"$ref": "#/$defs/id"},
+        "checkKind": {"enum": ["screenshot-match", "computed-style"]},
+        "targetId": {"$ref": "#/$defs/id"},
+        "styleProperty": {"type": "string", "pattern": "^[a-z][a-z-]*$"},
+        "routeId": {"$ref": "#/$defs/id"},
+        "viewportId": {"$ref": "#/$defs/id"},
+        "scenarioId": {"$ref": "#/$defs/id"},
+        "differenceRatio": {"type": "number", "minimum": 0, "maximum": 1},
+        "differenceRegions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/differenceRegion"}
+        },
+        "expectedStyle": {"type": "string"},
+        "actualStyle": {"type": "string"},
+        "message": {"type": "string", "minLength": 1},
+        "sourceBaseline": {"$ref": "#/$defs/path"},
+        "actualScreenshot": {"$ref": "#/$defs/path"},
+        "differenceScreenshot": {"$ref": "#/$defs/path"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"sourceKind": {"const": "figma"}}, "required": ["sourceKind"]},
+          "then": {"required": ["designContextEvidenceItemId", "designContext"]}
+        },
+        {
+          "if": {"properties": {"checkKind": {"const": "screenshot-match"}}, "required": ["checkKind"]},
+          "then": {
+            "required": [
+              "baselineEvidenceItemId",
+              "sourceBaseline",
+              "differenceRatio",
+              "differenceRegions",
+              "differenceScreenshot"
+            ]
+          }
+        },
+        {
+          "if": {"properties": {"checkKind": {"const": "computed-style"}}, "required": ["checkKind"]},
+          "then": {"required": ["targetId", "styleProperty", "expectedStyle", "actualStyle"]}
+        }
+      ]
+    },
+    "differenceRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer", "minimum": 0},
+        "y": {"type": "integer", "minimum": 0},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt", "failures", "sourceResolution", "actions"],
+      "properties": {
+        "attempt": {"type": "integer", "minimum": 1, "maximum": 3},
+        "failures": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/failure"}},
+        "sourceResolution": {"$ref": "#/$defs/sourceResolution"},
+        "actions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action"}}
+      }
+    },
+    "sourceResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "sourceEvidenceItemIds", "rationale"],
+      "properties": {
+        "decision": {"enum": ["reuse-source-assets", "no-applicable-source-asset"]},
+        "sourceEvidenceItemIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "failureAssertionIds",
+        "sourceId",
+        "sourceEvidenceItemIds",
+        "repairLayer",
+        "modifiedPaths",
+        "expectedImpact"
+      ],
+      "properties": {
+        "failureAssertionIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "sourceId": {"$ref": "#/$defs/id"},
+        "sourceEvidenceItemIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "repairLayer": {
+          "enum": ["source-resolution", "structure", "geometry", "typography", "paint", "effects", "assets"]
+        },
+        "modifiedPaths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/repositoryPath"}
+        },
+        "expectedImpact": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

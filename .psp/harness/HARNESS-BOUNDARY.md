@@ -27,17 +27,17 @@ flowchart LR
     S["Scaffold Repository<br/>脚手架源仓库"] --> T["Workspace Template<br/>工作区模板"]
     S --> R["Packaged Runtime<br/>打包运行时"]
     T -->|"pre-sdd init"| W["Generated Workspace<br/>生成工作区"]
-    R -->|"只参与生成新工作区"| W
+    R -->|"初始化时复制运行时快照"| W
     W --> P["本地 package.json 与 package-lock.json<br/>固定工作区运行配置"]
-    P --> E["本地 Manifest、Skill 与 Executor<br/>本地执行事实"]
+    P --> E["本地运行时快照、Manifest、Skill 与 Executor<br/>本地执行事实"]
 ```
 
 | 上下文 | 唯一事实来源 | 例子 |
 |---|---|---|
 | 脚手架源仓库（Scaffold Repository） | 根 `PSPScaffoldProject`、Maintainer Harness、工程测试 | 校验模板纯净性和发布清单 |
 | 工作区模板（Workspace Template） | `templates/workspace/` | 初始化时复制的 User Harness 与领域 Skill |
-| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` 与包依赖 | 安装或更新后的工具只生成未来的新工作区 |
-| 生成工作区（Generated Workspace） | 本地 `PSPProject`、`package.json`、`package-lock.json`、Manifest、Skill、Contract、Schema 与 Validator | 全局工具更新后仍按自己的锁定配置运行 |
+| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` 与包依赖 | 生成未来的新工作区，并复制当前版本运行时快照 |
+| 生成工作区（Generated Workspace） | 本地 `PSPProject`、`.psp/runtime/pre-sdd/`、`package.json`、`package-lock.json`、Manifest、Skill、Contract、Schema 与 Validator | 全局工具更新后仍按自己的运行时快照与锁定依赖运行 |
 
 生成仓库本地拥有运行配置、领域 Skill 与执行事实；全局工具和根 Harness 不得替代这些本地事实。
 
@@ -92,6 +92,7 @@ Harness 只拥有与内容语义无关的结构化硬治理：输入输出角色
 ## 运行时规则
 
 - 全局 `pre-sdd` 只拥有新工作区生成能力；初始化成功后不再是该工作区的运行权威。
+- 初始化必须把当前版本命令分发运行时复制到生成工作区的 `.psp/runtime/pre-sdd/`；工作区命令不得回退到后来更新的全局入口。
 - 工作区本地 `package.json` 与 `package-lock.json` 是运行依赖与命令解析的唯一事实来源。
 - Manifest 的 `executor.path` 相对于目标生成工作区解析，实际执行目标工作区本地文件。
 - 不得把 `templates/workspace/` 中的执行器当作目标工作区执行器；违反时以 `AIH_EXECUTOR_AUTHORITY_INVALID` 阻断。

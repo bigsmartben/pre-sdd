@@ -6,21 +6,23 @@
   "additionalProperties": false,
   "required": ["version", "sourceId", "kind", "location", "capturedAt", "items"],
   "properties": {
-    "version": {"const": "2.0.0"},
+    "version": {"const": "5.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
     "kind": {"enum": ["figma", "screenshot", "export", "other"]},
     "location": {"type": "string", "minLength": 1},
     "capturedAt": {"$ref": "#/$defs/timestamp"},
     "nodeId": {"$ref": "#/$defs/nodeId"},
+    "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
     "items": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/item"}}
   },
   "allOf": [
     {
       "if": {"properties": {"kind": {"const": "figma"}}, "required": ["kind"]},
       "then": {
-        "required": ["nodeId"],
+        "required": ["nodeId", "sourceVersion"],
         "properties": {
           "nodeId": {"$ref": "#/$defs/nodeId"},
+          "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
           "location": {"$ref": "#/$defs/figmaLocation"},
           "items": {
             "type": "array",
@@ -40,6 +42,37 @@
     "figmaLocation": {"type": "string", "pattern": "^https://(?:www\\.)?figma\\.com/design/[^/?#]+/[^?#]+\\?[^#]*node-id=[0-9]+[-:][0-9]+(?:&[^#]*)?$"},
     "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "sourceVersion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "figma-file-version"},
+            "value": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "remote-last-modified"},
+            "value": {"$ref": "#/$defs/timestamp"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "node-fingerprint"},
+            "value": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ]
+    },
     "item": {
       "type": "object",
       "additionalProperties": false,
@@ -48,8 +81,31 @@
         "id": {"$ref": "#/$defs/id"},
         "role": {"enum": ["design-context", "screenshot", "variable-definitions", "asset", "code-connect-map"]},
         "path": {"$ref": "#/$defs/path"},
-        "sha256": {"$ref": "#/$defs/sha256"}
-      }
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema": {"type": "string", "minLength": 1},
+        "sourceNodeId": {"$ref": "#/$defs/nodeId"},
+        "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
+        "captureScope": {"enum": ["layer", "artwork-subtree"]},
+        "containsDynamicContent": {"const": false}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"role": {"const": "design-context"}}, "required": ["role"]},
+          "then": {"properties": {"schema": {}}, "required": ["schema"]}
+        },
+        {
+          "if": {"properties": {"role": {"const": "asset"}}, "required": ["role"]},
+          "then": {
+            "properties": {
+              "sourceNodeId": {},
+              "assetKind": {},
+              "captureScope": {},
+              "containsDynamicContent": {}
+            },
+            "required": ["sourceNodeId", "assetKind", "captureScope", "containsDynamicContent"]
+          }
+        }
+      ]
     }
   }
 }

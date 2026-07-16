@@ -9,7 +9,7 @@
 | 使用者（User） | 安装 `pre-sdd`、创建自己的生成工作区、让智能代理编写产品或架构产物 | [QUICKSTART.md](QUICKSTART.md) |
 | 脚手架开发者（Scaffold Developer） | 修改模板、运行时、命令行入口、工程治理或发布包 | 继续阅读本文 |
 
-例如：想为一个新产品创建工作区，应阅读 Quickstart（快速开始）；想修改 `pre-sdd init` 复制哪些文件，应阅读本文并修改 `templates/workspace/`。
+例如：想为一个新产品创建工作区，应阅读 Quick Start（快速开始）；想修改 `pre-sdd init` 复制哪些文件，应阅读本文并修改 `templates/workspace/`。
 
 ## 双 Harness（双治理层）模型
 
@@ -38,18 +38,18 @@ flowchart LR
     S["脚手架源仓库<br/>Scaffold Repository"] --> T["工作区模板<br/>Workspace Template"]
     S --> R["打包运行时<br/>Packaged Runtime"]
     T -->|"pre-sdd init"| W["生成工作区<br/>Generated Workspace"]
-    R -->|"只参与生成新工作区"| W
-    W --> L["目标工作区本地文件<br/>package.json、package-lock.json、Manifest、Skill、Validator"]
+    R -->|"初始化时复制版本快照"| W
+    W --> L["目标工作区本地文件<br/>运行时快照、package-lock.json、Manifest、Skill、Validator"]
 ```
 
 | 上下文 | 物理位置 | 负责什么 | 例子 |
 |---|---|---|---|
 | 脚手架源仓库（Scaffold Repository） | 仓库根目录 | Maintainer Harness、脚手架工程治理、测试与发布准备 | 校验发布包没有混入根目录运行证据 |
 | 工作区模板（Workspace Template） | `templates/workspace/` | 定义新工作区的初始文件 | `pre-sdd init` 会复制其中的 `AGENTS.md` |
-| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` | 提供新工作区生成能力和内部命令分发 | 全局工具更新只影响未来初始化的新工作区 |
-| 生成工作区（Generated Workspace） | 使用者执行 `pre-sdd init` 的目标目录 | 保存锁定的运行配置、业务产物和本地执行事实 | 全局工具升级后仍按自己的 `package-lock.json` 运行 |
+| 打包运行时（Packaged Runtime） | `bin/`、`runtime/` | 生成新工作区，并在初始化时写入当前版本的本地运行时快照 | 全局工具更新只影响未来初始化的新工作区 |
+| 生成工作区（Generated Workspace） | 使用者执行 `pre-sdd init` 的目标目录 | 保存本地运行时快照、锁定的依赖、业务产物和本地执行事实 | 全局工具升级后仍按自己的运行时快照与 `package-lock.json` 运行 |
 
-关键边界：`templates/workspace/` 是工作区模板（Workspace Template）的唯一事实来源；全局 `pre-sdd` 只负责生成新工作区，既有工作区由本地 Node.js 包配置和目标工作区本地文件拥有运行与执行事实。完整架构决策由 [.psp/harness/HARNESS-BOUNDARY.md](.psp/harness/HARNESS-BOUNDARY.md) 统一拥有。
+关键边界：`templates/workspace/` 是工作区模板（Workspace Template）的唯一事实来源；全局 `pre-sdd` 只负责生成新工作区，既有工作区由 `.psp/runtime/pre-sdd/` 中的初始化版本快照、本地 Node.js 包配置和目标工作区本地文件拥有运行与执行事实。完整架构决策由 [.psp/harness/HARNESS-BOUNDARY.md](.psp/harness/HARNESS-BOUNDARY.md) 统一拥有。
 
 ### 仓库结构
 
@@ -69,7 +69,7 @@ pre-sdd/
 
 ### 本地准备
 
-需要 Node.js `20.19.0` 及以上的兼容版本，或 `22.12.0` 及以上版本。
+Node.js 必须满足 `^20.19.0 || >=22.12.0`。例如，`20.19.0` 与 `22.12.0` 满足要求，`22.11.0` 不满足要求。
 
 ```bash
 git clone https://github.com/bigsmartben/pre-sdd.git
@@ -95,18 +95,19 @@ pre-sdd harness <npm-script> [-- <参数>]
    git status --short
    ```
 
-2. 用 Resolver（路径解析器）确认预计变更属于哪个范围，并记录返回的验证命令。
+2. 用 Resolver（路径解析器）确认预计变更属于哪个范围，并记录返回的验证命令。每个预计变更路径都要重复传入一个 `--path`。
 
    ```bash
    node .psp/harness/scripts/resolve-validation.mjs \
      --path README.md \
+     --path QUICKSTART.md \
      --intent change \
      --json
    ```
 
 3. 只修改本次任务需要的文件。不要在 `templates/workspace/` 原位创建用户实例、`node_modules`、构建输出或浏览器证据。
 
-4. 对全部实际变更路径重新运行 Resolver，并按返回顺序执行每条命令。
+4. 对全部实际变更路径重新运行 Resolver，并按返回顺序执行每条命令。下面是可能出现的最大门禁集合，不是每次都固定执行四项。
 
    ```bash
    npm run validate:harness

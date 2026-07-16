@@ -31,7 +31,7 @@ flowchart LR
 
 ## 本地执行事实
 
-工作区本地 `package.json` 与 `package-lock.json` 是运行配置唯一事实来源；本地 Manifest、领域 Skill、Contract、Schema、模板、渲染器和 Validator 是治理与领域执行唯一事实来源。Agent 必须通过本地 Node.js 包管理器脚本执行当前工作区的 `executor.path`，不得改用包内 `templates/workspace/` 副本。
+工作区本地 `.psp/runtime/pre-sdd/` 是初始化版本的命令分发运行时，`package.json` 与 `package-lock.json` 是运行依赖唯一事实来源；本地 Manifest、领域 Skill、Contract、Schema、模板、渲染器和 Validator 是治理与领域执行唯一事实来源。Agent 必须通过本地 Node.js 包管理器脚本执行当前工作区的 `executor.path`，不得改用包内 `templates/workspace/` 副本，也不得回退到全局运行时。依赖按锁文件准备到操作系统临时缓存，不在工作区创建 `node_modules`。
 
 全局 `pre-sdd` 只负责安装、更新和生成新工作区。当前工作区不提供更新、升级、迁移或同步操作，也不自动采用后来更新的全局运行时；因此不要求新版全局命令行工具兼容本工作区。
 

@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 const WINDOWS_ABSOLUTE = /^[A-Za-z]:/;
 const GLOB_CHARACTERS = ['*', '!', '?', '[', ']', '{', '}'];
@@ -104,6 +104,14 @@ export async function readYaml(root, path) {
 
 export async function readStructured(root, path, format) {
   return format === 'json' ? readJson(root, path) : readYaml(root, path);
+}
+
+export function parseStructuredText(text, format) {
+  return format === 'json' ? JSON.parse(text) : parseYaml(text);
+}
+
+export function stringifyStructured(data, format) {
+  return format === 'json' ? JSON.stringify(data, null, 2) + '\n' : stringifyYaml(data);
 }
 
 export async function loadProjectAndManifest(root) {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "采集 Figma 设计来源"
+  short_description: "采集 Figma 节点、导出静态资源并封存参数、截图和哈希证据"
+  default_prompt: "Use $capture-figma-design-source only after all Figma writes are complete. Freeze the confirmed node and source version, capture schema-valid context and screenshots, export and validate marked assets, seal every file into evidence.json, and return a schema-valid registration packet for $product-design without editing canonical-ui.ts or inferring product semantics."

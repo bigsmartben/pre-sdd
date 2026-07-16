@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, posix } from 'node:path';
 import {
@@ -5,6 +6,7 @@ import {
   joinRepositoryPath,
   readStructured,
   repositoryFile,
+  stringifyStructured,
 } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 
 const LABELS = {
@@ -35,13 +37,14 @@ function table(headers, rows) {
   ].join('\n');
 }
 
-function header(title, data, internalModel) {
+function header(title, data, context) {
   return [
-    '<!-- OFFICIAL USER ARTIFACT. GENERATED FROM INTERNAL MODEL; DO NOT EDIT DIRECTLY. Internal model: ' + internalModel + ' -->',
+    '<!-- OFFICIAL USER ARTIFACT. GENERATED FROM INTERNAL MODEL; DO NOT EDIT DIRECTLY. Internal model: ' + context.internalModel + ' -->',
     '---',
     'generated: true',
     'artifactRole: user-artifact',
-    'internalModel: ' + internalModel,
+    'internalModel: ' + context.internalModel,
+    'sourceSha256: ' + context.sourceSha256,
     'status: ' + (data.metadata?.status || 'not-applicable'),
     'version: ' + (data.metadata?.version || data.version),
     '---',
@@ -77,7 +80,7 @@ function relativeLink(from, to) {
 }
 
 function renderProductPackage(data, context) {
-  const lines = header('Product Specification Package', data, context.internalModel);
+  const lines = header('Product Specification Package', data, context);
   lines.push(
     '本文件是产品设计 Package 的正式用户产物；隐藏结构化模型只服务于生成和机器校验，不属于用户交付物。',
     '',
@@ -132,7 +135,7 @@ function renderProductPackage(data, context) {
 }
 
 function renderCapabilities(data, context) {
-  const lines = header('Use Case Specification', data, context.internalModel);
+  const lines = header('Use Case Specification', data, context);
   lines.push(
     '本产物记录产品行为事实：Actor 为什么触发系统、系统承担什么责任、成功与失败后可观察到什么。它不定义 Screen、Control、组件或实现技术。',
     '',
@@ -248,7 +251,7 @@ function renderCapabilities(data, context) {
 }
 
 function renderInteractions(data, context) {
-  const lines = header('Wireflow Mid-Fidelity Specification', data, context.internalModel);
+  const lines = header('Wireflow Mid-Fidelity Specification', data, context);
   lines.push(
     '本产物把上游 Use Case 场景转换为中保真 Screen、内容层级、语义 Control、可见状态与分支流转；它足以指导 Canonical UI Prototype，但不决定可复用代码组件或视觉 Token。',
     '',
@@ -352,6 +355,54 @@ const RENDERERS = {
   'interactions-markdown': renderInteractions,
 };
 
+function structuredHash(data, format) {
+  const content = stringifyStructured(data, format);
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function outputsForArtifact(registry, paths, data, allArtifacts, project, sourceSha256) {
+  const renderer = RENDERERS[registry.renderer];
+  if (!renderer) throw new Error('未知 renderer：' + registry.renderer);
+  return paths.outputs.map((output) => {
+    const target = output.path;
+    return {
+      artifact: registry.id,
+      internalModel: paths.authorityPath,
+      output: target,
+      role: output.role,
+      content: renderer(data, {
+        internalModel: posix.relative(posix.dirname(target), paths.authorityPath),
+        output: target,
+        outputRole: output.role,
+        artifacts: allArtifacts,
+        project,
+        sourceSha256,
+      }),
+    };
+  });
+}
+
+export function preparedArtifactOutputs(project, manifest, stageId, artifactId, data, sourceSha256 = null) {
+  const registries = manifest.artifactRegistry.filter((registry) => registry.stage === stageId);
+  const registry = registries.find((item) => item.id === artifactId);
+  if (!registry || registry.authorityKind !== 'internal-model') throw new Error('未知内部模型 artifact：' + artifactId);
+  const allArtifacts = {};
+  for (const item of registries) {
+    const paths = artifactPaths(project, item.id, item.stage);
+    if (paths) allArtifacts[item.id] = paths;
+  }
+  const paths = allArtifacts[artifactId];
+  if (!paths) throw new Error('项目未绑定 artifact：' + artifactId);
+  return outputsForArtifact(
+    registry,
+    paths,
+    data,
+    allArtifacts,
+    project,
+    sourceSha256 || structuredHash(data, registry.format),
+  );
+}
+
 export async function expectedOutputs(root, project, manifest, stageId, artifactIds = null) {
   const stageRegistries = stageId
     ? manifest.artifactRegistry.filter((registry) => registry.stage === stageId)
@@ -372,24 +423,14 @@ export async function expectedOutputs(root, project, manifest, stageId, artifact
     const paths = allArtifacts[registry.id];
     if (!paths) continue;
     const data = await readStructured(root, paths.authorityPath, registry.format);
-    const renderer = RENDERERS[registry.renderer];
-    if (!renderer) throw new Error('未知 renderer：' + registry.renderer);
-    for (const output of paths.outputs) {
-      const target = output.path;
-      outputs.push({
-        artifact: registry.id,
-        internalModel: paths.authorityPath,
-        output: target,
-        role: output.role,
-        content: renderer(data, {
-          internalModel: posix.relative(posix.dirname(target), paths.authorityPath),
-          output: target,
-          outputRole: output.role,
-          artifacts: allArtifacts,
-          project,
-        }),
-      });
-    }
+    outputs.push(...outputsForArtifact(
+      registry,
+      paths,
+      data,
+      allArtifacts,
+      project,
+      structuredHash(data, registry.format),
+    ));
   }
   return outputs;
 }

@@ -1,37 +1,90 @@
 # pre-sdd 生成工作区（Generated Workspace）
 
-此目录由 `pre-sdd init` 创建，是业务交付工作区，不是 `pre-sdd` 脚手架源仓库。本地 `psp.project.yaml`、`.psp/harness/` 与 `.agents/skills/` 是本工作区的治理和领域执行唯一事实来源。
+此目录由 `pre-sdd init` 创建，是业务交付使用的生成工作区（Generated Workspace），不是 `pre-sdd` 脚手架源仓库（Scaffold Repository）。本地 `psp.project.yaml`、`.psp/harness/` 与 `.agents/skills/` 是当前工作区的治理和领域执行唯一事实来源。
 
-本地 `.psp/harness/` 是 User Harness（使用者治理层）：它只约束当前生成工作区，不负责脚手架模板维护，也不与其他工作区共享生命周期或运行事实。
+本地 `.psp/harness/` 是 User Harness（使用者治理层）：它只约束当前工作区，不负责维护脚手架模板，也不与其他工作区共享生命周期或运行事实。
+
+## 如何开始
+
+使用者只需告诉 Agent（智能代理）当前要完成的产物，不需要手工调用 Harness（执行控制体系）命令。
+
+例如：
+
+> 请根据这段产品想法整理产品概览：为小型设计团队提供一个可追踪评审意见的协作工具。
+
+Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次需要的阶段，在临时位置准备候选结构化数据，再通过已登记的产物事务一次生成权威 YAML 与面向使用者的 Markdown，最后执行当前范围要求的验证。完成当前产物不会自动开始下游工作；是否继续仍由使用者明确决定。
+
+阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次只请求产品概览时，产品阶段初始化也会创建 `UC.md` 与页面流程模板；Agent 仍只能填写和验证产品概览事实。
 
 ## 初始状态
 
-工作区初始化只创建两个阶段的空目录骨架，不创建任何用户实例或业务事实。
+工作区初始化只创建两个阶段的空目录骨架，不创建用户实例或业务事实。
 
-| Stage / 阶段 | Initial Status / 初始状态 | Initial Content / 初始内容 |
+| Stage（阶段） | Initial Status（初始状态） | Initial Content（初始内容） |
 |---|---|---|
-| Product Design / 产品设计 | `uninitialized` | `.gitkeep` |
-| Architecture Design / 架构设计 | `uninitialized` | `.gitkeep` |
+| Product Design（产品设计） | `uninitialized`（未初始化） | `.gitkeep` 目录标记 |
+| Architecture Design（架构设计） | `uninitialized`（未初始化） | `.gitkeep` 目录标记 |
 
-只有用户明确开始某一阶段时，Agent 才能执行 Manifest 登记的初始化 operation（操作）。`uninitialized` 结构通过不表示产物内容就绪。
+只有使用者明确开始某一阶段时，Agent 才能执行 Manifest 登记的初始化 operation（操作）。`uninitialized` 的结构验证通过，只表示空骨架有效，不表示任何产物内容就绪。
 
-## 交付链
+例如，只请求架构设计时，如果 Use Cases（用例）尚未通过严格门禁，架构阶段初始化会被阻断；Agent 不能用架构假设补写产品事实。
 
-```text
-Product Overview / 产品概览
-  → Use Case / 用例
-      ├─→ Wireflow / 页面流程
-      │    → Canonical UI Prototype / 规范界面原型
-      └─→ Architecture Design / 架构设计
+## 工作区交付关系
+
+```mermaid
+flowchart LR
+    I["Product Idea<br/>产品想法（使用者输入）"] --> O["Product Overview<br/>产品概览"]
+    O --> U["Use Cases<br/>用例"]
+    U --> W["Wireflow<br/>页面流程"]
+    W --> C["Canonical UI Prototype<br/>规范界面原型"]
+    U --> A["Architecture Design<br/>架构设计"]
 ```
 
-每轮只处理用户明确要求的当前产物。当前产物 readiness Profile（就绪配置）全部通过后，Harness 才能执行本次 handoff（移交）门禁；它不保存用户确认，也不自动启动下游。
+“Product Idea（产品想法）”是使用者提供的输入；进入工作区后形成的第一个正式产物是 “Product Overview（产品概览）”。Architecture Design 只依赖已通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。
 
-当前模板只声明工作区内部移交边，不绑定工作区外框架。架构设计通过本地门禁后即形成当前范围的验证结果，后续消费必须由用户另行明确。
+每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
 
-## 架构阶段工程结构
+例如，产品概览通过后，Agent 必须取得从 `product-overview` 到 `use-cases` 的移交凭证；只有使用者随后明确要求编写用例，Agent 才会开始 Use Cases。
 
-执行 `npm run init:architecture` 后，架构阶段按项目绑定创建固定结构：
+当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
+
+## 权威模型与正式产物
+
+内部模型产物的 YAML 与 Markdown 是一个可恢复的原子事务（recoverable atomic transaction）：Agent 在工作区外准备候选 YAML，事务完成 Schema（结构定义）校验、旧版本哈希检查与渲染后，才同时提交 YAML 和 Markdown。渲染或写入失败时恢复旧版本；下次操作会恢复中断事务。Agent 不得直接修改 `.psp/models/` 目标文件或对应 Markdown。规范界面原型是例外：可执行界面及其 `src/spec/canonical-ui.ts` 是语义事实来源，README 是面向人的评审投影。
+
+| 当前产物 | 权威入口 | 正式用户产物 |
+|---|---|---|
+| Product Overview（产品概览） | `01-product-design/.psp/models/product-package.yaml` | `01-product-design/PSP.md` |
+| Use Cases（用例） | `01-product-design/.psp/models/use-cases.yaml` | `01-product-design/UC.md` |
+| Wireflow（页面流程） | `01-product-design/.psp/models/wireflow-mid.yaml` | `01-product-design/wireflow-mid.md` |
+| Canonical UI Prototype（规范界面原型） | `01-product-design/Canonical-UI-Prototype/src/spec/canonical-ui.ts` | 可执行界面与 `01-product-design/Canonical-UI-Prototype/README.md` |
+| Architecture Design（架构设计） | `02-architecture-design/.psp/models/*.yaml` | `02-architecture-design/README.md`、`02-architecture-design/系统边界.md`、`02-architecture-design/概念建模.md` 与 `02-architecture-design/技术验证/README.md` |
+
+例如，调整一个用例时，Agent 先在临时文件准备候选数据，再使用 `apply-product-artifact` 提交 `use-cases.yaml` 与 `UC.md`。直接修改其中任何一个目标文件，或单独运行 `render:product`，都会被视为不符合日常更新协议。
+
+## 阶段初始化后的关键结构
+
+产品阶段初始化后会创建三个结构化模型、对应的 Markdown 产物，以及规范界面原型的本地工程：
+
+```text
+01-product-design/
+├─ .psp/models/
+│  ├─ product-package.yaml
+│  ├─ use-cases.yaml
+│  ├─ wireflow-mid.yaml
+│  └─ canonical-ui-prototype.json
+├─ PSP.md
+├─ UC.md
+├─ wireflow-mid.md
+└─ Canonical-UI-Prototype/
+   ├─ src/spec/canonical-ui.ts
+   ├─ src/mocks/
+   ├─ public/
+   ├─ README.md
+   └─ package.json
+```
+
+架构阶段只有在 `use-cases` 到 `architecture-design` 的上游移交通过后才能初始化。初始化后的关键结构如下：
 
 ```text
 02-architecture-design/
@@ -40,37 +93,106 @@ Product Overview / 产品概览
 │  ├─ system-boundary/
 │  ├─ conceptual-model/
 │  └─ technical-validation/
-├─ .psp/models/                  # 权威结构化模型
-├─ 技术验证/cases/EXP-NNN.case.mjs # 真实代码实验
+├─ .psp/models/
+│  ├─ architecture-package.yaml
+│  ├─ system-boundary.yaml
+│  ├─ conceptual-model.yaml
+│  └─ technical-validation.yaml
+├─ 技术验证/
+│  ├─ cases/EXP-001.case.mjs
+│  ├─ cases/README.md
+│  ├─ src/verify.mjs
+│  ├─ package.json
+│  └─ README.md
 ├─ README.md
 ├─ 系统边界.md
-├─ 概念建模.md
-└─ 技术验证/README.md
+└─ 概念建模.md
 ```
 
-`inputs/` 是非权威支撑输入，`.psp/models/` 是领域权威模型，Markdown 是正式用户产物；三者不得混用。Architecture Design 只读取通过门禁的 Use Cases，不依赖 Canonical UI Prototype。
+`inputs/` 保存非权威支撑输入，`.psp/models/` 保存领域权威模型，Markdown 文件是正式用户产物，`技术验证/cases/` 保存真实代码实验；四者不得混用。
 
-## Agent 内部命令
+## Figma 辅助技能
 
-以下命令由 Agent（智能代理）和 Harness Adapter（执行控制适配器）根据用户意图调用，不是用户命令：
+工作区提供五个独立辅助 Skill（技能），用于整理、采集、实现和修复 Figma 驱动的 Lit + Vite Canonical UI Prototype。它们可由 Codex 直接发现，但不属于 Product Design 的领域生命周期，不登记 Artifact（产物）或 Handoff（移交）边，也不得反向修改产品事实。
 
-```bash
-npm run harness:resolve -- --intent change --path <实际变更路径> --json
-npm run validate:harness
-npm run validate:product
-npm run validate:architecture
-npm run handoff -- --from <source-scope> --to <consumer-scope> --json
+### Figma Quickstart（快速开始）闭环
+
+当工作区已有 Figma 设计时，按以下顺序建立可复查的实现闭环。前 3 步生成实现依据；第 4、5 步持续迭代，直到使用者确认差异已处理。Figma 副本、图层重组和组件创建都属于远端写入，必须先确认目标文件、页面范围和允许的改动。
+
+```mermaid
+flowchart LR
+    A["1. 建立 Figma 工作区副本"] --> B["2. 按页面重组、规范化 Figma"]
+    B --> C["3. 实现 Figma 页面"]
+    C --> D["4. Review HTML：标记不一致"]
+    D --> E["5. 修复 HTML"]
+    E --> D
 ```
 
-工作区本地 `package.json` 与 `package-lock.json` 固定运行配置，命令执行器从当前工作区本地 Manifest 声明的路径加载。本地领域 Skill、Contract、Schema、模板、渲染器和 Validator 不由包内模板副本替代。
+| 步骤 | 执行要点 | 完成标志 |
+|---|---|---|
+| 1. 建立 Figma 工作区副本 | 从原始设计复制到本工作区使用的独立副本；保留原始文件作为对照，不在原稿上整理 | 副本、页面范围和责任人已确认 |
+| 2. 按页面重组、规范化 Figma | 以待实现页面为单位整理图层与命名，复用已有组件，按需创建规范组件，并标记 `Export/` 资源 | 所有 Figma 写入完成，页面节点已冻结 |
+| 3. 实现 Figma | 采集冻结节点的上下文、截图、变量、字体和资源证据，登记组件清单、Figma ↔ Lit 映射与 Variant 覆盖后再实现页面 | 可运行的 Canonical UI Prototype、完整来源证据与组件抽象契约 |
+| 4. Review HTML（审查 HTML） | 在浏览器中对照 Figma 操作页面，使用不一致标记工具框选差异、选择类别并复制标记截图 | 差异形成可执行的修复说明，不改变正式规格 |
+| 5. 修复 HTML | 仅按 Repair Packet（修复包）允许的范围修正实现，重新验证并提供新的评审地址 | Repair Action Report（修复动作报告）与新一轮可审查页面 |
+
+第 4、5 步的循环示例：审查时发现“标题距顶部比 Figma 多 12px”，框选标题区域并复制标记截图；修复后重新打开评审地址复查。若仍有差异，继续标记并修复；若无差异，由使用者结束循环。
+
+```text
+Product Design 确认 sourceId、业务范围与视觉策略
+  → Figma 整理或组件创建（完成全部远端写入）
+  → 冻结最终节点并采集设计上下文、截图和变量
+  → 导出标记资源并封存 evidence.json 与全部哈希
+  → Product Design 绑定来源、业务语义与组件抽象契约
+  → Lit + Vite Canonical UI 实现
+  → Harness 与来源一致性验证
+  → Repair Packet 驱动的实现修复
+```
+
+| Skill（技能） | 用途 | 边界 |
+|---|---|---|
+| `capture-figma-design-source` | 在全部 Figma 写入完成后采集节点上下文、截图、变量和字体，导出并校验 `Export/` 资源，再封存资源与哈希证据 | 后续 Figma 写入会使旧证据失效；不决定产品语义、视觉策略或就绪状态 |
+| `organize-figma-assets` | 使用 `figma-use` 确认范围后整理图层、复用已有组件并标记 `Export/` 资源 | 不创建新组件；写入后必须重新采集 |
+| `figma-component-from-design` | 使用 `figma-use` 与 `figma-generate-library` 确认抽象决定、属性、有限 Variant（变体）和变量后创建 Figma 组件 | 不修改产品事实或阶段状态；写入后必须重新采集 |
+| `implement-figma-lit-page` | 使用冻结节点的最终证据与已校验组件映射逐个实现 Lit 组件并组装页面 | 映射缺失或证据过期时停止；不得在页面中重新决定组件边界 |
+| `repair-canonical-ui-visual` | 根据 Repair Packet 和固定修复顺序修改允许路径，并提交可校验的 Repair Action Report | 不修改基线、容差、视觉策略或业务语义 |
+
+例如，用户要求精准还原一个完整 Figma Frame 时，Agent 先使用 Product Design 确认运行环境、`sourceId` 和 `exact`（完全实现）视觉策略，再完成图层整理或组件创建等全部 Figma 写入。节点冻结后才采集设计上下文和截图、导出静态资源、把每个资源登记为 `role: asset` 并重新计算 `evidence.json` 哈希；Product Design 随后绑定最终来源与业务语义，把每个组件相关节点归类为共享组件、Primitive 或局部结构，并登记 Figma ↔ Lit 映射及使用中 Variant 覆盖，门禁通过后才开始实现。若采集后再次修改 Figma，旧证据立即失效，必须重新采集。出现来源差异时只由 Repair Packet 驱动独立修复技能修改代码，并用 Repair Action Report 对来源依据和实际修改路径进行交叉校验。像素容差和固定修复原则继续由 Canonical UI Artifact Contract（产物契约）拥有。
+
+## Agent 内部执行流程
+
+```mermaid
+flowchart LR
+    R["使用者请求当前产物"] --> S["Resolver<br/>解析变更范围与验证"]
+    S --> I["按需初始化阶段"]
+    I --> E["在临时位置准备候选数据"]
+    E --> P["产物事务：同时生成 YAML 与 Markdown"]
+    P --> V["执行全部验证命令"]
+    V --> H["当前产物就绪后执行移交门禁"]
+```
+
+以下命令由 Agent 和 Harness Adapter（执行控制适配器）根据使用者意图调用，不是面向使用者的操作接口：
+
+| 目的 | 命令示例 | 前置条件 |
+|---|---|---|
+| 解析实际变更路径 | `npm run harness:resolve -- --intent change --path <仓库相对路径> --json` | 路径使用正斜杠 |
+| 初始化产品阶段 | `npm run init:product` | 使用者明确开始产品阶段 |
+| 初始化架构阶段 | `npm run init:architecture` | Use Cases 到 Architecture Design 的移交通过 |
+| 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件> --expected-sha256 <旧哈希>` | 阶段已初始化；先运行同一操作的 `--dry-run` |
+| 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件> --expected-sha256 <旧哈希>` | 阶段已初始化；先运行同一操作的 `--dry-run` |
+| 验证产品阶段 | `npm run validate:product` | 按 Resolver 返回顺序执行 |
+| 验证架构阶段 | `npm run validate:architecture` | 按 Resolver 返回顺序执行 |
+| 执行内部移交 | `npm run handoff -- --from <来源范围> --to <消费范围> --json` | 来源产物的就绪验证全部通过 |
+
+工作区本地 `package.json` 与 `package-lock.json` 固定运行配置；执行器从当前工作区本地 Manifest 声明的路径加载。本地领域 Skill（能力说明）、Contract（契约）、Schema（结构定义）、模板、渲染器和 Validator（校验器）不得由包内 `templates/workspace/` 副本替代。
 
 本工作区不提供更新、升级、迁移或同步操作。全局 `pre-sdd` 后续更新只影响新初始化的工作区，不得改变当前工作区的运行配置；当前工作区也不依赖新版全局命令行工具兼容旧工作区。
 
 ## 职责边界
 
-| Owner / 所有者 | Owns / 负责 | Does Not Own / 不负责 |
-|---|---|---|
-| Agent / 智能代理 | 用户对话、当前范围、产物编写、结果解释 | 绕过门禁、自动推进 |
-| Harness / 执行控制体系 | 输入输出、路径、Scope、依赖、生命周期、命令、状态与移交 | 产品或架构语义 |
-| Domain Skill / 领域 Skill | 领域工作流、Contract、Schema、模板、追溯、渲染器和领域 Validator | 用户审批、阶段推进、路径推断 |
-| Canonical UI Prototype / 规范界面原型 | 可执行界面和 `canonical-ui.ts` 语义事实 | 下游平台映射和代码生成规则 |
+| Owner（所有者） | Owns（负责） | Does Not Own（不负责） | Example（例子） |
+|---|---|---|---|
+| Agent（智能代理） | 使用者对话、当前范围、产物编写、结果解释 | 绕过门禁、自动推进 | 使用者只要求产品概览时，不自动编写用例 |
+| Harness（执行控制体系） | 输入输出、路径、Scope（范围）、依赖、生命周期、命令、状态与移交 | 产品或架构语义 | 检查 Manifest 声明的文件是否存在，不判断产品目标是否合理 |
+| Domain Skill（领域能力） | 领域工作流、Contract、Schema、模板、追溯、渲染器和领域 Validator | 使用者审批、阶段推进、路径推断 | 产品设计能力检查用例场景是否完整 |
+| Canonical UI Prototype（规范界面原型） | 可执行界面和 `src/spec/canonical-ui.ts` 语义事实 | 下游平台映射和代码生成规则 | 按页面流程表达界面状态，但不决定使用 React 或 Vue |

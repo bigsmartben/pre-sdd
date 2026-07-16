@@ -1,5 +1,26 @@
 export const canonicalUi = {
-  version: '2.0.0',
+  version: '4.0.0',
+  visualPolicy: {
+    mode: 'unresolved',
+    selectedBy: 'default-policy',
+    aspects: [],
+    coverage: [],
+  },
+  repairPolicy: {
+    enabled: false,
+    maxAttempts: 3,
+    repairableBlockerCodes: ['AIH_VISUAL_SOURCE_PARITY_FAILED', 'AIH_VISUAL_STYLE_BINDING_FAILED'],
+    allowedImplementationPaths: [
+      'index.html',
+      'src/main.ts',
+      'src/psp-app.ts',
+      'src/mock-api.ts',
+      'src/components/**/*.ts',
+      'src/components/**/*.css',
+      'src/styles/**/*.css',
+      'src/*.css',
+    ],
+  },
   designSources: [],
   assets: [],
   tokens: [],
@@ -23,6 +44,9 @@ export const canonicalUi = {
       stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'],
     },
   ],
+  componentInventory: [],
+  componentMappings: [],
+  componentVariantCoverage: [],
   controls: [
     { id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' },
     { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' },
@@ -43,29 +67,23 @@ export const canonicalUi = {
     { id: 'ACTION-002', name: 'request-error', eventId: 'EVENT-002', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'] },
   ],
   scenarios: [
-    { id: 'SCENARIO-001', useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'] },
-    { id: 'SCENARIO-002', useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'] },
+    { id: 'SCENARIO-001', useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: [] },
+    { id: 'SCENARIO-002', useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: [] },
   ],
   mockBehaviors: [
     { id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] },
     { id: 'MOCK-002', request: 'GET /api/spec-preview?mode=error', responseStateIds: ['COMPONENT-STATE-ERROR'] },
   ],
-  viewports: [
-    { id: 'VIEWPORT-MOBILE', width: 390, height: 844 },
-    { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 },
-  ],
-  visualAssertions: [],
+  viewports: [],
+  renderAssertions: [],
+  sourceParityAssertions: [],
   motions: [
     { id: 'MOTION-001', targetId: 'COMPONENT-001', trigger: 'loading', durationMs: 160, reducedMotion: true },
   ],
-  accessibility: {
-    standard: 'Web Content Accessibility Guidelines 2.2 AA',
-    checks: ['automated-rules', 'keyboard-operation', 'visible-focus', 'accessible-name', 'target-size'],
-  },
   traceability: [
     { useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] },
   ],
   gaps: [
-    { id: 'GAP-001', description: '用实际产品事实替换所有 NNN 占位标识并补充设计来源。', owner: 'product-design' },
+    { id: 'GAP-001', description: '先让用户选择界面运行环境，再用实际产品事实替换所有 NNN 占位标识并补充设计来源。', owner: 'product-design' },
   ],
 } as const;

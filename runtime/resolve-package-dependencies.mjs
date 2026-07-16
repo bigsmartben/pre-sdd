@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
-const requireFromRuntime = createRequire(import.meta.url);
+const requireFromRuntime = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || import.meta.url);
 
 function isBareSpecifier(specifier) {
   return !specifier.startsWith('.')

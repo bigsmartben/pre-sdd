@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { build, createServer } from 'vite';
 import { artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { executeRegisteredCommand } from '../../../../../.psp/harness/scripts/lib/execute-command.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
-const require = createRequire(process.env.PRE_SDD_RUNTIME_ENTRY || import.meta.url);
+const require = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || process.env.PRE_SDD_RUNTIME_ENTRY || import.meta.url);
 
 function argument(name) {
   const index = process.argv.indexOf('--' + name);
@@ -20,6 +21,32 @@ function dependencyAliases() {
     { find: 'msw/browser', replacement: require.resolve('msw/browser') },
     { find: 'msw', replacement: require.resolve('msw') },
   ];
+}
+
+async function runReviewReadiness() {
+  const { manifest } = await loadProjectAndManifest(root);
+  const profile = manifest.validationProfiles.find((item) => item.id === 'canonical-ui-review-readiness');
+  if (!profile) throw Object.assign(new Error('Manifest 未登记 Canonical UI 评审就绪 Profile。'), { code: 'AIH_PROFILE_INVALID' });
+  for (const commandId of profile.commands) {
+    const command = manifest.commands.find((item) => item.id === commandId);
+    if (!command) throw Object.assign(new Error('评审就绪 Profile 引用未知命令：' + commandId), { code: 'AIH_COMMAND_INVALID' });
+    const result = executeRegisteredCommand(root, command, { timeout: 180_000 });
+    if (result.status === 'PASS') continue;
+    const code = result.blockers[0] || 'AIH_CANONICAL_UI_SERVER_FAILED';
+    const detail = result.stderr || result.stdout || command.run;
+    throw Object.assign(new Error('评审服务器启动前门禁失败：' + commandId + ' · ' + detail), { code });
+  }
+}
+
+async function runRepairGate() {
+  const { manifest } = await loadProjectAndManifest(root);
+  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-repair');
+  if (!operation) throw Object.assign(new Error('Manifest 未登记 Canonical UI 自动修复操作。'), { code: 'AIH_COMMAND_INVALID' });
+  const result = executeRegisteredCommand(root, operation, { timeout: 180_000 });
+  if (result.status === 'PASS') return;
+  const code = result.blockers[0] || 'AIH_VISUAL_REPAIR_PACKET_FAILED';
+  const detail = result.stderr || result.stdout || operation.run;
+  throw Object.assign(new Error('评审服务器启动前视觉修复闭环未完成：' + detail), { code });
 }
 
 async function typescriptFiles(root) {
@@ -103,9 +130,19 @@ async function buildPrototype() {
 
 async function dev() {
   const area = await prototypeRoot();
+  await runRepairGate();
+  await runReviewReadiness();
   const server = await createServer({ root: area, configFile: false, resolve: { alias: dependencyAliases() }, server: { port: 4173 } });
   await server.listen();
   server.printUrls();
+  const localUrl = server.resolvedUrls?.local?.[0];
+  if (!localUrl) {
+    await server.close();
+    throw Object.assign(new Error('开发服务器已启动，但没有返回可访问的本地地址。'), { code: 'AIH_CANONICAL_UI_SERVER_FAILED' });
+  }
+  const reviewUrl = new URL(localUrl);
+  reviewUrl.searchParams.set('annotate', '1');
+  console.log('[READY] Canonical UI Prototype 评审地址：' + reviewUrl.href);
   return await new Promise((resolveExit) => {
     const close = async () => { await server.close(); resolveExit(0); };
     process.once('SIGINT', close);

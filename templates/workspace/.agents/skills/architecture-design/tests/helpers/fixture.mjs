@@ -1,11 +1,16 @@
 import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { readFile, writeFile } from 'node:fs/promises';
 
 export const repositoryRoot = resolve(process.env.PSP_REPOSITORY_ROOT || resolve(import.meta.dirname, '../../../../..'));
+const runtimeRoot = process.env.PRE_SDD_RUNTIME_ENTRY
+  ? resolve(dirname(process.env.PRE_SDD_RUNTIME_ENTRY), '..')
+  : resolve(repositoryRoot, '../..');
+const dependencyRoot = resolve(process.env.PRE_SDD_DEPENDENCY_ROOT || process.env.PRE_SDD_PACKAGE_ROOT || runtimeRoot);
 const repositoryProject = parseYaml(await readFile(resolve(repositoryRoot, 'psp.project.yaml'), 'utf8'));
 export const project = structuredClone(repositoryProject);
 for (const stage of Object.values(project.stages)) {
@@ -43,14 +48,21 @@ export async function cleanupTemporaryRepositories() {
   await Promise.all(roots.map((path) => rm(path, { recursive: true, force: true })));
 }
 
-export function runScript(script, fixtureRoot, args = []) {
+export function runScript(script, fixtureRoot, args = [], options = {}) {
+  const dependencyLoader = '--import=' + pathToFileURL(resolve(runtimeRoot, 'runtime/register-dependency-loader.mjs')).href;
   const result = spawnSync(process.execPath, [resolve(repositoryRoot, script), ...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     env: {
       ...process.env,
+      ...(options.environment || {}),
       PSP_REPOSITORY_ROOT: fixtureRoot,
       AI_HARNESS_ROOT: fixtureRoot,
+      PRE_SDD_PACKAGE_ROOT: dependencyRoot,
+      PRE_SDD_DEPENDENCY_ROOT: dependencyRoot,
+      PRE_SDD_DEPENDENCY_ENTRY: resolve(dependencyRoot, 'package.json'),
+      NODE_ENV: 'test',
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, dependencyLoader].filter(Boolean).join(' '),
     },
   });
   let output;

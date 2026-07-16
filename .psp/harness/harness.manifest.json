@@ -58,7 +58,16 @@
     },
     "templateSkills": {
       "root": "templates/workspace/.agents/skills",
-      "required": ["apply-repository-harness", "product-design", "architecture-design"]
+      "required": [
+        "apply-repository-harness",
+        "product-design",
+        "architecture-design",
+        "capture-figma-design-source",
+        "organize-figma-assets",
+        "figma-component-from-design",
+        "implement-figma-lit-page",
+        "repair-canonical-ui-visual"
+      ]
     },
     "textContracts": [
       {
@@ -70,7 +79,7 @@
       {
         "id": "workspace-instructions",
         "path": "templates/workspace/AGENTS.md",
-        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "Canonical UI Prototype", "PSPProject"],
+        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "Canonical UI Prototype", "PSPProject", "Manifest 未声明消费者时"],
         "forbiddenText": ["PSPScaffoldProject"]
       },
       {
@@ -82,19 +91,19 @@
       {
         "id": "scaffold-readme",
         "path": "README.md",
-        "requiredText": ["开发者视角（Developer View）", "双 Harness（双治理层）模型", "Maintainer Harness（维护者治理层）", "User Harness（使用者治理层）", "脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", "既有工作区不提供更新或升级操作", ".psp/harness/scripts/run-ci-validation.mjs", "QUICKSTART.md"],
+        "requiredText": ["开发者视角（Developer View）", "双 Harness（双治理层）模型", "Maintainer Harness（维护者治理层）", "User Harness（使用者治理层）", "脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", "既有工作区不提供更新或升级操作", "^20.19.0 || >=22.12.0", "最大门禁集合", ".psp/harness/scripts/run-ci-validation.mjs", "QUICKSTART.md"],
         "forbiddenText": ["根目录是软件包源码、开发 Harness 和仓库领域 Skill"]
       },
       {
         "id": "scaffold-quickstart",
         "path": "QUICKSTART.md",
-        "requiredText": ["使用者视角（User View）", "用户命令只有三项", "npm update --global pre-sdd", "pre-sdd init", "目标工作区本地文件"],
+        "requiredText": ["使用者视角（User View）", "会改变状态的公共操作只有三项", "npm update --global pre-sdd", "pre-sdd init", "git init", "文件存在不等于", "01-product-design", "02-architecture-design", "架构设计只需要已经确认并检查通过的 Use Cases", "本轮只完成"],
         "forbiddenText": ["pre-sdd harness", "npm exec", "npm run", ".psp/harness/scripts/run-ci-validation.mjs"]
       },
       {
         "id": "workspace-readme",
         "path": "templates/workspace/README.md",
-        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "不是 `pre-sdd` 脚手架源仓库", "本地 Manifest 声明的路径加载", "本工作区不提供更新、升级、迁移或同步操作"],
+        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "不是 `pre-sdd` 脚手架源仓库", "文件已经存在不等于", "必须执行本次 handoff", "本地 Manifest 声明的路径加载", "本工作区不提供更新、升级、迁移或同步操作"],
         "forbiddenText": ["npm install --global"]
       },
       {
@@ -118,8 +127,11 @@
       "pack:check"
     ],
     "execution": {
+      "runtimeAuthority": "generated-workspace-snapshot",
+      "runtimeSnapshot": ".psp/runtime/pre-sdd",
       "executorAuthority": "generated-workspace-local",
       "dependencyAuthority": "generated-workspace-package-lock",
+      "dependencyCache": "os-temporary-directory",
       "testWorkspace": "os-temporary-copy",
       "runtimeEvidence": "os-temporary-directory"
     },

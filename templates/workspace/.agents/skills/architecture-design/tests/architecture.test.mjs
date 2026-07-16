@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import test from 'node:test';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
   fixtureProject,
   markReady,
@@ -279,6 +279,35 @@ test('architecture initialization depends on Use Cases and creates every fixed i
   for (const binding of Object.values(stage.artifacts)) {
     assert.equal(await pathExists(resolve(root, stage.root, binding.inputRoot)), true, binding.inputRoot);
   }
+});
+
+test('architecture artifact operation commits its YAML and Markdown as one revision', async () => {
+  const root = await temporaryRepository();
+  await completeUseCasesFixture(root);
+  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
+  assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
+  const project = await fixtureProject(root);
+  const stage = project.stages['architecture-design'];
+  const binding = stage.artifacts['system-boundary'];
+  const artifact = await readArtifact(root, stage, binding);
+  artifact.data.system.name = '原子事务架构系统';
+  const candidate = resolve(root, '.psp/candidate-system-boundary.yaml');
+  await writeFile(candidate, stringifyYaml(artifact.data));
+  const before = await readFile(artifact.path, 'utf8');
+  const expectedSha256 = createHash('sha256').update(before).digest('hex');
+  const applied = runScript('.agents/skills/architecture-design/scripts/apply-artifact.mjs', root, [
+    '--operation', 'apply-architecture-artifact',
+    '--artifact', 'system-boundary',
+    '--input', candidate,
+    '--expected-sha256', expectedSha256,
+    '--json',
+  ]);
+  assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
+  const authority = await readFile(artifact.path, 'utf8');
+  const markdown = await readFile(resolve(root, stage.root, binding.outputs[0].path), 'utf8');
+  assert.match(authority, /原子事务架构系统/);
+  assert.match(markdown, /原子事务架构系统/);
+  assert.match(markdown, new RegExp('sourceSha256: ' + createHash('sha256').update(authority).digest('hex')));
 });
 
 test('complete Use Case to key capability to selection to real-code conclusion mapping passes strict validation', async () => {

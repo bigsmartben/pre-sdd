@@ -65,6 +65,15 @@ test('root binding is scaffold-only and validates without domain lifecycle', asy
       crossLifecycleControl: 'forbidden',
     },
   });
+  assert.deepEqual(manifest.scaffoldPolicy.execution, {
+    runtimeAuthority: 'generated-workspace-snapshot',
+    runtimeSnapshot: '.psp/runtime/pre-sdd',
+    executorAuthority: 'generated-workspace-local',
+    dependencyAuthority: 'generated-workspace-package-lock',
+    dependencyCache: 'os-temporary-directory',
+    testWorkspace: 'os-temporary-copy',
+    runtimeEvidence: 'os-temporary-directory',
+  });
   assert.equal((await validateScaffold(repositoryRoot)).status, 'PASS');
 });
 

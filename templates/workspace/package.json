@@ -3,6 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.61.1",
+    "ajv": "^8.20.0",
+    "axe-core": "^4.12.1",
+    "lit": "^3.3.3",
+    "msw": "^2.15.0",
+    "picomatch": "^4.0.5",
+    "toml": "^4.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4",
+    "yaml": "^2.9.0"
+  },
   "scripts": {
     "dev": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness dev",
     "workspace:build": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness workspace:build",
@@ -23,6 +38,9 @@
     "init:workspace": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness init:workspace",
     "init:product": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness init:product",
     "init:architecture": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness init:architecture",
+    "apply:product-artifact": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness apply:product-artifact",
+    "apply:architecture-artifact": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness apply:architecture-artifact",
+    "repair:canonical-ui": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness repair:canonical-ui",
     "render:product": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness render:product",
     "render:architecture": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness render:architecture",
     "check:outputs": "node .psp/harness/scripts/invoke-pre-sdd.mjs harness check:outputs",

@@ -57,6 +57,15 @@ try {
         message: 'Markdown 用户产物与内部模型不一致：' + item.internalModel,
       })),
     };
+  } else if (!initializing && process.env.NODE_ENV !== 'test') {
+    result = {
+      status: 'BLOCKED',
+      mode: 'render',
+      blockers: [{
+        code: 'AIH_COMMAND_INVALID',
+        message: '日常架构产物更新必须使用 Manifest 登记的 apply-architecture-artifact 事务；render:architecture 只供阶段初始化使用。',
+      }],
+    };
   } else {
     const outputs = await writeExpectedOutputs(root, project, manifest, stageId);
     result = {

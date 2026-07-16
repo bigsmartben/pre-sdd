@@ -119,10 +119,13 @@
         "execution": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["executorAuthority", "dependencyAuthority", "testWorkspace", "runtimeEvidence"],
+          "required": ["runtimeAuthority", "runtimeSnapshot", "executorAuthority", "dependencyAuthority", "dependencyCache", "testWorkspace", "runtimeEvidence"],
           "properties": {
+            "runtimeAuthority": {"const": "generated-workspace-snapshot"},
+            "runtimeSnapshot": {"const": ".psp/runtime/pre-sdd"},
             "executorAuthority": {"const": "generated-workspace-local"},
             "dependencyAuthority": {"const": "generated-workspace-package-lock"},
+            "dependencyCache": {"const": "os-temporary-directory"},
             "testWorkspace": {"const": "os-temporary-copy"},
             "runtimeEvidence": {"const": "os-temporary-directory"}
           }

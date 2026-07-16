@@ -1,6 +1,6 @@
-import { access, cp, lstat, mkdtemp, readdir, rename, rm } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, mkdtemp, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { dispatchHarness, runtimeWorkspace } from './dispatch.mjs';
+import { dispatchHarness, packageRoot, runtimeWorkspace } from './dispatch.mjs';
 
 async function exists(path) {
   try {
@@ -22,6 +22,22 @@ async function containsNodeModules(root) {
 
 function fail(code, message) {
   throw Object.assign(new Error(message), { code });
+}
+
+async function snapshotRuntime(workspaceRoot) {
+  const target = join(workspaceRoot, '.psp', 'runtime', 'pre-sdd');
+  await mkdir(target, { recursive: true });
+  for (const entry of ['bin', 'runtime']) {
+    await cp(join(packageRoot, entry), join(target, entry), {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
+  }
+  await cp(join(packageRoot, 'package.json'), join(target, 'package.json'), {
+    force: false,
+    errorOnExist: true,
+  });
 }
 
 export async function initializeWorkspace(targetInput) {
@@ -57,6 +73,7 @@ export async function initializeWorkspace(targetInput) {
         errorOnExist: true,
       });
     }
+    await snapshotRuntime(staging);
     const validations = [
       ['init:workspace', []],
       ['validate:harness', []],

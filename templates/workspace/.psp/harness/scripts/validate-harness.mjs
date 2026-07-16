@@ -40,6 +40,8 @@ const REQUIRED_CODES = [
   'AIH_RUNTIME_UNAVAILABLE',
   'AIH_RUNTIME_INCOMPATIBLE',
   'AIH_VALIDATION_FAILED',
+  'AIH_ARTIFACT_TRANSACTION_FAILED',
+  'AIH_ARTIFACT_RECOVERY_REQUIRED',
   'AIH_USER_CHANGE_COLLISION',
   'AIH_WORKSPACE_NOT_EMPTY',
   'AIH_STAGE_UNINITIALIZED',
@@ -246,7 +248,35 @@ if (manifest && manifestValid) {
     if (operation.kind === 'workspace' || operation.kind === 'handoff') continue;
     const stage = project?.stages?.[operation.stage];
     if (!stage || !['uninitialized', 'active'].includes(stage.status)) {
-      block('AIH_PROJECT_BINDING_INVALID', 'Operation 引用不可初始化阶段：' + operation.stage, operation.id);
+      block('AIH_PROJECT_BINDING_INVALID', 'Operation 引用不可执行阶段：' + operation.stage, operation.id);
+    }
+    if (operation.kind === 'artifact') {
+      for (const artifactId of operation.artifacts) {
+        const registered = manifest.artifactRegistry.find((item) => item.id === artifactId);
+        if (
+          !registered
+          || registered.stage !== operation.stage
+          || registered.domain !== operation.domain
+          || registered.authorityKind !== 'internal-model'
+          || !stage?.artifacts?.[artifactId]
+        ) {
+          block('AIH_CONTRACT_INVALID', '产物事务 operation 引用无效 Artifact：' + artifactId, operation.id);
+        }
+      }
+      continue;
+    }
+    if (operation.kind === 'repair') {
+      const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+      if (
+        !registered
+        || registered.stage !== operation.stage
+        || registered.domain !== operation.domain
+        || registered.authorityKind !== 'area'
+        || !stage?.artifacts?.[operation.artifact]
+      ) {
+        block('AIH_CONTRACT_INVALID', '修复 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+      }
+      continue;
     }
     for (const [areaId, template] of Object.entries(operation.areaTemplates || {})) {
       if (!stage?.areas?.[areaId]) {
@@ -351,6 +381,12 @@ if (manifest && manifestValid) {
       if (!mirror.endsWith('/.agents/skills/' + domain.skill)) {
         block('AIH_DOMAIN_BOUNDARY_INVALID', 'Domain Skill mirror 与 skill 名称不一致：' + mirror, domain.id);
       }
+    }
+  }
+  for (const operation of manifest.operations.filter((item) => item.kind === 'artifact' || item.kind === 'repair')) {
+    const domain = domains.get(operation.domain);
+    if (!domain || operation.executor.kind !== 'module' || !operation.executor.path.startsWith(domain.root + '/')) {
+      block('AIH_DOMAIN_BOUNDARY_INVALID', '领域 Operation 执行器越出已注册 Domain Skill：' + operation.id, operation.id);
     }
   }
   for (const item of manifest.artifactRegistry) {

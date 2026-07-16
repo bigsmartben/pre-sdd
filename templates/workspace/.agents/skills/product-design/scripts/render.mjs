@@ -52,6 +52,15 @@ try {
         message: 'output 与内部模型不一致：' + item.internalModel,
       })),
     };
+  } else if (process.env.AI_HARNESS_INITIALIZING !== stageId && process.env.NODE_ENV !== 'test') {
+    result = {
+      status: 'BLOCKED',
+      mode: 'render',
+      blockers: [{
+        code: 'AIH_COMMAND_INVALID',
+        message: '日常产品产物更新必须使用 Manifest 登记的 apply-product-artifact 事务；render:product 只供阶段初始化使用。',
+      }],
+    };
   } else {
     const outputs = [
       ...await writeExpectedOutputs(root, project, manifest, stageId),

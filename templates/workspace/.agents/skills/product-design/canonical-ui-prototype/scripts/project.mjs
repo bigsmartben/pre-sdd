@@ -7,6 +7,12 @@ function markdown(model, authorityPath) {
   const rows = (items) => items.length === 0
     ? '| — | — |\n'
     : items.map((item) => '| ' + item.id + ' | ' + (item.title || item.name || item.label || item.path || item.description || '—') + ' |').join('\n') + '\n';
+  const mappingRows = model.componentMappings.length === 0
+    ? '| — | — | — |\n'
+    : model.componentMappings.map((item) => '| ' + item.id + ' | ' + item.figmaComponentNodeId + ' | `' + item.litTagName + '` |').join('\n') + '\n';
+  const coverageRows = model.componentVariantCoverage.length === 0
+    ? '| — | — | — |\n'
+    : model.componentVariantCoverage.map((item) => '| ' + item.id + ' | ' + item.mappingId + ' | ' + item.instanceNodeIds.length + ' |').join('\n') + '\n';
   return [
     '# Canonical UI Prototype',
     '',
@@ -20,6 +26,9 @@ function markdown(model, authorityPath) {
     '- 路由：' + model.routes.length,
     '- 页面：' + model.screens.length,
     '- 组件：' + model.components.length,
+    '- 组件抽象决策：' + model.componentInventory.length,
+    '- Figma ↔ Lit 映射：' + model.componentMappings.length,
+    '- Variant 覆盖行：' + model.componentVariantCoverage.length,
     '- 场景：' + model.scenarios.length,
     '- 未决缺口：' + model.gaps.length,
     '',
@@ -34,6 +43,18 @@ function markdown(model, authorityPath) {
     '| 标识 | 名称 |',
     '|---|---|',
     rows(model.components).trimEnd(),
+    '',
+    '## Component Mapping（组件映射）',
+    '',
+    '| 标识 | Figma 节点 | Lit 元素 |',
+    '|---|---|---|',
+    mappingRows.trimEnd(),
+    '',
+    '## Variant Coverage（变体覆盖）',
+    '',
+    '| 标识 | 映射 | 实例数 |',
+    '|---|---|---|',
+    coverageRows.trimEnd(),
     '',
     '## Scenarios（场景）',
     '',

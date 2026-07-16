@@ -18,8 +18,12 @@ try {
     const forwarded = args.slice(2);
     let workspaceRoot = process.cwd();
     const workspaceIndex = forwarded.indexOf('--workspace');
-    if (workspaceIndex >= 0 && forwarded[workspaceIndex + 1]) {
-      workspaceRoot = resolve(forwarded[workspaceIndex + 1]);
+    if (workspaceIndex >= 0) {
+      const workspaceValue = forwarded[workspaceIndex + 1];
+      if (!workspaceValue || workspaceValue === '--') {
+        throw Object.assign(new Error('--workspace 必须提供目标工作区路径。'), { code: 'PRE_SDD_USAGE_INVALID' });
+      }
+      workspaceRoot = resolve(workspaceValue);
       forwarded.splice(workspaceIndex, 2);
     }
     if (forwarded[0] === '--') forwarded.shift();

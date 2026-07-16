@@ -38,6 +38,34 @@
         "owns": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "excludes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "domainRules": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "visualParity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["channelTolerance", "maxDifferentPixelRatio"],
+          "properties": {
+            "channelTolerance": {"type": "integer", "minimum": 0, "maximum": 255},
+            "maxDifferentPixelRatio": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        "repair": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["orchestrator", "validatorRole", "maxAttempts", "packetSchema", "actionSchema", "implementationPolicy", "protectedInputs"],
+          "properties": {
+            "orchestrator": {"const": "agent"},
+            "validatorRole": {"const": "decision-and-evidence-only"},
+            "maxAttempts": {"const": 3},
+            "packetSchema": {"type": "string", "minLength": 1},
+            "actionSchema": {"type": "string", "minLength": 1},
+            "implementationPolicy": {"$ref": "#/$defs/visualRepairImplementationPolicy"},
+            "protectedInputs": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"enum": ["design-source-evidence", "screenshot-baselines", "canonical-business-semantics", "component-abstraction-contract", "visual-policy", "use-cases", "wireflow"]}
+            }
+          }
+        },
         "readiness": {
           "type": "object",
           "additionalProperties": false,
@@ -52,6 +80,30 @@
     }
   },
   "$defs": {
-    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "visualRepairImplementationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceBeforeEdit",
+        "requireSourceResolution",
+        "preserveInteractiveDom",
+        "preferSourceAssets",
+        "allowSubjectiveApproximation",
+        "minimalImplementationScope",
+        "stableComparisonEnvironment",
+        "fixOrder"
+      ],
+      "properties": {
+        "evidenceBeforeEdit": {"const": true},
+        "requireSourceResolution": {"const": true},
+        "preserveInteractiveDom": {"const": true},
+        "preferSourceAssets": {"const": true},
+        "allowSubjectiveApproximation": {"const": false},
+        "minimalImplementationScope": {"const": true},
+        "stableComparisonEnvironment": {"const": true},
+        "fixOrder": {"const": ["source-resolution", "structure", "geometry", "typography", "paint", "effects", "assets"]}
+      }
+    }
   }
 }

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/adapters/figma/source-registration.schema.json",
+  "title": "Figma Source Registration Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sourceId", "sourceVersion", "evidencePath", "evidenceSha256", "assets", "gaps"],
+  "properties": {
+    "version": {"const": "1.0.0"},
+    "sourceId": {"$ref": "#/$defs/id"},
+    "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+    "evidencePath": {"$ref": "#/$defs/path"},
+    "evidenceSha256": {"$ref": "#/$defs/sha256"},
+    "assets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sourceNodeId", "assetKind", "usageTargetIds"],
+        "properties": {
+          "path": {"type": "string", "pattern": "^public/assets/[^/]+/.+"},
+          "sourceNodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
+          "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
+          "usageTargetIds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"$ref": "#/$defs/id"}
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
+    "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "sourceVersion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "figma-file-version"},
+            "value": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "remote-last-modified"},
+            "value": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "node-fingerprint"},
+            "value": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,11 +1,13 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "12.0.0",
+  "version": "12.1.0",
   "runtime": {
     "protocol": "pre-sdd-harness/v2",
-    "command": "pre-sdd",
-    "fallbackPackage": "git+https://github.com/bigsmartben/pre-sdd.git"
+    "authority": "generated-workspace-local",
+    "entrypoint": ".psp/runtime/pre-sdd/bin/pre-sdd.mjs",
+    "dependencyLock": "package-lock.json",
+    "dependencyCache": "os-temporary-directory"
   },
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -29,7 +31,12 @@
     "repositorySkills": [
       ".agents/skills/apply-repository-harness/SKILL.md",
       ".agents/skills/product-design/SKILL.md",
-      ".agents/skills/architecture-design/SKILL.md"
+      ".agents/skills/architecture-design/SKILL.md",
+      ".agents/skills/capture-figma-design-source/SKILL.md",
+      ".agents/skills/organize-figma-assets/SKILL.md",
+      ".agents/skills/figma-component-from-design/SKILL.md",
+      ".agents/skills/implement-figma-lit-page/SKILL.md",
+      ".agents/skills/repair-canonical-ui-visual/SKILL.md"
     ]
   },
   "readOrder": [
@@ -190,6 +197,65 @@
         "from": "use-cases",
         "to": "architecture-design"
       }
+    },
+    {
+      "id": "apply-product-artifact",
+      "kind": "artifact",
+      "npmScript": "apply:product-artifact",
+      "run": "npm run apply:product-artifact",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/scripts/apply-artifact.mjs",
+        "args": [
+          "--operation",
+          "apply-product-artifact"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifacts": [
+        "product-package",
+        "capabilities",
+        "interactions"
+      ]
+    },
+    {
+      "id": "apply-architecture-artifact",
+      "kind": "artifact",
+      "npmScript": "apply:architecture-artifact",
+      "run": "npm run apply:architecture-artifact",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/architecture-design/scripts/apply-artifact.mjs",
+        "args": [
+          "--operation",
+          "apply-architecture-artifact"
+        ]
+      },
+      "domain": "architecture-design",
+      "stage": "architecture-design",
+      "artifacts": [
+        "architecture-package",
+        "system-boundary",
+        "conceptual-model",
+        "technical-validation"
+      ]
+    },
+    {
+      "id": "canonical-ui-repair",
+      "kind": "repair",
+      "npmScript": "repair:canonical-ui",
+      "run": "npm run repair:canonical-ui",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs",
+        "args": [
+          "--json"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype"
     },
     {
       "id": "handoff",
@@ -431,7 +497,7 @@
       "id": "canonical-ui-dev",
       "npmScript": "dev",
       "run": "npm run dev",
-      "purpose": "启动 Canonical UI Prototype 开发服务器",
+      "purpose": "启动 Canonical UI Prototype 开发服务器并输出带不一致标记工具的实际 HTTP 评审地址",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -616,6 +682,17 @@
       ]
     },
     {
+      "id": "canonical-ui-review-readiness",
+      "commands": [
+        "harness",
+        "product-structure",
+        "canonical-ui-input",
+        "product-strict",
+        "canonical-ui-runtime",
+        "canonical-ui-build"
+      ]
+    },
+    {
       "id": "canonical-ui-prototype",
       "commands": [
         "harness",
@@ -623,7 +700,8 @@
         "canonical-ui-input",
         "canonical-ui-typecheck",
         "canonical-ui-build",
-        "canonical-ui-runtime"
+        "canonical-ui-runtime",
+        "product-strict"
       ]
     },
     {
@@ -954,6 +1032,34 @@
       "domain": "product-design"
     },
     {
+      "code": "AIH_COMPONENT_ABSTRACTION_UNRESOLVED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Figma 组件相关节点缺少唯一、可追溯的共享组件、Primitive 或局部结构归类决定",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_COMPONENT_MAPPING_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Component Inventory、Figma 组件身份与 Lit 接口映射无法闭合或不是一对一关系",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_COMPONENT_VARIANT_COVERAGE_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "使用中的 Figma Instance 或 Variant 未被 Lit Attribute 与 Screen 覆盖关系完整表达",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_COMPONENT_IMPLEMENTATION_MISMATCH",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "运行页面没有使用声明的 Lit 自定义元素、Variant Attribute 或 Slot 渲染 Figma Instance",
+      "domain": "product-design"
+    },
+    {
       "code": "AIH_REFERENCE_UNRESOLVED",
       "severity": "high",
       "owner": "product-design",
@@ -1085,6 +1191,25 @@
       "domain": "product-design"
     },
     {
+      "code": "AIH_CANONICAL_UI_SERVER_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Canonical UI Prototype 本地服务器未启动、未返回实际评审地址或地址无法访问",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ARTIFACT_TRANSACTION_FAILED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "YAML 内部模型与对应 Markdown 用户产物未能作为同一事务提交"
+    },
+    {
+      "code": "AIH_ARTIFACT_RECOVERY_REQUIRED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "产物事务中断且无法自动完成提交或恢复旧版本"
+    },
+    {
       "code": "AIH_USER_CHANGE_COLLISION",
       "severity": "blocker",
       "owner": "repository-harness",
@@ -1167,6 +1292,83 @@
       "owner": "product-design",
       "domain": "product-design",
       "meaning": "Canonical UI Prototype 资源缺失、加载失败或未被声明目标实际使用"
+    },
+    {
+      "code": "AIH_VISUAL_POLICY_UNRESOLVED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Canonical UI Prototype 尚未明确选择自主设计、部分参考或完全实现"
+    },
+    {
+      "code": "AIH_VISUAL_SOURCE_REQUIRED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "部分参考或完全实现缺少可复现视觉来源"
+    },
+    {
+      "code": "AIH_VISUAL_STYLE_BINDING_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "声明为风格或局部参考的视觉属性没有绑定到实际渲染结果或比较失败"
+    },
+    {
+      "code": "AIH_VISUAL_SOURCE_INCOMPLETE",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "完全实现缺少覆盖路由、场景或视口的完整视觉证据与截图基线"
+    },
+    {
+      "code": "AIH_VISUAL_SOURCE_PARITY_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "实际渲染与指定视觉来源截图的机器比较超出 Contract 固定容差"
+    },
+    {
+      "code": "AIH_VISUAL_DEVIATION_UNAPPROVED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "实现偏离已选择视觉策略或超出用户声明的局部参考范围"
+    },
+    {
+      "code": "AIH_VISUAL_REPAIR_REQUIRED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "完全实现视觉验收失败并已生成 Repair Packet，等待 Agent 在允许路径内修复实现"
+    },
+    {
+      "code": "AIH_VISUAL_REPAIR_PACKET_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "视觉校验失败但无法生成符合 Schema 的 Repair Packet"
+    },
+    {
+      "code": "AIH_VISUAL_REPAIR_ACTION_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "实现文件已修改，但 Repair Action Report 缺失、结构无效或与实际变更及来源证据不一致"
+    },
+    {
+      "code": "AIH_VISUAL_REPAIR_SCOPE_VIOLATION",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "视觉修复期间修改了基线、证据、视觉策略、业务语义、用例、线框流程或其他禁止路径"
+    },
+    {
+      "code": "AIH_VISUAL_REPAIR_EXHAUSTED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "完全实现经过三次 Agent 实现修复后仍未通过视觉验收"
     }
   ],
   "domainRegistry": [

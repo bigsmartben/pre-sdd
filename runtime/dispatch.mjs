@@ -7,15 +7,25 @@ import { boundArea, loadWorkspace } from './workspace.mjs';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const runtimeWorkspace = resolve(packageRoot, 'templates', 'workspace');
 
+function dependencyRoot() {
+  return resolve(process.env.PRE_SDD_DEPENDENCY_ROOT || packageRoot);
+}
+
 function childEnvironment(workspaceRoot, { nodeTest = false } = {}) {
   const dependencyLoader = '--import=' + pathToFileURL(resolve(packageRoot, 'runtime', 'register-dependency-loader.mjs')).href;
+  const dependencies = dependencyRoot();
+  const nodeOptions = process.env.NODE_OPTIONS || '';
   const environment = {
     ...process.env,
     PSP_REPOSITORY_ROOT: workspaceRoot,
     AI_HARNESS_ROOT: workspaceRoot,
-    PRE_SDD_PACKAGE_ROOT: packageRoot,
+    PRE_SDD_PACKAGE_ROOT: dependencies,
     PRE_SDD_RUNTIME_ENTRY: resolve(packageRoot, 'bin', 'pre-sdd.mjs'),
-    NODE_OPTIONS: [process.env.NODE_OPTIONS, dependencyLoader].filter(Boolean).join(' '),
+    PRE_SDD_DEPENDENCY_ROOT: dependencies,
+    PRE_SDD_DEPENDENCY_ENTRY: resolve(dependencies, 'package.json'),
+    NODE_OPTIONS: nodeOptions.includes(dependencyLoader)
+      ? nodeOptions
+      : [nodeOptions, dependencyLoader].filter(Boolean).join(' '),
   };
   if (nodeTest) delete environment.NODE_TEST_CONTEXT;
   return environment;
@@ -55,7 +65,7 @@ async function runAreaScript(executor, workspaceRoot, forwarded) {
   }
   const target = resolve(workspaceRoot, ...binding.path.split('/'));
   const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path') || 'PATH';
-  const runtimeBin = resolve(packageRoot, 'node_modules', '.bin');
+  const runtimeBin = resolve(dependencyRoot(), 'node_modules', '.bin');
   const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const result = spawnSync(executable, ['--prefix', target, 'run', executor.script, ...forwarded], {
     cwd: workspaceRoot,

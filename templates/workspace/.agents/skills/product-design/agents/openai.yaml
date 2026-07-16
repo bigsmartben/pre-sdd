@@ -1,4 +1,4 @@
 interface:
   display_name: "Product Design Domain"
   short_description: "将产品与设计来源转为可执行规范界面并通过机器验收"
-  default_prompt: "Use $product-design to turn source-backed product and design inputs, including Figma when present, into a browser-executable Canonical UI Prototype and run its registered Harness gates."
+  default_prompt: "Use $product-design to select an explicit visual policy before writing UI: autonomous when no visual reference exists, guided only for user-declared style or partial reference, and exact by default for a complete visual reference. Preserve business semantics from Use Cases and Wireflow while routing provider-specific capture to the registered source adapter. For Figma, use $capture-figma-design-source before registering source evidence. When canonical-ui-repair returns a schema-valid Repair Packet, route implementation changes to $repair-canonical-ui-visual; never perform unbounded repair in the domain orchestrator. Start the local server and return the verified live review URL with annotate=1 only after repair and every registered Harness gate pass."

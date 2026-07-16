@@ -1,0 +1,4 @@
+interface:
+  display_name: "从设计创建 Figma 组件"
+  short_description: "确认组件属性、变体和变量后创建 Figma 组件并输出 Lit 接口映射"
+  default_prompt: "Use $figma-component-from-design with the Figma execution and library skills to classify every component candidate as shared-component, primitive-only, or local-structure; confirm finite variants and the Lit interface; create the confirmed Figma model; then require fresh capture and Canonical UI component inventory, mapping, and variant coverage validation before implementation."

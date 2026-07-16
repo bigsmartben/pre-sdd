@@ -5,18 +5,24 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "version", "designSources", "assets", "tokens", "routes", "screens", "components",
+    "version", "visualPolicy", "repairPolicy", "designSources", "assets", "tokens", "routes", "screens", "components",
+    "componentInventory", "componentMappings", "componentVariantCoverage",
     "controls", "states", "events", "actions", "scenarios", "mockBehaviors", "viewports",
-    "visualAssertions", "motions", "accessibility", "traceability", "gaps"
+    "renderAssertions", "sourceParityAssertions", "motions", "traceability", "gaps"
   ],
   "properties": {
-    "version": {"const": "2.0.0"},
+    "version": {"const": "4.0.0"},
+    "visualPolicy": {"$ref": "#/$defs/visualPolicy"},
+    "repairPolicy": {"$ref": "#/$defs/repairPolicy"},
     "designSources": {"type": "array", "items": {"$ref": "#/$defs/designSource"}},
     "assets": {"type": "array", "items": {"$ref": "#/$defs/asset"}},
     "tokens": {"type": "array", "items": {"$ref": "#/$defs/token"}},
     "routes": {"type": "array", "items": {"$ref": "#/$defs/route"}},
     "screens": {"type": "array", "items": {"$ref": "#/$defs/screen"}},
     "components": {"type": "array", "items": {"$ref": "#/$defs/component"}},
+    "componentInventory": {"type": "array", "items": {"$ref": "#/$defs/componentInventoryItem"}},
+    "componentMappings": {"type": "array", "items": {"$ref": "#/$defs/componentMapping"}},
+    "componentVariantCoverage": {"type": "array", "items": {"$ref": "#/$defs/componentVariantCoverage"}},
     "controls": {"type": "array", "items": {"$ref": "#/$defs/control"}},
     "states": {"type": "array", "items": {"$ref": "#/$defs/state"}},
     "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
@@ -24,7 +30,8 @@
     "scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
     "mockBehaviors": {"type": "array", "items": {"$ref": "#/$defs/mockBehavior"}},
     "viewports": {"type": "array", "items": {"$ref": "#/$defs/viewport"}},
-    "visualAssertions": {"type": "array", "items": {"$ref": "#/$defs/visualAssertion"}},
+    "renderAssertions": {"type": "array", "items": {"$ref": "#/$defs/renderAssertion"}},
+    "sourceParityAssertions": {"type": "array", "items": {"$ref": "#/$defs/sourceParityAssertion"}},
     "motions": {"type": "array", "items": {"$ref": "#/$defs/motion"}},
     "accessibility": {"$ref": "#/$defs/accessibility"},
     "traceability": {"type": "array", "items": {"$ref": "#/$defs/trace"}},
@@ -34,6 +41,10 @@
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
     "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
     "nonEmptyIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "nodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
+    "nodeIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+    "litName": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "litTagName": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$"},
     "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
     "figmaLocation": {"type": "string", "pattern": "^https://(?:www\\.)?figma\\.com/design/[^/?#]+/[^?#]+\\?[^#]*node-id=[0-9]+[-:][0-9]+(?:&[^#]*)?$"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
@@ -44,6 +55,91 @@
       "properties": {
         "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
         "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "visualAspect": {"enum": ["layout", "dimensions", "typography", "color", "spacing", "shape", "shadow", "assets", "visual-hierarchy"]},
+    "visualCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "screenId", "stateIds", "viewportIds", "evidenceItemIds"],
+      "properties": {
+        "sourceId": {"$ref": "#/$defs/id"},
+        "screenId": {"$ref": "#/$defs/id"},
+        "stateIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "viewportIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "evidenceItemIds": {"$ref": "#/$defs/nonEmptyIds"}
+      }
+    },
+    "visualPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "selectedBy", "aspects", "coverage"],
+      "properties": {
+        "mode": {"enum": ["unresolved", "autonomous", "guided", "exact"]},
+        "selectedBy": {"enum": ["user-explicit", "default-policy"]},
+        "aspects": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/visualAspect"}},
+        "coverage": {"type": "array", "items": {"$ref": "#/$defs/visualCoverage"}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"enum": ["unresolved", "autonomous"]}}, "required": ["mode"]},
+          "then": {"properties": {"aspects": {"type": "array", "maxItems": 0}, "coverage": {"type": "array", "maxItems": 0}}}
+        },
+        {
+          "if": {"properties": {"mode": {"enum": ["guided", "exact"]}}, "required": ["mode"]},
+          "then": {"properties": {"aspects": {"type": "array", "minItems": 1}, "coverage": {"type": "array", "minItems": 1}}}
+        },
+        {
+          "if": {"properties": {"mode": {"const": "exact"}}, "required": ["mode"]},
+          "then": {
+            "properties": {
+              "aspects": {
+                "type": "array",
+                "allOf": [
+                  {"minItems": 9},
+                  {"contains": {"const": "layout"}},
+                  {"contains": {"const": "dimensions"}},
+                  {"contains": {"const": "typography"}},
+                  {"contains": {"const": "color"}},
+                  {"contains": {"const": "spacing"}},
+                  {"contains": {"const": "shape"}},
+                  {"contains": {"const": "shadow"}},
+                  {"contains": {"const": "assets"}},
+                  {"contains": {"const": "visual-hierarchy"}}
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "repairPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "maxAttempts", "repairableBlockerCodes", "allowedImplementationPaths"],
+      "properties": {
+        "enabled": {"type": "boolean", "default": false},
+        "maxAttempts": {"const": 3, "default": 3},
+        "repairableBlockerCodes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"enum": ["AIH_VISUAL_SOURCE_PARITY_FAILED", "AIH_VISUAL_STYLE_BINDING_FAILED"]},
+          "allOf": [
+            {"contains": {"const": "AIH_VISUAL_SOURCE_PARITY_FAILED"}},
+            {"contains": {"const": "AIH_VISUAL_STYLE_BINDING_FAILED"}}
+          ]
+        },
+        "allowedImplementationPaths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:index\\.html|src/(?:main\\.ts|psp-app\\.ts|mock-api\\.ts|[^/]+\\.css|components/.+\\.(?:ts|css)|styles/.+\\.css))$"
+          }
+        }
       }
     },
     "sourceCoverage": {
@@ -105,7 +201,7 @@
         "id": {"$ref": "#/$defs/id"},
         "path": {"type": "string", "pattern": "^public/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+"},
         "kind": {"enum": ["image", "icon", "font", "other"]},
-        "sourceIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "sourceIds": {"$ref": "#/$defs/ids"},
         "usageTargetIds": {"$ref": "#/$defs/nonEmptyIds"},
         "alt": {"type": "string"},
         "fontFamily": {"type": "string", "minLength": 1}
@@ -125,12 +221,160 @@
         "id": {"$ref": "#/$defs/id"},
         "type": {"enum": ["color", "spacing", "typography", "radius", "shadow", "motion", "other"]},
         "value": {"type": ["string", "number"]},
-        "sourceIds": {"$ref": "#/$defs/nonEmptyIds"}
+        "sourceIds": {"$ref": "#/$defs/ids"},
+        "targetIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "cssProperty": {"type": "string", "pattern": "^--[a-z0-9-]+$"}
       }
     },
     "route": {"type": "object", "additionalProperties": false, "required": ["id", "path", "screenId"], "properties": {"id": {"$ref": "#/$defs/id"}, "path": {"type": "string", "pattern": "^/"}, "screenId": {"$ref": "#/$defs/id"}}},
     "screen": {"type": "object", "additionalProperties": false, "required": ["id", "title", "routeId", "stateIds", "componentIds"], "properties": {"id": {"$ref": "#/$defs/id"}, "title": {"type": "string", "minLength": 1}, "routeId": {"$ref": "#/$defs/id"}, "stateIds": {"$ref": "#/$defs/ids"}, "componentIds": {"$ref": "#/$defs/ids"}}},
     "component": {"type": "object", "additionalProperties": false, "required": ["id", "name", "controlIds", "stateIds"], "properties": {"id": {"$ref": "#/$defs/id"}, "name": {"type": "string", "minLength": 1}, "controlIds": {"$ref": "#/$defs/ids"}, "stateIds": {"$ref": "#/$defs/ids"}}},
+    "componentInventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sourceId", "nodeIds", "semanticRole", "structureSignatures", "decision", "rationale"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "sourceId": {"$ref": "#/$defs/id"},
+        "nodeIds": {"$ref": "#/$defs/nodeIds"},
+        "semanticRole": {"type": "string", "minLength": 1},
+        "structureSignatures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "decision": {"enum": ["shared-component", "primitive-only", "local-structure"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "componentId": {"$ref": "#/$defs/id"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"decision": {"const": "shared-component"}}, "required": ["decision"]},
+          "then": {"properties": {"componentId": {}}, "required": ["componentId"]},
+          "else": {"not": {"required": ["componentId"]}}
+        }
+      ]
+    },
+    "componentPropertyValueMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["figmaValue", "litValue"],
+      "properties": {
+        "figmaValue": {"type": "string", "minLength": 1},
+        "litValue": {"type": "string", "minLength": 1}
+      }
+    },
+    "componentPropertyMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "figmaProperty", "litProperty", "litAttribute", "values"],
+      "properties": {
+        "kind": {"enum": ["variant", "text", "boolean", "instance-swap"]},
+        "figmaProperty": {"type": "string", "minLength": 1},
+        "litProperty": {"$ref": "#/$defs/litName"},
+        "litAttribute": {
+          "oneOf": [
+            {"$ref": "#/$defs/litName"},
+            {"type": "null"}
+          ]
+        },
+        "values": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/componentPropertyValueMapping"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "variant"}}, "required": ["kind"]},
+          "then": {
+            "properties": {
+              "litAttribute": {"$ref": "#/$defs/litName"},
+              "values": {"type": "array", "minItems": 1}
+            }
+          }
+        }
+      ]
+    },
+    "componentSlotMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["figmaProperty", "litSlot"],
+      "properties": {
+        "figmaProperty": {"type": "string", "minLength": 1},
+        "litSlot": {"$ref": "#/$defs/litName"}
+      }
+    },
+    "componentMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "componentId",
+        "sourceId",
+        "inventoryId",
+        "figmaComponentNodeId",
+        "litTagName",
+        "propertyMappings",
+        "slotMappings",
+        "eventIds"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "componentId": {"$ref": "#/$defs/id"},
+        "sourceId": {"$ref": "#/$defs/id"},
+        "inventoryId": {"$ref": "#/$defs/id"},
+        "figmaComponentNodeId": {"$ref": "#/$defs/nodeId"},
+        "litTagName": {"$ref": "#/$defs/litTagName"},
+        "propertyMappings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/componentPropertyMapping"}
+        },
+        "slotMappings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/componentSlotMapping"}
+        },
+        "eventIds": {"$ref": "#/$defs/ids"}
+      }
+    },
+    "litVariantAttributes": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/litName"},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "figmaVariantProperties": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "componentVariantCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mappingId",
+        "figmaVariantProperties",
+        "litVariantAttributes",
+        "litSlotNames",
+        "instanceNodeIds",
+        "screenIds"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "mappingId": {"$ref": "#/$defs/id"},
+        "figmaVariantProperties": {"$ref": "#/$defs/figmaVariantProperties"},
+        "litVariantAttributes": {"$ref": "#/$defs/litVariantAttributes"},
+        "litSlotNames": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/litName"}
+        },
+        "instanceNodeIds": {"$ref": "#/$defs/nodeIds"},
+        "screenIds": {"$ref": "#/$defs/nonEmptyIds"}
+      }
+    },
     "control": {"type": "object", "additionalProperties": false, "required": ["id", "componentId", "label"], "properties": {"id": {"$ref": "#/$defs/id"}, "componentId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}}},
     "state": {"type": "object", "additionalProperties": false, "required": ["id", "scope", "ownerId", "label"], "properties": {"id": {"$ref": "#/$defs/id"}, "scope": {"enum": ["workflow", "component"]}, "ownerId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}}},
     "event": {"type": "object", "additionalProperties": false, "required": ["id", "name", "controlId"], "properties": {"id": {"$ref": "#/$defs/id"}, "name": {"type": "string", "minLength": 1}, "controlId": {"$ref": "#/$defs/id"}}},
@@ -147,7 +391,7 @@
         "initialStateIds": {"$ref": "#/$defs/nonEmptyIds"},
         "eventIds": {"$ref": "#/$defs/nonEmptyIds"},
         "expectedStateIds": {"$ref": "#/$defs/nonEmptyIds"},
-        "viewportIds": {"$ref": "#/$defs/nonEmptyIds"}
+        "viewportIds": {"$ref": "#/$defs/ids"}
       }
     },
     "mockBehavior": {"type": "object", "additionalProperties": false, "required": ["id", "request", "responseStateIds"], "properties": {"id": {"$ref": "#/$defs/id"}, "request": {"type": "string", "minLength": 1}, "responseStateIds": {"$ref": "#/$defs/nonEmptyIds"}}},
@@ -170,18 +414,44 @@
         {"type": "object", "additionalProperties": false, "required": ["kind", "targetId", "property", "expected"], "properties": {"kind": {"const": "computed-style"}, "targetId": {"$ref": "#/$defs/id"}, "property": {"type": "string", "pattern": "^[a-z][a-z-]*$"}, "expected": {"type": "string", "minLength": 1}}}
       ]
     },
-    "visualAssertion": {
+    "renderAssertion": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "routeId", "viewportIds", "sourceIds", "checks"],
+      "required": ["id", "routeId", "viewportIds", "checks"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "routeId": {"$ref": "#/$defs/id"},
         "viewportIds": {"$ref": "#/$defs/nonEmptyIds"},
-        "sourceIds": {"$ref": "#/$defs/nonEmptyIds"},
         "scenarioId": {"$ref": "#/$defs/id"},
         "checks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/visualCheck"}}
       }
+    },
+    "sourceParityCheck": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "screenshot-match"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "targetId", "property", "expected"], "properties": {"kind": {"const": "computed-style"}, "targetId": {"$ref": "#/$defs/id"}, "property": {"type": "string", "pattern": "^[a-z][a-z-]*$"}, "expected": {"type": "string", "minLength": 1}}}
+      ]
+    },
+    "sourceParityAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sourceId", "routeId", "viewportId", "aspects", "checks"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "sourceId": {"$ref": "#/$defs/id"},
+        "routeId": {"$ref": "#/$defs/id"},
+        "viewportId": {"$ref": "#/$defs/id"},
+        "scenarioId": {"$ref": "#/$defs/id"},
+        "baselineEvidenceItemId": {"$ref": "#/$defs/id"},
+        "aspects": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/visualAspect"}},
+        "checks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceParityCheck"}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"checks": {"type": "array", "contains": {"type": "object", "properties": {"kind": {"const": "screenshot-match"}}, "required": ["kind"]}}}, "required": ["checks"]},
+          "then": {"properties": {"baselineEvidenceItemId": {"$ref": "#/$defs/id"}}, "required": ["baselineEvidenceItemId"]}
+        }
+      ]
     },
     "motion": {"type": "object", "additionalProperties": false, "required": ["id", "targetId", "trigger", "durationMs", "reducedMotion"], "properties": {"id": {"$ref": "#/$defs/id"}, "targetId": {"$ref": "#/$defs/id"}, "trigger": {"type": "string", "minLength": 1}, "durationMs": {"type": "integer", "minimum": 0}, "reducedMotion": {"type": "boolean"}}},
     "accessibility": {
@@ -192,14 +462,46 @@
         "standard": {"const": "Web Content Accessibility Guidelines 2.2 AA"},
         "checks": {
           "type": "array",
-          "minItems": 5,
-          "maxItems": 5,
+          "minItems": 1,
+          "maxItems": 6,
           "uniqueItems": true,
-          "items": {"enum": ["automated-rules", "keyboard-operation", "visible-focus", "accessible-name", "target-size"]}
+          "items": {"enum": ["automated-rules", "keyboard-operation", "visible-focus", "accessible-name", "target-size", "reduced-motion"]}
         }
       }
     },
     "trace": {"type": "object", "additionalProperties": false, "required": ["useCaseId", "wireflowIds", "screenIds", "controlIds", "stateIds"], "properties": {"useCaseId": {"$ref": "#/$defs/id"}, "wireflowIds": {"$ref": "#/$defs/nonEmptyIds"}, "screenIds": {"$ref": "#/$defs/nonEmptyIds"}, "controlIds": {"$ref": "#/$defs/nonEmptyIds"}, "stateIds": {"$ref": "#/$defs/nonEmptyIds"}}},
     "gap": {"type": "object", "additionalProperties": false, "required": ["id", "description", "owner"], "properties": {"id": {"$ref": "#/$defs/id"}, "description": {"type": "string", "minLength": 1}, "owner": {"type": "string", "minLength": 1}, "sourceIds": {"$ref": "#/$defs/nonEmptyIds"}}}
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "visualPolicy": {
+            "type": "object",
+            "properties": {"mode": {"const": "exact"}},
+            "required": ["mode"]
+          }
+        },
+        "required": ["visualPolicy"]
+      },
+      "then": {
+        "properties": {
+          "repairPolicy": {
+            "type": "object",
+            "properties": {"enabled": {"const": true, "default": true}},
+            "required": ["enabled"]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "repairPolicy": {
+            "type": "object",
+            "properties": {"enabled": {"const": false}},
+            "required": ["enabled"]
+          }
+        }
+      }
+    }
+  ]
 }

@@ -1,6 +1,9 @@
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = resolve(import.meta.dirname, '../../..');
 const projectText = await readFile(resolve(root, 'psp.project.yaml'), 'utf8');
@@ -10,41 +13,101 @@ if (!manifestMatch) {
   process.exit(1);
 }
 const manifest = JSON.parse(await readFile(resolve(root, manifestMatch[1].trim()), 'utf8'));
-const runtime = manifest.runtime;
 const args = process.argv.slice(2);
+const localRuntimeEntry = resolve(root, manifest.runtime.entrypoint);
+const packageText = await readFile(resolve(root, 'package.json'), 'utf8');
+const lockText = await readFile(resolve(root, manifest.runtime.dependencyLock), 'utf8');
 
-function run(command, commandArgs, shell = false) {
+function run(command, commandArgs, { cwd = root, environment = process.env, shell = false } = {}) {
   return spawnSync(command, commandArgs, {
-    cwd: root,
-    env: process.env,
+    cwd,
+    env: environment,
     stdio: 'inherit',
     windowsHide: true,
     shell,
   });
 }
 
-let result;
-if (process.env.PRE_SDD_RUNTIME_ENTRY) {
-  result = run(process.execPath, [process.env.PRE_SDD_RUNTIME_ENTRY, ...args]);
-} else {
-  const executable = process.platform === 'win32' ? runtime.command + '.cmd' : runtime.command;
-  const locator = spawnSync(process.platform === 'win32' ? 'where.exe' : 'which', [runtime.command], {
-    encoding: 'utf8',
-    windowsHide: true,
+async function exists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function runNpm(commandArgs, cwd) {
+  if (process.env.npm_execpath) {
+    return run(process.execPath, [process.env.npm_execpath, ...commandArgs], { cwd });
+  }
+  return run(process.platform === 'win32' ? 'npm.cmd' : 'npm', commandArgs, {
+    cwd,
+    shell: process.platform === 'win32',
   });
-  result = locator.status === 0
-    ? run(executable, args, process.platform === 'win32')
-    : { error: Object.assign(new Error('命令不存在：' + runtime.command), { code: 'ENOENT' }) };
 }
 
-if (result.error?.code === 'ENOENT') {
-  const npmArgs = ['exec', '--yes', '--package=' + runtime.fallbackPackage, '--', runtime.command, ...args];
-  if (process.env.npm_execpath) result = run(process.execPath, [process.env.npm_execpath, ...npmArgs]);
-  else result = run(process.platform === 'win32' ? 'npm.cmd' : 'npm', npmArgs, process.platform === 'win32');
+async function dependencyRoot() {
+  const local = resolve(root, 'node_modules');
+  if (await exists(resolve(local, 'yaml/package.json'))) return root;
+
+  const key = createHash('sha256')
+    .update(lockText)
+    .update('\0' + process.platform + '\0' + process.arch + '\0' + process.versions.modules)
+    .digest('hex')
+    .slice(0, 24);
+  const cacheParent = resolve(tmpdir(), 'pre-sdd-workspace-runtime');
+  const cache = join(cacheParent, key);
+  const ready = join(cache, '.pre-sdd-ready');
+  if (await exists(ready)) return cache;
+
+  await mkdir(cacheParent, { recursive: true });
+  const staging = await mkdtemp(join(cacheParent, '.install-'));
+  try {
+    await Promise.all([
+      writeFile(resolve(staging, 'package.json'), packageText, 'utf8'),
+      writeFile(resolve(staging, 'package-lock.json'), lockText, 'utf8'),
+    ]);
+    const installed = runNpm(['ci', '--ignore-scripts', '--omit=dev'], staging);
+    if (installed.error || installed.status !== 0) {
+      const detail = installed.error?.message || 'npm ci 返回 ' + installed.status;
+      throw Object.assign(new Error('无法按工作区 package-lock.json 准备运行依赖：' + detail), {
+        code: 'AIH_RUNTIME_UNAVAILABLE',
+      });
+    }
+    await writeFile(resolve(staging, '.pre-sdd-ready'), key + '\n', 'utf8');
+    try {
+      await rename(staging, cache);
+    } catch (error) {
+      if (!['EEXIST', 'ENOTEMPTY'].includes(error.code) || !await exists(ready)) throw error;
+    }
+    return cache;
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
 }
 
-if (result.error) {
-  console.error('[AIH_RUNTIME_UNAVAILABLE] ' + result.error.message);
+let result;
+try {
+  if (!await exists(localRuntimeEntry)) {
+    throw Object.assign(new Error('工作区缺少初始化时固定的本地 pre-sdd 运行时。'), {
+      code: 'AIH_RUNTIME_UNAVAILABLE',
+    });
+  }
+  const dependencies = await dependencyRoot();
+  const dependencyLoader = '--import=' + pathToFileURL(resolve(localRuntimeEntry, '../../runtime/register-dependency-loader.mjs')).href;
+  result = run(process.execPath, [localRuntimeEntry, ...args], {
+    environment: {
+      ...process.env,
+      PRE_SDD_DEPENDENCY_ROOT: dependencies,
+      PRE_SDD_DEPENDENCY_ENTRY: resolve(dependencies, 'package.json'),
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, dependencyLoader].filter(Boolean).join(' '),
+    },
+  });
+  if (result.error) throw result.error;
+} catch (error) {
+  console.error('[' + (error.code || 'AIH_RUNTIME_UNAVAILABLE') + '] ' + error.message);
   process.exit(1);
 }
 process.exit(result.status ?? 1);

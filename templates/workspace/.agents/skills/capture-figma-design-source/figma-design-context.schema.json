@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/adapters/figma/design-context.schema.json",
+  "title": "Figma Normalized Design Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "sourceId",
+    "nodeId",
+    "capturedAt",
+    "sourceVersion",
+    "parameterCoverage",
+    "frame",
+    "layout",
+    "typography",
+    "paints",
+    "effects",
+    "components",
+    "assets"
+  ],
+  "properties": {
+    "version": {"const": "3.0.0"},
+    "sourceId": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+    "nodeId": {"$ref": "#/$defs/nodeId"},
+    "capturedAt": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
+    "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+    "parameterCoverage": {
+      "const": ["geometry", "typography", "paint", "effects", "components", "assets"]
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "padding", "itemSpacing", "alignment", "constraints"],
+      "properties": {
+        "mode": {"enum": ["none", "horizontal", "vertical", "grid", "absolute", "mixed"]},
+        "padding": {"$ref": "#/$defs/edges"},
+        "itemSpacing": {"type": "number", "minimum": 0},
+        "alignment": {"type": "string", "minLength": 1},
+        "constraints": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "typography": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "wrapping"],
+        "properties": {
+          "nodeId": {"$ref": "#/$defs/nodeId"},
+          "fontFamily": {"type": "string", "minLength": 1},
+          "fontSize": {"type": "number", "exclusiveMinimum": 0},
+          "fontWeight": {"type": ["number", "string"]},
+          "lineHeight": {"type": ["number", "string"]},
+          "letterSpacing": {"type": ["number", "string"]},
+          "wrapping": {"enum": ["none", "word", "character", "truncate"]},
+          "textStyleId": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "paints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "opacity", "fills", "strokes", "cornerRadii"],
+        "properties": {
+          "nodeId": {"$ref": "#/$defs/nodeId"},
+          "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+          "fills": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "strokes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "cornerRadii": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number", "minimum": 0}
+          }
+        }
+      }
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "shadows", "blurs", "gradients", "blendMode"],
+        "properties": {
+          "nodeId": {"$ref": "#/$defs/nodeId"},
+          "shadows": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "blurs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "gradients": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "blendMode": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "name",
+          "kind",
+          "componentKey",
+          "componentSetNodeId",
+          "mainComponentNodeId",
+          "structureSignature",
+          "variantProperties"
+        ],
+        "properties": {
+          "nodeId": {"$ref": "#/$defs/nodeId"},
+          "name": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["component", "instance", "component-set", "frame"]},
+          "componentKey": {"type": ["string", "null"], "minLength": 1},
+          "componentSetNodeId": {
+            "oneOf": [
+              {"$ref": "#/$defs/nodeId"},
+              {"type": "null"}
+            ]
+          },
+          "mainComponentNodeId": {
+            "oneOf": [
+              {"$ref": "#/$defs/nodeId"},
+              {"type": "null"}
+            ]
+          },
+          "structureSignature": {"$ref": "#/$defs/sha256"},
+          "variantProperties": {"type": "object", "additionalProperties": {"type": "string"}}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"kind": {"const": "instance"}}, "required": ["kind"]},
+            "then": {
+              "properties": {
+                "mainComponentNodeId": {"$ref": "#/$defs/nodeId"}
+              }
+            }
+          },
+          {
+            "if": {"properties": {"kind": {"const": "component-set"}}, "required": ["kind"]},
+            "then": {
+              "properties": {
+                "componentSetNodeId": {"$ref": "#/$defs/nodeId"},
+                "mainComponentNodeId": {"type": "null"}
+              }
+            }
+          },
+          {
+            "if": {"properties": {"kind": {"const": "frame"}}, "required": ["kind"]},
+            "then": {
+              "properties": {
+                "componentKey": {"type": "null"},
+                "componentSetNodeId": {"type": "null"},
+                "mainComponentNodeId": {"type": "null"},
+                "variantProperties": {"type": "object", "maxProperties": 0}
+              }
+            }
+          }
+        ]
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "assetKind", "captureScope", "containsDynamicContent", "recommendedFormat"],
+        "properties": {
+          "nodeId": {"$ref": "#/$defs/nodeId"},
+          "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
+          "captureScope": {"enum": ["layer", "artwork-subtree"]},
+          "containsDynamicContent": {"const": false},
+          "recommendedFormat": {"enum": ["svg", "png"]}
+        }
+      }
+    },
+    "rawContext": {"type": "object"}
+  },
+  "$defs": {
+    "nodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "sourceVersion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "figma-file-version"},
+            "value": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "remote-last-modified"},
+            "value": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "node-fingerprint"},
+            "value": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          }
+        }
+      ]
+    },
+    "edges": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["top", "right", "bottom", "left"],
+      "properties": {
+        "top": {"type": "number", "minimum": 0},
+        "right": {"type": "number", "minimum": 0},
+        "bottom": {"type": "number", "minimum": 0},
+        "left": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

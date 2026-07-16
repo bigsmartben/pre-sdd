@@ -224,7 +224,79 @@ export async function completeProductFixture(root) {
   ]);
   const location = 'https://www.figma.com/design/example/psp-harness?node-id=1-2';
   const capturedAt = '2026-07-15T10:00:00Z';
-  const designContext = JSON.stringify({ nodeId: '1:2', name: '规格检查页', layout: 'responsive' }, null, 2) + '\n';
+  const sourceVersion = { kind: 'figma-file-version', value: 'fixture-version-20260715' };
+  const designContext = JSON.stringify({
+    version: '3.0.0',
+    sourceId,
+    nodeId: '1:2',
+    capturedAt,
+    sourceVersion,
+    parameterCoverage: ['geometry', 'typography', 'paint', 'effects', 'components', 'assets'],
+    frame: { x: 0, y: 0, width: 1440, height: 900 },
+    layout: {
+      mode: 'vertical',
+      padding: { top: 24, right: 24, bottom: 24, left: 24 },
+      itemSpacing: 16,
+      alignment: 'stretch',
+      constraints: ['left-right', 'top'],
+    },
+    typography: [{
+      nodeId: '1:4',
+      fontFamily: 'Inter',
+      fontSize: 16,
+      fontWeight: 600,
+      lineHeight: 24,
+      letterSpacing: 0,
+      wrapping: 'word',
+    }],
+    paints: [{
+      nodeId: '1:2',
+      opacity: 1,
+      fills: ['#fffdf7'],
+      strokes: [],
+      cornerRadii: [0, 0, 0, 0],
+    }],
+    effects: [],
+    components: [
+      {
+        nodeId: '2:1',
+        name: 'Prototype App Shell',
+        kind: 'component-set',
+        componentKey: 'fixture-prototype-app-shell',
+        componentSetNodeId: '2:1',
+        mainComponentNodeId: null,
+        structureSignature: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+        variantProperties: {},
+      },
+      {
+        nodeId: '2:2',
+        name: 'Mode=Default',
+        kind: 'component',
+        componentKey: 'fixture-prototype-app-shell-default',
+        componentSetNodeId: '2:1',
+        mainComponentNodeId: '2:2',
+        structureSignature: 'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+        variantProperties: { Mode: 'Default' },
+      },
+      {
+        nodeId: '1:2',
+        name: 'Prototype App Shell Instance',
+        kind: 'instance',
+        componentKey: 'fixture-prototype-app-shell-default',
+        componentSetNodeId: '2:1',
+        mainComponentNodeId: '2:2',
+        structureSignature: 'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+        variantProperties: { Mode: 'Default' },
+      },
+    ],
+    assets: [{
+      nodeId: '1:3',
+      assetKind: 'icon',
+      captureScope: 'layer',
+      containsDynamicContent: false,
+      recommendedFormat: 'svg',
+    }],
+  }, null, 2) + '\n';
   const variableDefinitions = JSON.stringify({ variables: [{ name: 'color/accent', value: '#c8f36a' }] }, null, 2) + '\n';
   const screenshot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#fffdf7"/><circle cx="5" cy="5" r="3" fill="#c8f36a"/></svg>\n';
   const asset = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="8" fill="#c8f36a"/><path d="M10 21l6 6 14-15" fill="none" stroke="#15210f" stroke-width="4"/></svg>\n';
@@ -239,17 +311,33 @@ export async function completeProductFixture(root) {
     writeFile(assetPath, asset),
   ]);
   const evidence = {
-    version: '2.0.0',
+    version: '5.0.0',
     sourceId,
     kind: 'figma',
     location,
     capturedAt,
     nodeId: '1:2',
+    sourceVersion,
     items: [
-      { id: 'EVIDENCE-CONTEXT-001', role: 'design-context', path: 'design-sources/DESIGN-SOURCE-001/design-context.json', sha256: sha256(designContext) },
+      {
+        id: 'EVIDENCE-CONTEXT-001',
+        role: 'design-context',
+        path: 'design-sources/DESIGN-SOURCE-001/design-context.json',
+        sha256: sha256(designContext),
+        schema: 'https://psp.dev/adapters/figma/design-context.schema.json',
+      },
       { id: 'EVIDENCE-SCREENSHOT-001', role: 'screenshot', path: 'design-sources/DESIGN-SOURCE-001/node-screenshot.svg', sha256: sha256(screenshot) },
       { id: 'EVIDENCE-VARIABLES-001', role: 'variable-definitions', path: 'design-sources/DESIGN-SOURCE-001/variable-definitions.json', sha256: sha256(variableDefinitions) },
-      { id: 'EVIDENCE-ASSET-001', role: 'asset', path: 'public/assets/DESIGN-SOURCE-001/source.svg', sha256: sha256(asset) },
+      {
+        id: 'EVIDENCE-ASSET-001',
+        role: 'asset',
+        path: 'public/assets/DESIGN-SOURCE-001/source.svg',
+        sha256: sha256(asset),
+        sourceNodeId: '1:3',
+        assetKind: 'icon',
+        captureScope: 'layer',
+        containsDynamicContent: false,
+      },
     ],
   };
   const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
@@ -257,7 +345,34 @@ export async function completeProductFixture(root) {
   const allStateIds = ['WF-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '2.0.0',
+    version: '4.0.0',
+    visualPolicy: {
+      mode: 'guided',
+      selectedBy: 'user-explicit',
+      aspects: ['color'],
+      coverage: [{
+        sourceId,
+        screenId: 'SCREEN-001',
+        stateIds: allStateIds,
+        viewportIds: allViewportIds,
+        evidenceItemIds: ['EVIDENCE-SCREENSHOT-001', 'EVIDENCE-VARIABLES-001'],
+      }],
+    },
+    repairPolicy: {
+      enabled: false,
+      maxAttempts: 3,
+      repairableBlockerCodes: ['AIH_VISUAL_SOURCE_PARITY_FAILED', 'AIH_VISUAL_STYLE_BINDING_FAILED'],
+      allowedImplementationPaths: [
+        'index.html',
+        'src/main.ts',
+        'src/psp-app.ts',
+        'src/mock-api.ts',
+        'src/components/**/*.ts',
+        'src/components/**/*.css',
+        'src/styles/**/*.css',
+        'src/*.css',
+      ],
+    },
     designSources: [{
       id: sourceId,
       kind: 'figma',
@@ -273,10 +388,49 @@ export async function completeProductFixture(root) {
       }],
     }],
     assets: [{ id: 'ASSET-001', path: 'public/assets/DESIGN-SOURCE-001/source.svg', kind: 'image', sourceIds: [sourceId], usageTargetIds: ['COMPONENT-001'], alt: 'Fixture source' }],
-    tokens: [{ id: 'TOKEN-COLOR-ACCENT', type: 'color', value: '#c8f36a', sourceIds: [sourceId] }],
+    tokens: [{ id: 'TOKEN-COLOR-ACCENT', type: 'color', value: '#c8f36a', sourceIds: [sourceId], targetIds: ['CONTROL-001'], cssProperty: '--accent' }],
     routes: [{ id: 'ROUTE-001', path: '/', screenId: 'SCREEN-001' }],
     screens: [{ id: 'SCREEN-001', title: '规格验证', routeId: 'ROUTE-001', stateIds: ['WF-STATE-001'], componentIds: ['COMPONENT-001'] }],
     components: [{ id: 'COMPONENT-001', name: '验证状态', controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
+    componentInventory: [{
+      id: 'COMPONENT-INVENTORY-001',
+      sourceId,
+      nodeIds: ['2:1', '2:2', '1:2'],
+      semanticRole: '可执行规范应用壳',
+      structureSignatures: [
+        'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+        'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+      ],
+      decision: 'shared-component',
+      rationale: 'Component Set、Main Component 与页面 Instance 共享同一结构和运行职责。',
+      componentId: 'COMPONENT-001',
+    }],
+    componentMappings: [{
+      id: 'COMPONENT-MAPPING-001',
+      componentId: 'COMPONENT-001',
+      sourceId,
+      inventoryId: 'COMPONENT-INVENTORY-001',
+      figmaComponentNodeId: '2:1',
+      litTagName: 'psp-app',
+      propertyMappings: [{
+        kind: 'variant',
+        figmaProperty: 'Mode',
+        litProperty: 'mode',
+        litAttribute: 'mode',
+        values: [{ figmaValue: 'Default', litValue: 'default' }],
+      }],
+      slotMappings: [],
+      eventIds: ['EVENT-001', 'EVENT-002'],
+    }],
+    componentVariantCoverage: [{
+      id: 'COMPONENT-VARIANT-DEFAULT',
+      mappingId: 'COMPONENT-MAPPING-001',
+      figmaVariantProperties: { Mode: 'Default' },
+      litVariantAttributes: { mode: 'default' },
+      litSlotNames: [],
+      instanceNodeIds: ['1:2'],
+      screenIds: ['SCREEN-001'],
+    }],
     controls: [{ id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' }, { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' }],
     states: [
       { id: 'WF-STATE-001', scope: 'workflow', ownerId: 'SCREEN-001', label: '等待验证' },
@@ -293,12 +447,11 @@ export async function completeProductFixture(root) {
     ],
     mockBehaviors: [{ id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] }],
     viewports: [{ id: 'VIEWPORT-MOBILE', width: 390, height: 844 }, { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 }],
-    visualAssertions: [
+    renderAssertions: [
       {
         id: 'VISUAL-ROUTE-001',
         routeId: 'ROUTE-001',
         viewportIds: allViewportIds,
-        sourceIds: [sourceId],
         checks: [
           { kind: 'document-no-horizontal-overflow' },
           { kind: 'element-visible', targetIds: ['SCREEN-001', 'COMPONENT-001', 'CONTROL-001', 'CONTROL-002'] },
@@ -307,8 +460,12 @@ export async function completeProductFixture(root) {
           { kind: 'computed-style', targetId: 'CONTROL-001', property: 'min-height', expected: '44px' },
         ],
       },
-      { id: 'VISUAL-SCENARIO-001', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001', viewportIds: allViewportIds, sourceIds: [sourceId], checks: [{ kind: 'element-visible', targetIds: ['COMPONENT-STATE-SUCCESS'] }] },
-      { id: 'VISUAL-SCENARIO-002', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-002', viewportIds: allViewportIds, sourceIds: [sourceId], checks: [{ kind: 'element-visible', targetIds: ['COMPONENT-STATE-ERROR'] }] },
+      { id: 'VISUAL-SCENARIO-001', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001', viewportIds: allViewportIds, checks: [{ kind: 'element-visible', targetIds: ['COMPONENT-STATE-SUCCESS'] }] },
+      { id: 'VISUAL-SCENARIO-002', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-002', viewportIds: allViewportIds, checks: [{ kind: 'element-visible', targetIds: ['COMPONENT-STATE-ERROR'] }] },
+    ],
+    sourceParityAssertions: [
+      { id: 'PARITY-COLOR-MOBILE', sourceId, routeId: 'ROUTE-001', viewportId: 'VIEWPORT-MOBILE', aspects: ['color'], checks: [{ kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' }] },
+      { id: 'PARITY-COLOR-DESKTOP', sourceId, routeId: 'ROUTE-001', viewportId: 'VIEWPORT-DESKTOP', aspects: ['color'], checks: [{ kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' }] },
     ],
     motions: [{ id: 'MOTION-001', targetId: 'COMPONENT-001', trigger: 'loading', durationMs: 160, reducedMotion: true }],
     accessibility: { standard: 'Web Content Accessibility Guidelines 2.2 AA', checks: ['automated-rules', 'keyboard-operation', 'visible-focus', 'accessible-name', 'target-size'] },
@@ -321,7 +478,14 @@ export async function completeProductFixture(root) {
   await writeFile(appPath, app
     .replaceAll('UC-NNN', 'UC-001')
     .replaceAll('WF-STATE-NNN', 'WF-STATE-001')
+    .replace(' class="card state-card" data-component-id="COMPONENT-001"', ' class="card state-card"')
     .replace('<h2>交互状态实验台</h2>', '<h2>交互状态实验台</h2>\n            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />'));
+  const indexPath = resolve(areaPath, 'index.html');
+  const index = await readFile(indexPath, 'utf8');
+  await writeFile(
+    indexPath,
+    index.replace('<psp-app></psp-app>', '<psp-app mode="default" data-component-id="COMPONENT-001" data-figma-instance-id="1:2"></psp-app>'),
+  );
 
   await Promise.all([
     writeArtifact(product),

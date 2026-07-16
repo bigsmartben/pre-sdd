@@ -114,6 +114,9 @@ try {
       const routeIds = ids(canonical.routes, 'canonical.routes');
       const screenIds = ids(canonical.screens, 'canonical.screens');
       const componentIds = ids(canonical.components, 'canonical.components');
+      const componentInventoryIds = ids(canonical.componentInventory, 'canonical.componentInventory');
+      const componentMappingIds = ids(canonical.componentMappings, 'canonical.componentMappings');
+      ids(canonical.componentVariantCoverage, 'canonical.componentVariantCoverage');
       const controlIds = ids(canonical.controls, 'canonical.controls');
       const stateIds = ids(canonical.states, 'canonical.states');
       const eventIds = ids(canonical.events, 'canonical.events');
@@ -121,15 +124,18 @@ try {
       const scenarioIds = ids(canonical.scenarios, 'canonical.scenarios');
       ids(canonical.mockBehaviors, 'canonical.mockBehaviors');
       const viewportIds = ids(canonical.viewports, 'canonical.viewports');
-      ids(canonical.visualAssertions, 'canonical.visualAssertions');
+      ids(canonical.renderAssertions, 'canonical.renderAssertions');
+      ids(canonical.sourceParityAssertions, 'canonical.sourceParityAssertions');
       ids(canonical.motions, 'canonical.motions');
       const targetIds = new Set([...screenIds, ...componentIds, ...controlIds, ...stateIds]);
-      const availableSourceIds = new Set(canonical.designSources.filter((item) => item.status === 'available').map((item) => item.id));
       const gapSourceIds = new Set(canonical.gaps.flatMap((item) => item.sourceIds || []));
 
       for (const source of canonical.designSources) {
-        if (source.status !== 'available' && !gapSourceIds.has(source.id)) {
-          block('AIH_SOURCE_COVERAGE_FAILED', 'partial 或 blocked 设计来源必须由 gap 关联：' + source.id, 'canonical.designSources.' + source.id);
+        if (source.status === 'blocked' && !gapSourceIds.has(source.id)) {
+          block('AIH_SOURCE_COVERAGE_FAILED', 'blocked 设计来源必须由 gap 关联：' + source.id, 'canonical.designSources.' + source.id);
+        }
+        if (source.status === 'partial' && canonical.visualPolicy.mode !== 'guided' && !gapSourceIds.has(source.id)) {
+          block('AIH_SOURCE_COVERAGE_FAILED', '非部分参考模式的 partial 来源必须由 gap 关联：' + source.id, 'canonical.designSources.' + source.id);
         }
         for (const coverage of source.coverage) {
           requireReferences([coverage.screenId], screenIds, 'canonical.designSources.' + source.id, 'coverage.screenId');
@@ -146,6 +152,75 @@ try {
       for (const component of canonical.components) {
         requireReferences(component.controlIds, controlIds, 'canonical.components.' + component.id, 'controlIds');
         requireReferences(component.stateIds, stateIds, 'canonical.components.' + component.id, 'stateIds');
+      }
+      const inventoriedNodes = new Set();
+      for (const item of canonical.componentInventory) {
+        requireReferences([item.sourceId], designSourceIds, 'canonical.componentInventory.' + item.id, 'sourceId');
+        if (item.componentId) requireReferences([item.componentId], componentIds, 'canonical.componentInventory.' + item.id, 'componentId');
+        for (const nodeId of item.nodeIds) {
+          const key = item.sourceId + '/' + nodeId;
+          if (inventoriedNodes.has(key)) {
+            block('AIH_COMPONENT_ABSTRACTION_UNRESOLVED', 'Figma 节点被多个组件抽象决定重复归类：' + key, 'canonical.componentInventory.' + item.id);
+          }
+          inventoriedNodes.add(key);
+        }
+      }
+      for (const mapping of canonical.componentMappings) {
+        requireReferences([mapping.componentId], componentIds, 'canonical.componentMappings.' + mapping.id, 'componentId');
+        requireReferences([mapping.sourceId], designSourceIds, 'canonical.componentMappings.' + mapping.id, 'sourceId');
+        requireReferences([mapping.inventoryId], componentInventoryIds, 'canonical.componentMappings.' + mapping.id, 'inventoryId');
+        requireReferences(mapping.eventIds, eventIds, 'canonical.componentMappings.' + mapping.id, 'eventIds');
+        const inventory = canonical.componentInventory.find((item) => item.id === mapping.inventoryId);
+        if (
+          !inventory
+          || inventory.decision !== 'shared-component'
+          || inventory.componentId !== mapping.componentId
+          || inventory.sourceId !== mapping.sourceId
+          || !inventory.nodeIds.includes(mapping.figmaComponentNodeId)
+        ) {
+          block('AIH_COMPONENT_MAPPING_INVALID', '组件映射与共享组件清单不一致：' + mapping.id, 'canonical.componentMappings.' + mapping.id);
+        }
+        const figmaProperties = new Set();
+        const litProperties = new Set();
+        const litAttributes = new Set();
+        for (const property of mapping.propertyMappings) {
+          if (figmaProperties.has(property.figmaProperty) || litProperties.has(property.litProperty)) {
+            block('AIH_COMPONENT_MAPPING_INVALID', '组件属性映射重复：' + mapping.id + ' / ' + property.figmaProperty, 'canonical.componentMappings.' + mapping.id);
+          }
+          figmaProperties.add(property.figmaProperty);
+          litProperties.add(property.litProperty);
+          if (property.litAttribute) {
+            if (litAttributes.has(property.litAttribute)) {
+              block('AIH_COMPONENT_MAPPING_INVALID', '组件 Attribute 映射重复：' + mapping.id + ' / ' + property.litAttribute, 'canonical.componentMappings.' + mapping.id);
+            }
+            litAttributes.add(property.litAttribute);
+          }
+          const figmaValues = new Set();
+          const litValues = new Set();
+          for (const value of property.values) {
+            if (figmaValues.has(value.figmaValue) || litValues.has(value.litValue)) {
+              block('AIH_COMPONENT_MAPPING_INVALID', '组件属性值映射不是一对一：' + mapping.id + ' / ' + property.figmaProperty, 'canonical.componentMappings.' + mapping.id);
+            }
+            figmaValues.add(value.figmaValue);
+            litValues.add(value.litValue);
+          }
+        }
+        const slots = mapping.slotMappings.map((item) => item.litSlot);
+        if (new Set(slots).size !== slots.length) {
+          block('AIH_COMPONENT_MAPPING_INVALID', '组件 Slot 映射重复：' + mapping.id, 'canonical.componentMappings.' + mapping.id);
+        }
+      }
+      const coveredInstances = new Set();
+      for (const coverage of canonical.componentVariantCoverage) {
+        requireReferences([coverage.mappingId], componentMappingIds, 'canonical.componentVariantCoverage.' + coverage.id, 'mappingId');
+        requireReferences(coverage.screenIds, screenIds, 'canonical.componentVariantCoverage.' + coverage.id, 'screenIds');
+        for (const nodeId of coverage.instanceNodeIds) {
+          const key = coverage.mappingId + '/' + nodeId;
+          if (coveredInstances.has(key)) {
+            block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Figma Instance 被多个 Variant 覆盖行重复登记：' + key, 'canonical.componentVariantCoverage.' + coverage.id);
+          }
+          coveredInstances.add(key);
+        }
       }
       for (const control of canonical.controls) requireReferences([control.componentId], componentIds, 'canonical.controls.' + control.id, 'componentId');
       for (const state of canonical.states) {
@@ -179,15 +254,29 @@ try {
         requireReferences(scenario.expectedStateIds, stateIds, 'canonical.scenarios.' + scenario.id, 'expectedStateIds');
         requireReferences(scenario.viewportIds, viewportIds, 'canonical.scenarios.' + scenario.id, 'viewportIds');
       }
-      for (const assertion of canonical.visualAssertions) {
-        requireReferences([assertion.routeId], routeIds, 'canonical.visualAssertions.' + assertion.id, 'routeId');
-        requireReferences(assertion.viewportIds, viewportIds, 'canonical.visualAssertions.' + assertion.id, 'viewportIds');
-        requireReferences(assertion.sourceIds, designSourceIds, 'canonical.visualAssertions.' + assertion.id, 'sourceIds');
-        if (assertion.scenarioId) requireReferences([assertion.scenarioId], scenarioIds, 'canonical.visualAssertions.' + assertion.id, 'scenarioId');
+      for (const assertion of canonical.renderAssertions) {
+        requireReferences([assertion.routeId], routeIds, 'canonical.renderAssertions.' + assertion.id, 'routeId');
+        requireReferences(assertion.viewportIds, viewportIds, 'canonical.renderAssertions.' + assertion.id, 'viewportIds');
+        if (assertion.scenarioId) requireReferences([assertion.scenarioId], scenarioIds, 'canonical.renderAssertions.' + assertion.id, 'scenarioId');
         for (const check of assertion.checks) {
-          if (check.targetIds) requireReferences(check.targetIds, targetIds, 'canonical.visualAssertions.' + assertion.id, check.kind + '.targetIds');
-          if (check.targetId) requireReferences([check.targetId], targetIds, 'canonical.visualAssertions.' + assertion.id, check.kind + '.targetId');
+          if (check.targetIds) requireReferences(check.targetIds, targetIds, 'canonical.renderAssertions.' + assertion.id, check.kind + '.targetIds');
+          if (check.targetId) requireReferences([check.targetId], targetIds, 'canonical.renderAssertions.' + assertion.id, check.kind + '.targetId');
         }
+      }
+      for (const assertion of canonical.sourceParityAssertions) {
+        requireReferences([assertion.sourceId], designSourceIds, 'canonical.sourceParityAssertions.' + assertion.id, 'sourceId');
+        requireReferences([assertion.routeId], routeIds, 'canonical.sourceParityAssertions.' + assertion.id, 'routeId');
+        requireReferences([assertion.viewportId], viewportIds, 'canonical.sourceParityAssertions.' + assertion.id, 'viewportId');
+        if (assertion.scenarioId) requireReferences([assertion.scenarioId], scenarioIds, 'canonical.sourceParityAssertions.' + assertion.id, 'scenarioId');
+        for (const check of assertion.checks) {
+          if (check.targetId) requireReferences([check.targetId], targetIds, 'canonical.sourceParityAssertions.' + assertion.id, check.kind + '.targetId');
+        }
+      }
+      for (const coverage of canonical.visualPolicy.coverage) {
+        requireReferences([coverage.sourceId], designSourceIds, 'canonical.visualPolicy.coverage', 'sourceId');
+        requireReferences([coverage.screenId], screenIds, 'canonical.visualPolicy.coverage', 'screenId');
+        requireReferences(coverage.stateIds, stateIds, 'canonical.visualPolicy.coverage', 'stateIds');
+        requireReferences(coverage.viewportIds, viewportIds, 'canonical.visualPolicy.coverage', 'viewportIds');
       }
       for (const trace of canonical.traceability) {
         if (strict || useCaseIds.size > 0) requireReferences([trace.useCaseId], useCaseIds, 'canonical.traceability.' + trace.useCaseId, 'useCaseId');
@@ -202,18 +291,43 @@ try {
         const target = repositoryFile(root, stage.root + '/' + stage.areas['canonical-ui-prototype'].root + '/' + asset.path);
         try { await access(target); } catch { block('AIH_SOURCE_INTEGRITY_FAILED', '资源文件不存在：' + asset.path, 'canonical.assets.' + asset.id); }
       }
-      for (const token of canonical.tokens) requireReferences(token.sourceIds, designSourceIds, 'canonical.tokens.' + token.id, 'sourceIds');
+      for (const token of canonical.tokens) {
+        requireReferences(token.sourceIds, designSourceIds, 'canonical.tokens.' + token.id, 'sourceIds');
+        requireReferences(token.targetIds || [], targetIds, 'canonical.tokens.' + token.id, 'targetIds');
+      }
       for (const gap of canonical.gaps) requireReferences(gap.sourceIds || [], designSourceIds, 'canonical.gaps.' + gap.id, 'sourceIds');
       if (strict && readinessStep === 'canonical-ui-prototype') {
-        for (const [name, value] of Object.entries({ designSources: canonical.designSources, tokens: canonical.tokens, routes: canonical.routes, screens: canonical.screens, components: canonical.components, controls: canonical.controls, states: canonical.states, events: canonical.events, actions: canonical.actions, scenarios: canonical.scenarios, viewports: canonical.viewports, visualAssertions: canonical.visualAssertions, traceability: canonical.traceability })) {
+        if (canonical.visualPolicy.mode === 'unresolved') block('AIH_VISUAL_POLICY_UNRESOLVED', 'Canonical UI Prototype 尚未选择视觉策略。', 'canonical.visualPolicy.mode');
+        const alwaysRequired = { routes: canonical.routes, screens: canonical.screens, components: canonical.components, controls: canonical.controls, states: canonical.states, events: canonical.events, actions: canonical.actions, scenarios: canonical.scenarios, viewports: canonical.viewports, renderAssertions: canonical.renderAssertions, traceability: canonical.traceability };
+        for (const [name, value] of Object.entries(alwaysRequired)) {
           if (value.length === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Canonical UI Prototype 缺少：' + name, 'canonical.' + name);
         }
+        if (['guided', 'exact'].includes(canonical.visualPolicy.mode)) {
+          for (const [name, value] of Object.entries({ designSources: canonical.designSources, sourceParityAssertions: canonical.sourceParityAssertions })) {
+            if (value.length === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Canonical UI Prototype 缺少：' + name, 'canonical.' + name);
+          }
+        }
         if (canonical.gaps.length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Canonical UI Prototype 仍有未决 gaps。', 'canonical.gaps');
+        for (const inventory of canonical.componentInventory.filter((item) => item.decision === 'shared-component')) {
+          const mappings = canonical.componentMappings.filter((item) => item.inventoryId === inventory.id);
+          if (mappings.length !== 1) {
+            block(
+              'AIH_COMPONENT_ABSTRACTION_UNRESOLVED',
+              '共享组件抽象必须且只能对应一个 Figma ↔ Lit 映射：' + inventory.id + '，实际为 ' + mappings.length + ' 个。',
+              'canonical.componentMappings',
+            );
+          }
+        }
+        for (const mapping of canonical.componentMappings) {
+          if (!canonical.componentVariantCoverage.some((item) => item.mappingId === mapping.id)) {
+            block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', '组件映射缺少 Variant 覆盖行：' + mapping.id, 'canonical.componentVariantCoverage');
+          }
+        }
         for (const source of canonical.designSources) {
           if (source.status === 'blocked') block('AIH_SOURCE_CAPTURE_BLOCKED', '设计来源无法采集：' + source.id, 'canonical.designSources.' + source.id);
-          else if (source.status !== 'available') block('AIH_SOURCE_COVERAGE_FAILED', '设计来源未达到完整覆盖：' + source.id, 'canonical.designSources.' + source.id);
+          else if (canonical.visualPolicy.mode === 'exact' && source.status !== 'available') block('AIH_VISUAL_SOURCE_INCOMPLETE', '完全实现模式的设计来源未达到完整覆盖：' + source.id, 'canonical.designSources.' + source.id);
         }
-        for (const screen of canonical.screens) {
+        if (canonical.visualPolicy.mode === 'exact') for (const screen of canonical.screens) {
           const requiredStates = new Set(screen.stateIds);
           for (const componentId of screen.componentIds) {
             const component = canonical.components.find((item) => item.id === componentId);
@@ -232,18 +346,18 @@ try {
         }
         for (const route of canonical.routes) {
           for (const viewportId of viewportIds) {
-            const declared = canonical.visualAssertions.some((item) => !item.scenarioId && item.routeId === route.id && item.viewportIds.includes(viewportId) && item.sourceIds.every((id) => availableSourceIds.has(id)));
-            if (!declared) block('AIH_SOURCE_COVERAGE_FAILED', '路由缺少可执行视觉断言：' + route.id + ' / ' + viewportId, 'canonical.visualAssertions');
+            const declared = canonical.renderAssertions.some((item) => !item.scenarioId && item.routeId === route.id && item.viewportIds.includes(viewportId));
+            if (!declared) block('AIH_SOURCE_COVERAGE_FAILED', '路由缺少可执行渲染断言：' + route.id + ' / ' + viewportId, 'canonical.renderAssertions');
           }
         }
         for (const scenario of canonical.scenarios) {
-          for (const viewportId of scenario.viewportIds) {
-            const declared = canonical.visualAssertions.some((item) => item.scenarioId === scenario.id && item.routeId === scenario.routeId && item.viewportIds.includes(viewportId) && item.sourceIds.every((id) => availableSourceIds.has(id)));
-            if (!declared) block('AIH_SOURCE_COVERAGE_FAILED', '场景缺少可执行视觉断言：' + scenario.id + ' / ' + viewportId, 'canonical.visualAssertions');
+          if (scenario.viewportIds.length === 0) {
+            block('AIH_ARTIFACT_INCOMPLETE', '场景未绑定用户确认的运行环境：' + scenario.id, 'canonical.scenarios.' + scenario.id + '.viewportIds');
           }
-        }
-        if (!canonical.viewports.some((item) => item.width < 768) || !canonical.viewports.some((item) => item.width >= 1024)) {
-          block('AIH_ARTIFACT_INCOMPLETE', '必须声明移动端和桌面端视口。', 'canonical.viewports');
+          for (const viewportId of scenario.viewportIds) {
+            const declared = canonical.renderAssertions.some((item) => item.scenarioId === scenario.id && item.routeId === scenario.routeId && item.viewportIds.includes(viewportId));
+            if (!declared) block('AIH_SOURCE_COVERAGE_FAILED', '场景缺少可执行渲染断言：' + scenario.id + ' / ' + viewportId, 'canonical.renderAssertions');
+          }
         }
       }
     }
