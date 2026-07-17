@@ -48,7 +48,6 @@ spec:
     validatorRole: decision-and-evidence-only
     maxAttempts: 3
     packetSchema: .agents/skills/product-design/canonical-ui-prototype/repair-packet.schema.json
-    actionSchema: .agents/skills/product-design/canonical-ui-prototype/repair-action.schema.json
     implementationPolicy:
       evidenceBeforeEdit: true
       requireSourceResolution: true
@@ -65,14 +64,6 @@ spec:
         - paint
         - effects
         - assets
-    protectedInputs:
-      - design-source-evidence
-      - screenshot-baselines
-      - canonical-business-semantics
-      - component-abstraction-contract
-      - visual-policy
-      - use-cases
-      - wireflow
   readiness:
     requiredStatus: ready
     requireNoGaps: true

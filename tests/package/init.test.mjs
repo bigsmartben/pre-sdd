@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -80,20 +79,6 @@ function workspaceRuntimeEnvironment(workspaceRoot) {
       ? nodeOptions
       : [nodeOptions, dependencyLoader].filter(Boolean).join(' '),
   };
-}
-
-function completeProductWorkspace(workspaceRoot) {
-  const fixtureModule = pathToFileURL(resolve(
-    workspaceRoot,
-    '.agents/skills/product-design/tests/helpers/product-fixture.mjs',
-  )).href;
-  const source = `import { completeProductFixture } from ${JSON.stringify(fixtureModule)}; await completeProductFixture(${JSON.stringify(workspaceRoot)});`;
-  return spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
-    cwd: workspaceRoot,
-    env: workspaceRuntimeEnvironment(workspaceRoot),
-    encoding: 'utf8',
-    windowsHide: true,
-  });
 }
 
 function waitForCanonicalUiReady(child, timeoutMilliseconds = 60_000) {
@@ -250,11 +235,10 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   assert.ok(workspaceReadme.indexOf('冻结最终节点并采集设计上下文、截图和变量') < workspaceReadme.indexOf('导出标记资源并封存 evidence.json 与全部哈希'));
   assert.equal(await exists(resolve(target, '.agents/skills/capture-figma-design-source/figma-design-context.schema.json')), true);
   assert.equal(await exists(resolve(target, '.agents/skills/capture-figma-design-source/source-registration.schema.json')), true);
-  assert.equal(await exists(resolve(target, '.agents/skills/product-design/canonical-ui-prototype/repair-action.schema.json')), true);
   assert.match(repairSkill, /Evidence before edit/);
   assert.match(repairSkill, /Preserve interactive DOM/);
   assert.match(repairSkill, /source-resolution/);
-  assert.match(repairSkill, /Repair Action Report/);
+  assert.match(repairSkill, /不是代码写入许可/);
   assert.match(repairSkill, /allowSubjectiveApproximation|不凭视觉感觉/);
   for (const stage of Object.values(project.stages)) {
     assert.equal(await exists(resolve(target, stage.root, '.gitkeep')), true);
@@ -317,7 +301,7 @@ test('workspace-local runtime executes the generated workspace local domain vali
   assert.equal(await findDirectory(target, 'node_modules'), null);
 });
 
-test('generated workspace applies an artifact transaction through its local runtime', async () => {
+test('generated workspace applies an artifact operation through its local runtime', async () => {
   const target = await temporaryDirectory('pre-sdd-artifact-transaction-');
   assert.equal(runCli(['init', target]).status, 0);
   const initialized = runWorkspaceScript('init:product', target);
@@ -333,11 +317,9 @@ test('generated workspace applies an artifact transaction through its local runt
   candidate.intent.productName = '本地事务执行验证';
   const candidatePath = resolve(target, 'candidate-use-cases.yaml');
   await writeFile(candidatePath, stringifyYaml(candidate), 'utf8');
-  const expectedSha256 = createHash('sha256').update(before).digest('hex');
   const applied = runWorkspaceScript('apply:product-artifact', target, {}, [
     '--artifact', 'capabilities',
     '--input', candidatePath,
-    '--expected-sha256', expectedSha256,
     '--json',
   ]);
   assert.equal(applied.status, 0, applied.stderr + applied.stdout);
@@ -347,9 +329,8 @@ test('generated workspace applies an artifact transaction through its local runt
   assert.match(authority, /本地事务执行验证/);
   assert.match(ucMarkdown, /本地事务执行验证/);
   assert.match(summaryMarkdown, /本地事务执行验证/);
-  const sourceSha256 = createHash('sha256').update(authority).digest('hex');
-  assert.match(ucMarkdown, new RegExp('sourceSha256: ' + sourceSha256));
-  assert.match(summaryMarkdown, new RegExp('sourceSha256: ' + sourceSha256));
+  assert.doesNotMatch(ucMarkdown, /sourceSha256:/);
+  assert.doesNotMatch(summaryMarkdown, /sourceSha256:/);
 
   const legacyRender = runWorkspaceScript('render:product', target);
   assert.notEqual(legacyRender.status, 0);
@@ -426,7 +407,7 @@ test('workspace-local runtime typechecks and builds an initialized product witho
   assert.equal(await findDirectory(target, 'node_modules'), null);
 });
 
-test('Canonical UI dev command publishes a reachable default-annotated HTTP review URL', async () => {
+test('Canonical UI dev publishes a reachable annotated URL before visual readiness or repair', async () => {
   const target = await temporaryDirectory('pre-sdd-canonical-ui-dev-');
   assert.equal(runCli(['init', target]).status, 0);
 
@@ -446,8 +427,12 @@ test('Canonical UI dev command publishes a reachable default-annotated HTTP revi
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stderr + blocked.stdout, /AIH_STAGE_UNINITIALIZED|AIH_VISUAL_POLICY_UNRESOLVED/);
 
-  const completed = completeProductWorkspace(target);
-  assert.equal(completed.status, 0, completed.stderr + completed.stdout);
+  const initialized = runWorkspaceScript('init:product', target);
+  assert.equal(initialized.status, 0, initialized.stderr + initialized.stdout);
+  const strict = runWorkspaceScript('validate:product:strict', target);
+  assert.notEqual(strict.status, 0, strict.stderr + strict.stdout);
+  assert.match(strict.stderr + strict.stdout, /AIH_VISUAL_POLICY_UNRESOLVED/);
+
   const child = spawn(
     process.execPath,
     [resolve(target, ...command.executor.path.split('/')), ...(command.executor.args || [])],
@@ -498,8 +483,6 @@ test('Vite and browser execution are registered in the Product Design domain Ski
     'AIH_CANONICAL_UI_SERVER_FAILED',
     'AIH_VISUAL_REPAIR_REQUIRED',
     'AIH_VISUAL_REPAIR_PACKET_FAILED',
-    'AIH_VISUAL_REPAIR_ACTION_INVALID',
-    'AIH_VISUAL_REPAIR_SCOPE_VIOLATION',
     'AIH_VISUAL_REPAIR_EXHAUSTED',
   ]) assert.ok(manifest.blockers.some((item) => item.code === code), code);
 });
@@ -554,7 +537,6 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui-visual/agents/openai.yaml'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/repair-packet.schema.json'));
-  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/repair-action.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/template/src/spec/canonical-ui.ts'));

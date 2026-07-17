@@ -12,7 +12,7 @@
 
 > 请根据这段产品想法整理 Use Cases（用例）：为小型设计团队提供一个可追踪评审意见的协作工具。
 
-Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次需要的阶段，在临时位置准备候选结构化数据，再通过已登记的产物事务一次生成权威 YAML 与面向使用者的 Markdown，最后执行当前范围要求的验证。完成当前产物不会自动开始下游工作；是否继续仍由使用者明确决定。
+Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次需要的阶段，在临时位置准备候选结构化数据，再通过已登记的产物 operation（操作）生成权威 YAML 与面向使用者的 Markdown，最后执行当前范围要求的验证。完成当前产物不会自动开始下游工作；是否继续仍由使用者明确决定。
 
 阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化也会创建 `PSP.md` 摘要、页面流程模板和界面工程；Agent 仍只能填写和验证 Use Cases 事实。
 
@@ -50,7 +50,7 @@ flowchart LR
 
 ## 权威模型与正式产物
 
-内部模型产物的 YAML 与 Markdown 是一个可恢复的原子事务（recoverable atomic transaction）：Agent 在工作区外准备候选 YAML，事务完成 Schema（结构定义）校验、旧版本哈希检查与渲染后，才同时提交 YAML 和 Markdown。渲染或写入失败时恢复旧版本；下次操作会恢复中断事务。Agent 不得直接修改 `.psp/models/` 目标文件或对应 Markdown。规范界面原型是例外：可执行界面及其 `src/spec/canonical-ui.ts` 是语义事实来源，README 是面向人的评审投影。
+内部模型产物通过一个轻量 artifact operation（产物操作）更新：Agent 在工作区外准备候选 YAML，operation 校验 Schema（结构定义）、生成 Markdown，并用短期文件锁避免同一产物同时写入。它不要求旧版本 hash，也不维护事务恢复状态机；写入未完成时重新运行同一 operation，Validator 会识别尚未同步的投影。Agent 不得直接修改 `.psp/models/` 目标文件或对应 Markdown。规范界面原型是例外：可执行界面及其 `src/spec/canonical-ui.ts` 是语义事实来源，README 是面向人的评审投影。
 
 | 当前产物 | 权威入口 | 正式用户产物 |
 |---|---|---|
@@ -95,7 +95,7 @@ flowchart LR
 | `overview.targetUsers` | `actors[]` | 旧字段是自由文本，必须拆分并确认 Actor，不自动解析后覆盖 |
 | `overview.coreValue` | `useCases[].value` | 无法归属具体 Use Case 的内容记录为 gap |
 
-`primaryChain`、`supportingArtifacts`、旧 Product Package gates 和 handoff 信息属于旧治理模型，不迁入产品事实。迁入完成后只能通过 Use Cases 产物事务生成新的 `UC.md` 与 `PSP.md`，不得从旧 `PSP.md` 反向生成用例。
+`primaryChain`、`supportingArtifacts`、旧 Product Package gates 和 handoff 信息属于旧治理模型，不迁入产品事实。迁入完成后只能通过 Use Cases 产物 operation 生成新的 `UC.md` 与 `PSP.md`，不得从旧 `PSP.md` 反向生成用例。
 
 架构阶段只有在 `use-cases` 上游 readiness 通过后才能初始化；这是一条显式依赖，不是 handoff。初始化后的关键结构如下：
 
@@ -136,20 +136,21 @@ flowchart LR
 flowchart LR
     A["1. 建立 Figma 工作区副本"] --> B["2. 按页面重组、规范化 Figma"]
     B --> C["3. 实现 Figma 页面"]
-    C --> D["4. Review HTML：标记不一致"]
+    C --> U["立即提供可访问的 UI HTML 地址"]
+    U --> D["4. Review HTML：标记不一致"]
     D --> E["5. 修复 HTML"]
-    E --> D
+    E --> U
 ```
 
 | 步骤 | 执行要点 | 完成标志 |
 |---|---|---|
 | 1. 建立 Figma 工作区副本 | 从原始设计复制到本工作区使用的独立副本；保留原始文件作为对照，不在原稿上整理 | 副本、页面范围和责任人已确认 |
 | 2. 按页面重组、规范化 Figma | 以待实现页面为单位整理图层与命名，复用已有组件，按需创建规范组件，并标记 `Export/` 资源 | 所有 Figma 写入完成，页面节点已冻结 |
-| 3. 实现 Figma | 采集冻结节点的上下文、截图、变量、字体和资源证据，登记组件清单、Figma ↔ Lit 映射与 Variant 覆盖后再实现页面 | 可运行的 Canonical UI Prototype、完整来源证据与组件抽象契约 |
+| 3. 实现 Figma | 采集冻结节点的上下文、截图、变量、字体和资源证据，登记组件清单、Figma ↔ Lit 映射与 Variant 覆盖后再实现页面；实现达到可运行状态后立即启动服务 | 可运行的 Canonical UI Prototype、完整来源证据与组件抽象契约，以及已经请求验证并提供给使用者的 UI HTML 地址 |
 | 4. Review HTML（审查 HTML） | 在浏览器中对照 Figma 操作页面，使用默认固定在每个页面右上方的不一致标记工具框选差异、选择类别并复制标记截图；剪贴板被拒绝时下载 PNG | 差异形成可执行的修复说明，不改变正式规格 |
-| 5. 修复 HTML | 仅按 Repair Packet（修复包）允许的范围修正实现，重新验证并提供新的评审地址 | Repair Action Report（修复动作报告）与新一轮可审查页面 |
+| 5. 修复 HTML | 仅按 Repair Packet（修复包）允许的范围修正实现，重新验证并提供当前评审地址；服务重启时提供新的实际地址 | Repair Action Report（修复动作报告）与新一轮可审查页面 |
 
-第 4、5 步的循环示例：审查时发现“标题距顶部比 Figma 多 12px”，框选标题区域并复制标记截图；修复后重新打开评审地址复查。若仍有差异，继续标记并修复；若无差异，由使用者结束循环。
+第 3 步的实现达到可运行状态后必须立即提供 UI HTML 地址，不等待视觉修复、严格检查或正式就绪全部通过；未通过项只作为 residual（剩余问题）阻止正式 ready（就绪）或 handoff（移交）。第 4、5 步的循环示例：审查时发现“标题距顶部比 Figma 多 12px”，框选标题区域并复制标记截图；修复后重新打开评审地址复查。若仍有差异，继续标记并修复；若无差异，由使用者结束循环。
 
 ```text
 Product Design 确认 sourceId、业务范围与视觉策略
@@ -158,7 +159,8 @@ Product Design 确认 sourceId、业务范围与视觉策略
   → 导出标记资源并封存 evidence.json 与全部哈希
   → Product Design 绑定来源、业务语义与组件抽象契约
   → Lit + Vite Canonical UI 实现
-  → Harness 与来源一致性验证
+  → 立即启动服务并提供可访问的 UI HTML 地址
+  → Harness 与来源一致性验证（未通过项只阻止正式就绪或移交）
   → Repair Packet 驱动的实现修复
 ```
 
@@ -179,7 +181,7 @@ flowchart LR
     R["使用者请求当前产物"] --> S["Resolver<br/>解析变更范围与验证"]
     S --> I["按需初始化阶段"]
     I --> E["在临时位置准备候选数据"]
-    E --> P["产物事务：同时生成 YAML 与 Markdown"]
+    E --> P["产物操作：生成 YAML 与 Markdown"]
     P --> V["执行全部验证命令"]
     V --> H["当前产物就绪后执行移交门禁"]
 ```
@@ -191,8 +193,8 @@ flowchart LR
 | 解析实际变更路径 | `npm run harness:resolve -- --intent change --path <仓库相对路径> --json` | 路径使用正斜杠 |
 | 初始化产品阶段 | `npm run init:product` | 使用者明确开始产品阶段 |
 | 初始化架构阶段 | `npm run init:architecture` | Use Cases readiness 通过 |
-| 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件> --expected-sha256 <旧哈希>` | 阶段已初始化；先运行同一操作的 `--dry-run` |
-| 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件> --expected-sha256 <旧哈希>` | 阶段已初始化；先运行同一操作的 `--dry-run` |
+| 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
+| 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 验证产品阶段 | `npm run validate:product` | 按 Resolver 返回顺序执行 |
 | 验证架构阶段 | `npm run validate:architecture` | 按 Resolver 返回顺序执行 |
 | 执行内部移交 | `npm run handoff -- --from <来源范围> --to <消费范围> --json` | 来源产物的就绪验证全部通过 |

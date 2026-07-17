@@ -41,7 +41,6 @@ const REQUIRED_CODES = [
   'AIH_RUNTIME_INCOMPATIBLE',
   'AIH_VALIDATION_FAILED',
   'AIH_ARTIFACT_TRANSACTION_FAILED',
-  'AIH_ARTIFACT_RECOVERY_REQUIRED',
   'AIH_USER_CHANGE_COLLISION',
   'AIH_WORKSPACE_NOT_EMPTY',
   'AIH_STAGE_UNINITIALIZED',
@@ -292,7 +291,7 @@ if (manifest && manifestValid) {
           || registered.authorityKind !== 'internal-model'
           || !stage?.artifacts?.[artifactId]
         ) {
-          block('AIH_CONTRACT_INVALID', '产物事务 operation 引用无效 Artifact：' + artifactId, operation.id);
+          block('AIH_CONTRACT_INVALID', '产物 operation 引用无效 Artifact：' + artifactId, operation.id);
         }
       }
       continue;

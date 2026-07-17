@@ -9,9 +9,9 @@ description: 在 Canonical UI Prototype（规范界面原型）的 exact（完�
 
 本技能只执行 Agent-owned implementation repair（由 Agent 执行的实现修复）。开始前必须加载 `$product-design` 与 `$apply-repository-harness`，并先运行 Manifest 登记的 `canonical-ui-repair` operation（修复操作）取得符合 Schema 的 Repair Packet。
 
-Validator（校验器）只判定、截图、计算差异和生成证据；本技能只修改 Repair Packet 中 `allowedImplementationPaths` 匹配的实现文件。不得修改 Figma 证据、截图基线、视觉策略、Repair Policy（修复策略）、Canonical UI 业务语义、Use Cases、Wireflow、容差或来源一致性断言。
+Validator（校验器）只判定、截图、计算差异和生成证据；Repair Packet 中的 `allowedImplementationPaths` 用于提示最小实现范围，不是代码写入许可。代码修改不需要文件 hash 快照或额外 Action Report；修改是否有效只由下一次真实运行验证判断。Figma 证据、截图基线等外部输入仍受内容 hash 校验，若确需更新应重新采集并登记，而不是在修复循环中静默替换。
 
-Repair Packet 不是建议清单，而是本轮修复的唯一执行输入。它必须直接提供来源标识、设计上下文、来源证据项、检查类型、目标位置、截图和 `actionReportPath`；`screenshot-match` 失败还必须提供 `differenceRatio`、`differenceScreenshot` 与结构化 `differenceRegions`，`computed-style` 失败必须提供 `targetId`。状态不是 `REPAIR_REQUIRED`、失败含不可修复 blocker code（阻断码）或证据不可读取时停止，不尝试主观修复。
+Repair Packet 是本轮修复的证据输入。它必须直接提供来源标识、设计上下文、来源证据项、检查类型、目标位置和截图；`screenshot-match` 失败还必须提供 `differenceRatio`、`differenceScreenshot` 与结构化 `differenceRegions`，`computed-style` 失败必须提供 `targetId`。状态不是 `REPAIR_REQUIRED`、失败含不可修复 blocker code（阻断码）或证据不可读取时停止，不尝试主观修复。
 
 ## 固定实现原则
 
@@ -50,20 +50,16 @@ Repair Packet 不是建议清单，而是本轮修复的唯一执行输入。它
 
 ## 修复循环
 
-1. 读取 Repair Packet，确认 `attempt`、允许路径、失败断言和受保护哈希。
+1. 读取 Repair Packet，确认 `attempt`、建议实现路径和失败断言。
 2. 使用 `targetId` 或 `differenceRegions` 将每个失败定位到 Route、Scenario、Viewport、Component 和最小 DOM 区域；缺少 Schema 要求的位置证据时以 `AIH_VISUAL_REPAIR_PACKET_FAILED` 停止。
-3. 从对应来源证据取得明确参数或资源，按固定顺序修改允许路径。
-4. 按 Repair Packet 的 `actionReportPath` 写入符合 `repair-action.schema.json` 的 Repair Action Report；先用 `sourceResolution` 登记“复用来源资源”或“没有适用来源资源”的判定和证据，再结构化登记失败断言、来源证据项、修复层级、实际修改路径和预期影响。
-5. 重新运行同一个 `canonical-ui-repair` operation；Validator 会核对 Action Report 与实际文件哈希变化。
-6. Action Report 缺失、漏报路径、引用错误来源或未覆盖失败断言时，以 `AIH_VISUAL_REPAIR_ACTION_INVALID` 停止。
-7. 返回 `PASS` 时停止；再次返回 `REPAIR_REQUIRED` 时进入下一轮。
-8. 最多三轮；`AIH_VISUAL_REPAIR_SCOPE_VIOLATION`、`AIH_VISUAL_REPAIR_EXHAUSTED` 或任何不可修复阻断码必须立即停止。
+3. 从对应来源证据取得明确参数或资源，按固定顺序修改实现；建议优先落在 `allowedImplementationPaths`，但 Validator 不以文件 hash 阻止代码修改。
+4. 重新运行同一个 `canonical-ui-repair` operation，以当前代码的真实运行结果判断修复是否有效。
+5. 返回 `PASS` 时停止；再次返回 `REPAIR_REQUIRED` 时进入下一轮。
+6. 最多三轮；`AIH_VISUAL_REPAIR_EXHAUSTED` 或任何不可修复阻断码必须立即停止。
 
 ## 完成条件
 
-- 修改仅发生在 Repair Packet 允许路径中。
+- 修改范围与当前差异直接相关，并优先采用 Repair Packet 建议的实现路径。
 - 每项代码调整都有设计来源参数、资源或差异证据支持。
-- Repair Action Report 已通过 Schema、实际修改路径和来源证据交叉校验。
 - 真实 DOM、文字和交互保持可执行。
-- 基线、容差、视觉策略、业务语义和上游产物哈希保持不变。
 - 相同环境下重新截图，并由同一来源一致性门禁返回 `PASS`。

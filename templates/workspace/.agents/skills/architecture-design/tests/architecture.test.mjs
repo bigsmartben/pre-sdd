@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
+  completeProductFixture,
   fixtureProject,
   markReady,
   readArtifact,
@@ -25,49 +25,7 @@ async function pathExists(path) {
 }
 
 async function completeUseCasesFixture(root) {
-  const initialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
-  assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
-  const project = await fixtureProject(root);
-  const stage = project.stages['product-design'];
-  const capabilities = await readArtifact(root, stage, stage.artifacts.capabilities);
-
-  markReady(capabilities.data);
-  capabilities.data.intent = {
-    productName: '示例产品',
-    productConcept: '规格验证工具',
-    problem: '规格错误只能在交付后被发现',
-    businessGoal: '减少不一致规格',
-    successSignal: 'Use Cases 严格门禁稳定通过',
-  };
-  capabilities.data.actors = [{ id: 'ACTOR-001', name: '规格作者', goal: '交付一致规格', description: '创建和维护产品规格' }];
-  capabilities.data.productScope = { included: ['创建结构化产品规格'], excluded: ['生成生产架构实现'] };
-  capabilities.data.businessRules = [{ id: 'BR-001', statement: '只有有效规格才能通过验证', rationale: '保证下游输入确定', appliesTo: ['UC-001'] }];
-  capabilities.data.useCases = [{
-    id: 'UC-001',
-    name: '验证产品规格',
-    actor: 'ACTOR-001',
-    goal: '交付前确认规格可被安全消费',
-    value: '提前发现结构与引用问题',
-    trigger: '规格作者请求验证',
-    preconditions: ['规格包含待验证内容'],
-    postconditions: { success: ['显示通过状态与证据'], failure: ['保留规格并显示错误'] },
-    mainScenario: [{ id: 'UC-001-STEP-01', initiator: 'actor', action: '提交验证请求', systemResponse: '执行结构和引用检查', observableResult: '看到状态与证据' }],
-    alternateScenarios: [{
-      id: 'UC-001-EXC-01', type: 'exception', name: '规格引用无效', startsAt: 'UC-001-STEP-01', condition: '存在无法解析的引用',
-      steps: [{ id: 'UC-001-EXC-01-STEP-01', initiator: 'system', action: '停止交付判定', systemResponse: '返回错误位置', observableResult: '看到失败状态' }],
-      outcome: '规格保持不可交付',
-    }],
-    businessRules: ['BR-001'],
-    acceptanceCriteria: [
-      { id: 'AC-001', scenario: 'main', given: '规格有效', when: '运行验证', then: '显示通过状态与证据' },
-      { id: 'AC-002', scenario: 'UC-001-EXC-01', given: '规格引用无效', when: '运行验证', then: '显示失败状态与错误位置' },
-    ],
-    relationships: [],
-  }];
-
-  await writeArtifact(capabilities);
-  const render = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--json']);
-  assert.equal(render.exitCode, 0, JSON.stringify(render.output, null, 2));
+  await completeProductFixture(root);
 }
 
 async function completeArchitectureFixture(root) {
@@ -187,7 +145,6 @@ async function completeArchitectureFixture(root) {
   },
 };
 `, 'utf8');
-  const sourceSha256 = createHash('sha256').update(await readFile(experimentSource)).digest('hex');
   const technicalRoot = resolve(root, stage.root, stage.areas['technical-validation'].root);
   const execution = spawnSync(process.execPath, [resolve(technicalRoot, 'src', 'verify.mjs'), '--case', 'EXP-001'], {
     cwd: technicalRoot,
@@ -198,7 +155,6 @@ async function completeArchitectureFixture(root) {
   assert.equal(execution.status, 0, execution.stderr + execution.stdout);
   const executionReceipt = JSON.parse(execution.stdout);
   assert.equal(executionReceipt.status, 'PASS');
-  assert.equal(executionReceipt.sourceSha256, sourceSha256);
   markReady(validation.data);
   validation.data.decisions = [{
     id: 'TECH-001',
@@ -230,7 +186,6 @@ async function completeArchitectureFixture(root) {
     result: {
       status: executionReceipt.result.status,
       executedAt: executionReceipt.executedAt,
-      sourceSha256: executionReceipt.sourceSha256,
       summary: executionReceipt.result.summary,
       evidence: executionReceipt.result.evidence,
     },
@@ -282,24 +237,21 @@ test('architecture artifact operation commits its YAML and Markdown as one revis
   const stage = project.stages['architecture-design'];
   const binding = stage.artifacts['system-boundary'];
   const artifact = await readArtifact(root, stage, binding);
-  artifact.data.system.name = '原子事务架构系统';
+  artifact.data.system.name = '轻量产物写入架构系统';
   const candidate = resolve(root, '.psp/candidate-system-boundary.yaml');
   await writeFile(candidate, stringifyYaml(artifact.data));
-  const before = await readFile(artifact.path, 'utf8');
-  const expectedSha256 = createHash('sha256').update(before).digest('hex');
   const applied = runScript('.agents/skills/architecture-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-architecture-artifact',
     '--artifact', 'system-boundary',
     '--input', candidate,
-    '--expected-sha256', expectedSha256,
     '--json',
   ]);
   assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
   const authority = await readFile(artifact.path, 'utf8');
   const markdown = await readFile(resolve(root, stage.root, binding.outputs[0].path), 'utf8');
-  assert.match(authority, /原子事务架构系统/);
-  assert.match(markdown, /原子事务架构系统/);
-  assert.match(markdown, new RegExp('sourceSha256: ' + createHash('sha256').update(authority).digest('hex')));
+  assert.match(authority, /轻量产物写入架构系统/);
+  assert.match(markdown, /轻量产物写入架构系统/);
+  assert.doesNotMatch(markdown, /sourceSha256:/);
 });
 
 test('complete Use Case to key capability to selection to real-code conclusion mapping passes strict validation', async () => {
@@ -319,14 +271,12 @@ test('each Architecture artifact passes its independent readiness step', async (
   }
 });
 
-test('strict validation blocks a recorded pass when the experiment source hash changes', async () => {
+test('strict validation accepts the current experiment result without a persisted source hash', async () => {
   const root = await temporaryRepository();
   const { validation } = await completeArchitectureFixture(root);
-  validation.data.experiments[0].result.sourceSha256 = '0'.repeat(64);
-  await writeArtifact(validation);
-  runScript('.agents/skills/architecture-design/scripts/render.mjs', root, ['--json']);
+  assert.equal(Object.hasOwn(validation.data.experiments[0].result, 'sourceSha256'), false);
   const strict = runScript('.agents/skills/architecture-design/scripts/validate.mjs', root, ['--strict', '--json']);
-  assert.ok(codes(strict).has('AIH_TECHNICAL_VALIDATION_FAILED'), JSON.stringify(strict.output, null, 2));
+  assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
 });
 
 test('all architecture artifacts declare fixed inputs owned by the Architecture Design Skill', async () => {

@@ -65,20 +65,13 @@
         "repair": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["orchestrator", "validatorRole", "maxAttempts", "packetSchema", "actionSchema", "implementationPolicy", "protectedInputs"],
+          "required": ["orchestrator", "validatorRole", "maxAttempts", "packetSchema", "implementationPolicy"],
           "properties": {
             "orchestrator": {"const": "agent"},
             "validatorRole": {"const": "decision-and-evidence-only"},
             "maxAttempts": {"const": 3},
             "packetSchema": {"type": "string", "minLength": 1},
-            "actionSchema": {"type": "string", "minLength": 1},
-            "implementationPolicy": {"$ref": "#/$defs/visualRepairImplementationPolicy"},
-            "protectedInputs": {
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": {"enum": ["design-source-evidence", "screenshot-baselines", "canonical-business-semantics", "component-abstraction-contract", "visual-policy", "use-cases", "wireflow"]}
-            }
+            "implementationPolicy": {"$ref": "#/$defs/visualRepairImplementationPolicy"}
           }
         },
         "readiness": {

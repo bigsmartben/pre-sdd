@@ -75,14 +75,15 @@ Figma 来源尚未形成通过 Schema 校验的本地证据，或证据采集后
    - 按 `scenarios` 实际触发事件并观察声明的中间状态和最终状态。
 
 8. 验证。
+   - 页面与已确认的交互路径达到可运行状态后，立即按 `$product-design` 启动并请求实际 HTTP 评审地址，把可点击地址提供给用户；这一步不得等待视觉修复、Product strict Profile 或正式 readiness 全部通过。
    - `autonomous` 只执行页面健康检查。
    - `guided` 只比较已声明的视觉方面和覆盖区域。
    - `exact` 对全部确认路由、场景和视口执行来源截图匹配。
    - 像素通道容差和最大差异比例只读取 Artifact Contract（产物契约），不得手工放宽。
    - 运行截图和差异图写入操作系统临时目录，不提交为用户事实。
-   - 最后执行 Resolver 返回的全部命令；通过后按 `$product-design` 启动并验证实际评审地址。
+   - 地址交付后执行 Resolver 返回的全部命令；未通过项必须作为 residual 报告，并阻止正式就绪或移交，但不得阻止或撤回仍然可访问的评审地址。
    - 浏览器门禁必须验证每个 `data-figma-instance-id` 只出现一次、使用声明的 Lit Tag、Component ID、Variant Attribute 和 Slot；同一 Component ID 的旁路实现以 `AIH_COMPONENT_IMPLEMENTATION_MISMATCH` 阻断。
-   - `exact` 出现可修复来源差异时停止首次实现流程，调用 `canonical-ui-repair` 生成 Repair Packet，再交给 `$repair-canonical-ui-visual`；不得在本技能内自由试错或修改基线。
+   - `exact` 出现可修复来源差异时停止正式就绪流程，调用 `canonical-ui-repair` 生成 Repair Packet，再交给 `$repair-canonical-ui-visual`；不得在本技能内自由试错或修改基线，也不得用该差异阻塞已经可运行的评审地址。
 
 ## Lit 组件接口示例
 
@@ -100,7 +101,13 @@ export class StatusCard extends LitElement {
 
 页面通过 `<status-card state="loading">`、属性绑定、事件和 Slot 组装，不复制组件内部结构。
 
-## 完成条件
+## 第五步可运行完成条件
+
+- 已确认范围内的 Lit 组件、页面、路由和交互状态可以由本地 HTTP Server 实际打开。
+- 已读取服务器输出并请求验证实际地址，向用户提供默认带不一致标记工具的可点击地址。
+- 尚未通过的来源一致性或严格门禁已作为 residual 列出，后续从评审地址进入反馈与修复循环；不能因为这些问题扣留地址。
+
+## 正式就绪附加条件
 
 - 组件先于页面完成并分别通过视觉比较。
 - 页面复用了已有自定义元素。

@@ -16,7 +16,7 @@ gates:
     label: 技术决策只引用 Use Case 与系统边界中已定义的关键能力
     checked: false
   - id: feasibility-evidence-reviewed
-    label: 最终选型映射到源代码哈希一致的真实代码测试通过结论且不包含敏感信息
+    label: 最终选型映射到当前真实代码测试通过结论且不包含敏感信息
     checked: false
 gaps:
   - id: GAP-001

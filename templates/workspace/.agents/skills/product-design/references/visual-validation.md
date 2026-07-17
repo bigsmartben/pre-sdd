@@ -28,15 +28,15 @@
 ## 最终检查
 
 1. 运行生成检查，确认 README 与隐藏 JSON 投影和 `canonical-ui.ts` 无 drift。
-2. 运行 typecheck、build 及 resolver 返回的全部测试和结构校验。
-3. 首次使用或收到 `AIH_BROWSER_UNAVAILABLE` 时运行 `npm run install:browser`；构建后运行 `npm run validate:canonical-ui-runtime`，按 `scenarios` 实际操作每个主路径和分支，观察 Screen、State 与反馈。
+2. 实现达到可运行状态后，立即启动 Manifest 登记的 Canonical UI 开发服务器，读取其实际输出的 `[READY]` 评审地址，请求一次确认可访问并提供给用户。普通评审地址默认开启固定在每个页面右上方的不一致标记工具；只有干净预览才使用 `?annotate=0`。服务器进程必须在当前评审期间保持运行，且不等待后续视觉修复或严格门禁通过。
+3. 地址交付后运行 typecheck、build 及 resolver 返回的全部测试和结构校验。首次使用或收到 `AIH_BROWSER_UNAVAILABLE` 时运行 `npm run install:browser`；构建后运行 `npm run validate:canonical-ui-runtime`，按 `scenarios` 实际操作每个主路径和分支，观察 Screen、State 与反馈。
 4. 只在用户确认并已声明的视口执行路由与场景，先运行 `renderAssertions[].checks`，再按模式运行 `sourceParityAssertions[].checks`：`autonomous` 不要求来源比较；`guided` 只比较声明的视觉方面与局部；`exact` 对所有路由、场景和视口执行整页 `screenshot-match`。
 5. `exact` 的运行截图必须在相同视口、设备像素比、字体、资源和 Mock 数据下与证据截图比较；通道容差与最大差异像素比例只读取 Contract，Agent 不得自行放宽。偏差超过阈值时报告 `AIH_VISUAL_SOURCE_PARITY_FAILED`，并输出包含 Figma/截图基线、实际截图、差异图、路由、视口、场景、差异比例和失败断言的 Repair Packet。
 6. 核对 `assets` 的本地文件、加载结果与实际使用目标，校验 `designSources` 的证据内容哈希和覆盖范围。
 7. 核对 `componentInventory` 已唯一覆盖全部 Figma 组件相关节点，`componentVariantCoverage` 已覆盖全部共享组件 Instance；浏览器逐项验证声明的 Lit Tag、`data-figma-instance-id`、Variant Attribute 与使用中的 Slot。
 8. 捕获控制台错误、页面异常和资源请求失败；只允许本地服务器、`data:` 与 `blob:` 请求。
 9. 仅当用户明确选择额外的键盘操作、读屏、焦点、触控尺寸或减少动画检查时，运行 `accessibility.checks` 中对应的检查；未声明 `accessibility` 时不得自动运行这些检查。
-10. `exact` 只在阻断码完全属于 `repairPolicy.repairableBlockerCodes` 时生成 Repair Packet；随后必须路由到 `$repair-canonical-ui-visual`，由该技能按 Contract 固定实现策略修改允许路径，并在 `actionReportPath` 写入通过 Schema 校验的 Repair Action Report。本验证文档不拥有具体 HTML、CSS 或组件修改算法。修复前后的设计来源、截图基线、视觉策略、Canonical UI 业务语义、Use Cases 与 Wireflow 哈希必须一致；任何变化以 `AIH_VISUAL_REPAIR_SCOPE_VIOLATION` 阻断。
+10. `exact` 只在阻断码完全属于 `repairPolicy.repairableBlockerCodes` 时生成 Repair Packet；随后路由到 `$repair-canonical-ui-visual`，由该技能读取差异证据并修改实现。允许路径用于提示最小修改范围，不通过文件 hash 或 Action Report 阻止代码编辑；修改后直接重新运行同一 operation。外部设计证据仍使用内容 hash 校验，证据缺失或被替换时以 `AIH_SOURCE_INTEGRITY_FAILED` 阻断。
 11. Validator 最多接受 3 次实现修复；第 3 次仍失败时报告 `AIH_VISUAL_REPAIR_EXHAUSTED`，保留每次差异比例、实际截图和差异图。来源缺失、哈希不一致、覆盖不完整、业务冲突、运行时错误、网络错误、无障碍错误等非修复码不得生成可执行 Repair Packet。
-12. 运行 Product strict Profile；任何 FAIL、BLOCKED 或 NOT_RUN 都必须保留为 residual，不能表述为 ready。
-13. 修复 operation 与全部检查通过后启动 Manifest 登记的 Canonical UI 开发服务器，读取其实际输出的 `[READY]` 评审地址并请求一次确认可访问。普通评审地址默认开启固定在每个页面右上方的不一致标记工具；只有干净预览才使用 `?annotate=0`。服务器进程必须在当前评审期间保持运行。
+12. 运行 Product strict Profile；任何 FAIL、BLOCKED 或 NOT_RUN 都必须保留为 residual，不能表述为 ready，也不能据此阻止或撤回仍然可访问的评审地址。
+13. 每轮修复后确认当前评审地址仍可访问；若服务器重启，则读取并提供新的实际 `[READY]` 地址。只有服务器自身无法启动、未输出地址或地址无法请求时，才能以 `AIH_CANONICAL_UI_SERVER_FAILED` 阻断地址交付。

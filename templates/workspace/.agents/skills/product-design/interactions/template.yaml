@@ -14,13 +14,28 @@ gates:
   - id: scenarios-covered
     label: 每个上游 Use Case 主场景及显式分支都被 Wireflow 覆盖
     checked: false
-  - id: screen-anatomy-defined
-    label: 每个 Screen 都定义中保真区域、内容与语义 Control
+  - id: upstream-step-traceable
+    label: 每个 Wireflow 步骤都引用所属场景中的有效 Use Case 步骤
     checked: false
-  - id: state-transitions-complete
-    label: 每个步骤都具有起止 Screen/状态、可见反馈和必要 guard
+  - id: layout-tree-complete
+    label: 每个 Screen 的布局树恰好放置全部 Region
+    checked: false
+  - id: text-wireframe-generated
+    label: 文本线框图可由布局树确定性生成
+    checked: false
+  - id: control-placement-complete
+    label: 每个语义 Control 都归属于明确 Region 和 Screen
+    checked: false
+  - id: state-delta-complete
+    label: 每个交互状态都明确 show/hide、enable/disable 或 content 差量
+    checked: false
+  - id: transition-integrity
+    label: 每个迁移都可从入口状态到达，并能到达声明的完成状态
+    checked: false
+  - id: control-availability-valid
+    label: 触发迁移的 Control 在起始状态中可用
     checked: false
 gaps:
   - id: GAP-001
     field: wireflows
-    reason: 上游 Use Case 场景尚未形成中保真 Screen 与分支流转
+    reason: 上游 Use Case 场景尚未形成可生成文本线框图的页面布局与可验证状态迁移

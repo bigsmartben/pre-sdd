@@ -66,11 +66,10 @@
           "result": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["status", "executedAt", "sourceSha256", "summary", "evidence"],
+            "required": ["status", "executedAt", "summary", "evidence"],
             "properties": {
               "status": {"enum": ["pending", "passed", "failed", "blocked"]},
               "executedAt": {"type": ["string", "null"], "minLength": 1},
-              "sourceSha256": {"oneOf": [{"type": "string", "pattern": "^[a-f0-9]{64}$"}, {"type": "null"}]},
               "summary": {"type": ["string", "null"], "minLength": 1},
               "evidence": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
             }

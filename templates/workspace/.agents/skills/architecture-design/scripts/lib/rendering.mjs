@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, posix } from 'node:path';
 import {
@@ -44,7 +43,6 @@ function header(title, data, context) {
     'generated: true',
     'artifactRole: user-artifact',
     'internalModel: ' + context.internalModel,
-    'sourceSha256: ' + context.sourceSha256,
     'status: ' + (data.metadata?.status || 'not-applicable'),
     'version: ' + (data.metadata?.version || data.version),
     '---',
@@ -291,7 +289,7 @@ function renderConceptualModel(data, context) {
 function renderTechnicalValidation(data, context) {
   const lines = header('技术验证', data, context);
   lines.push(
-    '本产物只从已批准 Use Case 与系统边界中提取标记为需要技术验证的关键能力，并将技术选型结论映射到源代码哈希一致的真实代码测试通过结论。代码位于本目录 `cases/`，凭据只通过环境变量注入。',
+    '本产物只从已批准 Use Case 与系统边界中提取标记为需要技术验证的关键能力，并将技术选型结论映射到当前真实代码的测试结论。代码位于本目录 `cases/`，凭据只通过环境变量注入。',
     '',
     '## 技术选型决策',
     '',
@@ -331,14 +329,13 @@ function renderTechnicalValidation(data, context) {
     '## 代码可行性实验',
     '',
     table(
-      ['Experiment ID', 'Decision', 'Candidate', '假设', 'Source', 'Source SHA-256', 'Command', '结果'],
+      ['Experiment ID', 'Decision', 'Candidate', '假设', 'Source', 'Command', '结果'],
       data.experiments.map((item) => [
         item.id,
         item.decision,
         item.candidate,
         item.hypothesis,
         item.source,
-        text(item.result.sourceSha256),
         item.command,
         item.result.status,
       ]),
@@ -369,12 +366,7 @@ const RENDERERS = {
   'technical-validation-markdown': renderTechnicalValidation,
 };
 
-function structuredHash(data, format) {
-  const content = stringifyStructured(data, format);
-  return createHash('sha256').update(content).digest('hex');
-}
-
-function outputsForArtifact(registry, paths, data, allArtifacts, project, sourceSha256) {
+function outputsForArtifact(registry, paths, data, allArtifacts, project) {
   const renderer = RENDERERS[registry.renderer];
   if (!renderer) throw new Error('未知 renderer：' + registry.renderer);
   return paths.outputs.map((output) => {
@@ -390,13 +382,12 @@ function outputsForArtifact(registry, paths, data, allArtifacts, project, source
         outputRole: output.role,
         artifacts: allArtifacts,
         project,
-        sourceSha256,
       }),
     };
   });
 }
 
-export function preparedArtifactOutputs(project, manifest, stageId, artifactId, data, sourceSha256 = null) {
+export function preparedArtifactOutputs(project, manifest, stageId, artifactId, data) {
   const registries = manifest.artifactRegistry.filter((registry) => registry.stage === stageId);
   const registry = registries.find((item) => item.id === artifactId);
   if (!registry || registry.authorityKind !== 'internal-model') throw new Error('未知内部模型 artifact：' + artifactId);
@@ -413,7 +404,6 @@ export function preparedArtifactOutputs(project, manifest, stageId, artifactId, 
     data,
     allArtifacts,
     project,
-    sourceSha256 || structuredHash(data, registry.format),
   );
 }
 
@@ -443,7 +433,6 @@ export async function expectedOutputs(root, project, manifest, stageId, artifact
       data,
       allArtifacts,
       project,
-      structuredHash(data, registry.format),
     ));
   }
   return outputs;

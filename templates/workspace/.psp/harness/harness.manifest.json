@@ -477,7 +477,7 @@
       "id": "canonical-ui-dev",
       "npmScript": "dev",
       "run": "npm run dev",
-      "purpose": "启动 Canonical UI Prototype 开发服务器并输出带不一致标记工具的实际 HTTP 评审地址",
+      "purpose": "在界面达到可运行状态后立即启动 Canonical UI Prototype 开发服务器并输出带不一致标记工具的实际 HTTP 评审地址，不以前置视觉修复或正式就绪为条件",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -716,17 +716,6 @@
         "canonical-ui-build",
         "canonical-ui-runtime",
         "product-strict"
-      ]
-    },
-    {
-      "id": "canonical-ui-review-readiness",
-      "commands": [
-        "harness",
-        "product-structure",
-        "canonical-ui-input",
-        "product-strict",
-        "canonical-ui-runtime",
-        "canonical-ui-build"
       ]
     },
     {
@@ -1321,13 +1310,7 @@
       "code": "AIH_ARTIFACT_TRANSACTION_FAILED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "YAML 内部模型与对应 Markdown 用户产物未能作为同一事务提交"
-    },
-    {
-      "code": "AIH_ARTIFACT_RECOVERY_REQUIRED",
-      "severity": "blocker",
-      "owner": "repository-harness",
-      "meaning": "产物事务中断且无法自动完成提交或恢复旧版本"
+      "meaning": "内部模型与对应用户投影的本次写入未完成；可修正环境后重新运行同一产物 operation"
     },
     {
       "code": "AIH_USER_CHANGE_COLLISION",
@@ -1468,20 +1451,6 @@
       "owner": "product-design",
       "domain": "product-design",
       "meaning": "视觉校验失败但无法生成符合 Schema 的 Repair Packet"
-    },
-    {
-      "code": "AIH_VISUAL_REPAIR_ACTION_INVALID",
-      "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
-      "meaning": "实现文件已修改，但 Repair Action Report 缺失、结构无效或与实际变更及来源证据不一致"
-    },
-    {
-      "code": "AIH_VISUAL_REPAIR_SCOPE_VIOLATION",
-      "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
-      "meaning": "视觉修复期间修改了基线、证据、视觉策略、业务语义、用例、线框流程或其他禁止路径"
     },
     {
       "code": "AIH_VISUAL_REPAIR_EXHAUSTED",

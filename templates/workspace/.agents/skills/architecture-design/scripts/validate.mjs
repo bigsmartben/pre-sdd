@@ -441,9 +441,6 @@ if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_
       if (!sameSet(new Set(description?.requiredEnvironment || []), new Set(experiment.requiredEnvironment))) {
         block('AIH_TECHNICAL_VALIDATION_FAILED', '真实代码声明的环境变量与技术验证模型不一致：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.requiredEnvironment');
       }
-      if (experiment.result.sourceSha256 && description?.sourceSha256 !== experiment.result.sourceSha256) {
-        block('AIH_TECHNICAL_VALIDATION_FAILED', '真实代码测试结论与当前实验源代码哈希不一致：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result.sourceSha256');
-      }
     }
     const evidenceText = (experiment.result.evidence || []).join('\n');
     if (/(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._~+/=-]{20,})/.test(evidenceText)) {
@@ -546,7 +543,7 @@ if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_
       }
       for (const experiment of technicalValidation.experiments) {
         if (!['passed', 'failed'].includes(experiment.result.status)) block('AIH_TECHNICAL_VALIDATION_FAILED', '实验尚未形成终态结果：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result');
-        if (!experiment.result.executedAt || !experiment.result.sourceSha256 || !experiment.result.summary || !experiment.result.evidence.length) block('AIH_ARTIFACT_INCOMPLETE', '实验缺少执行时间、源代码哈希、摘要或证据：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result');
+        if (!experiment.result.executedAt || !experiment.result.summary || !experiment.result.evidence.length) block('AIH_ARTIFACT_INCOMPLETE', '实验缺少执行时间、摘要或证据：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result');
       }
     }
 

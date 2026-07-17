@@ -1,10 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { relative, resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
-import picomatch from 'picomatch';
 import { parse as parseYaml } from 'yaml';
 import {
   artifactPaths,
@@ -17,37 +15,6 @@ import { extractCanonicalUi } from './extract.mjs';
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const json = process.argv.includes('--json');
 
-function sha256(content) {
-  return 'sha256:' + createHash('sha256').update(content).digest('hex');
-}
-
-function repositoryPath(path) {
-  return relative(root, path).split(sep).join('/');
-}
-
-function semanticFacts(model) {
-  return {
-    routes: model.routes,
-    screens: model.screens,
-    components: model.components,
-    componentInventory: model.componentInventory,
-    componentMappings: model.componentMappings,
-    componentVariantCoverage: model.componentVariantCoverage,
-    controls: model.controls,
-    states: model.states,
-    events: model.events,
-    actions: model.actions,
-    scenarios: model.scenarios,
-    mockBehaviors: model.mockBehaviors,
-    traceability: model.traceability,
-    gaps: model.gaps,
-  };
-}
-
-async function hashFile(path) {
-  return sha256(await readFile(path));
-}
-
 async function readState(path) {
   try {
     return JSON.parse(await readFile(path, 'utf8'));
@@ -55,59 +22,6 @@ async function readState(path) {
     if (error.code === 'ENOENT') return null;
     throw error;
   }
-}
-
-async function walk(directory, visit, relativePath = '') {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const nextRelative = relativePath ? relativePath + '/' + entry.name : entry.name;
-    if (entry.isDirectory()) {
-      if (entry.name === 'dist' || entry.name === '.vite') continue;
-      await walk(resolve(directory, entry.name), visit, nextRelative);
-    } else if (entry.isFile()) {
-      await visit(resolve(directory, entry.name), nextRelative);
-    }
-  }
-}
-
-async function areaSnapshots(areaPath, allowedPatterns) {
-  const allowed = {};
-  const protectedFiles = {};
-  const isAllowed = picomatch(allowedPatterns, { dot: true });
-  await walk(areaPath, async (path, relativePath) => {
-    const target = isAllowed(relativePath) ? allowed : protectedFiles;
-    target[repositoryPath(path)] = await hashFile(path);
-  });
-  return { allowed, protectedFiles };
-}
-
-async function upstreamProtectedFiles(project, policyPaths) {
-  const result = {};
-  for (const artifactId of ['capabilities', 'interactions']) {
-    const paths = artifactPaths(project, artifactId, 'product-design');
-    if (!paths) continue;
-    for (const path of [paths.authorityPath, ...paths.outputPaths]) {
-      const absolute = repositoryFile(root, path);
-      result[path] = await hashFile(absolute);
-    }
-  }
-  for (const path of policyPaths) result[path] = await hashFile(repositoryFile(root, path));
-  return result;
-}
-
-async function protectedSnapshot(project, model, areaPath, policyPaths) {
-  const area = await areaSnapshots(areaPath, model.repairPolicy.allowedImplementationPaths);
-  return {
-    hashes: {
-      businessSemantics: sha256(JSON.stringify(semanticFacts(model))),
-      visualPolicy: sha256(JSON.stringify(model.visualPolicy)),
-      repairPolicy: sha256(JSON.stringify(model.repairPolicy)),
-      protectedFiles: {
-        ...area.protectedFiles,
-        ...await upstreamProtectedFiles(project, policyPaths),
-      },
-    },
-    allowedFiles: area.allowed,
-  };
 }
 
 async function loadRepairContract(manifest) {
@@ -120,32 +34,15 @@ async function loadRepairContract(manifest) {
   const contract = parseYaml(await readFile(repositoryFile(root, artifact.contract), 'utf8'));
   const implementationPolicy = contract?.spec?.repair?.implementationPolicy;
   const packetSchemaPath = contract?.spec?.repair?.packetSchema;
-  const actionSchemaPath = contract?.spec?.repair?.actionSchema;
-  if (!implementationPolicy || !packetSchemaPath || !actionSchemaPath) {
-    const error = new Error('Canonical UI Artifact Contract 缺少视觉修复实现策略、Packet Schema 或 Action Schema。');
+  if (!implementationPolicy || !packetSchemaPath) {
+    const error = new Error('Canonical UI Artifact Contract 缺少视觉修复实现策略或 Packet Schema。');
     error.code = 'AIH_CONTRACT_INVALID';
     throw error;
   }
   return {
-    contractPath: artifact.contract,
     packetSchemaPath,
-    actionSchemaPath,
     implementationPolicy,
   };
-}
-
-function changedEntries(before = {}, after = {}) {
-  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
-  return [...keys].filter((key) => before[key] !== after[key]).sort();
-}
-
-function protectedChanges(before, after) {
-  const changes = [];
-  for (const key of ['businessSemantics', 'visualPolicy', 'repairPolicy']) {
-    if (before[key] !== after[key]) changes.push(key);
-  }
-  changes.push(...changedEntries(before.protectedFiles, after.protectedFiles));
-  return changes;
 }
 
 function parseGateOutput(execution, commandId) {
@@ -232,67 +129,6 @@ async function writePacket(path, packet) {
   await writeFile(path, JSON.stringify(packet, null, 2) + '\n', 'utf8');
 }
 
-function actionError(message) {
-  const error = new Error(message);
-  error.code = 'AIH_VISUAL_REPAIR_ACTION_INVALID';
-  return error;
-}
-
-async function readActionReport(path, schemaPath, expectedAttempt, implementationChanges, previousFailures) {
-  const report = await readState(path);
-  if (!report) throw actionError('实现文件已改变，但缺少 Repair Action Report：' + path);
-  const schema = JSON.parse(await readFile(repositoryFile(root, schemaPath), 'utf8'));
-  const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
-  if (!validate(report)) {
-    throw actionError('Repair Action Report 不符合 Schema：' + JSON.stringify(validate.errors));
-  }
-  if (report.attempt !== expectedAttempt) {
-    throw actionError('Repair Action Report attempt 与当前修复轮次不一致。');
-  }
-
-  const actualPaths = new Set(implementationChanges);
-  const reportedPaths = new Set(report.actions.flatMap((action) => action.modifiedPaths));
-  const missingPaths = implementationChanges.filter((path) => !reportedPaths.has(path));
-  const extraPaths = [...reportedPaths].filter((path) => !actualPaths.has(path));
-  if (missingPaths.length > 0 || extraPaths.length > 0) {
-    throw actionError('Repair Action Report 修改路径与实际变更不一致：missing=' + missingPaths.join(',') + '; extra=' + extraPaths.join(','));
-  }
-
-  const failuresByAssertion = new Map();
-  const knownEvidenceItemIds = new Set();
-  for (const failure of previousFailures) {
-    if (!failuresByAssertion.has(failure.assertionId)) failuresByAssertion.set(failure.assertionId, []);
-    failuresByAssertion.get(failure.assertionId).push(failure);
-    for (const evidenceItemId of failure.sourceEvidenceItemIds) knownEvidenceItemIds.add(evidenceItemId);
-  }
-  for (const evidenceItemId of report.sourceResolution.sourceEvidenceItemIds) {
-    if (!knownEvidenceItemIds.has(evidenceItemId)) {
-      throw actionError('Source Resolution 引用未知来源证据：' + evidenceItemId);
-    }
-  }
-  const coveredAssertions = new Set();
-  for (const action of report.actions) {
-    for (const assertionId of action.failureAssertionIds) {
-      const failures = failuresByAssertion.get(assertionId);
-      if (!failures) throw actionError('Repair Action 引用未知失败断言：' + assertionId);
-      coveredAssertions.add(assertionId);
-      for (const failure of failures) {
-        if (failure.sourceId !== action.sourceId) {
-          throw actionError('Repair Action 的 sourceId 与失败断言不一致：' + assertionId);
-        }
-        for (const evidenceItemId of failure.sourceEvidenceItemIds) {
-          if (!action.sourceEvidenceItemIds.includes(evidenceItemId)) {
-            throw actionError('Repair Action 缺少失败断言要求的来源证据：' + evidenceItemId);
-          }
-        }
-      }
-    }
-  }
-  const uncovered = [...failuresByAssertion.keys()].filter((assertionId) => !coveredAssertions.has(assertionId));
-  if (uncovered.length > 0) throw actionError('Repair Action Report 未覆盖失败断言：' + uncovered.join(', '));
-  return report;
-}
-
 function emit(result, code = null) {
   if (json || result.status !== 'PASS') console.log(JSON.stringify(result, null, 2));
   else console.log('[PASS] Canonical UI Prototype 视觉修复门禁通过。');
@@ -310,72 +146,15 @@ async function main() {
   }
   const model = await extractCanonicalUi(root, paths.authorityPath);
   const {
-    contractPath,
-    packetSchemaPath,
-    actionSchemaPath,
     implementationPolicy,
   } = await loadRepairContract(manifest);
-  const areaPath = repositoryFile(root, stage.root + '/' + stage.areas[paths.area].root);
-  const sessionId = createHash('sha256').update(root).digest('hex').slice(0, 20);
+  const sessionId = Buffer.from(root).toString('base64url');
   const sessionRoot = resolve(tmpdir(), 'psp-canonical-ui-repair-' + sessionId);
   const statePath = resolve(sessionRoot, 'state.json');
   const packetPath = resolve(sessionRoot, 'repair-packet.json');
-  const actionReportPath = resolve(sessionRoot, 'repair-action.json');
   await mkdir(sessionRoot, { recursive: true });
 
-  const snapshot = await protectedSnapshot(project, model, areaPath, [contractPath, packetSchemaPath, actionSchemaPath]);
   let state = await readState(statePath);
-  let implementationChanges = [];
-  let pendingActionReport = null;
-  if (state) {
-    const changes = protectedChanges(state.protectedHashes, snapshot.hashes);
-    if (changes.length > 0) {
-      const packet = {
-        version: '4.0.0',
-        status: 'BLOCKED',
-        workspaceRoot: root,
-        attempt: Math.min(state.attempts.length + 1, model.repairPolicy.maxAttempts),
-        maxAttempts: model.repairPolicy.maxAttempts,
-        repairableBlockerCodes: model.repairPolicy.repairableBlockerCodes,
-        allowedImplementationPaths: model.repairPolicy.allowedImplementationPaths,
-        actionReportPath,
-        implementationPolicy,
-        protectedHashes: state.protectedHashes,
-        failures: state.lastFailures,
-        attempts: state.attempts,
-      };
-      await writePacket(packetPath, packet);
-      emit({
-        status: 'BLOCKED',
-        blocker: {
-          code: 'AIH_VISUAL_REPAIR_SCOPE_VIOLATION',
-          message: '视觉修复期间修改了受保护输入：' + changes.join(', '),
-        },
-        repairPacket: packetPath,
-      }, 'AIH_VISUAL_REPAIR_SCOPE_VIOLATION');
-      return 1;
-    }
-    implementationChanges = changedEntries(state.allowedFiles, snapshot.allowedFiles);
-    if (implementationChanges.length > 0) {
-      try {
-        pendingActionReport = await readActionReport(
-          actionReportPath,
-          actionSchemaPath,
-          state.attempts.length + 1,
-          implementationChanges,
-          state.lastFailures,
-        );
-      } catch (error) {
-        emit({
-          status: 'BLOCKED',
-          message: error.message,
-          blockers: [{ code: error.code, message: error.message }],
-          actionReportPath,
-        }, error.code);
-        return 1;
-      }
-    }
-  }
 
   const input = runGate(manifest, 'canonical-ui-input');
   if (input.status !== 'PASS') {
@@ -388,15 +167,10 @@ async function main() {
   const runtime = runGate(manifest, 'canonical-ui-runtime');
   if (runtime.status === 'PASS') {
     const attemptHistory = state
-      ? [
-          ...state.attempts,
-          ...(pendingActionReport ? [{
-            attempt: state.attempts.length + 1,
-            failures: state.lastFailures,
-            sourceResolution: pendingActionReport.sourceResolution,
-            actions: pendingActionReport.actions,
-          }] : []),
-        ]
+      ? [...state.attempts, {
+          attempt: state.attempts.length + 1,
+          failures: state.lastFailures,
+        }]
       : [];
     await rm(sessionRoot, { recursive: true, force: true });
     emit({ status: 'PASS', attempts: attemptHistory.length, attemptHistory });
@@ -429,22 +203,14 @@ async function main() {
 
   if (!state) {
     state = {
-      protectedHashes: snapshot.hashes,
-      allowedFiles: snapshot.allowedFiles,
       attempts: [],
       lastFailures: failures,
     };
   } else {
-    if (pendingActionReport) {
-      state.attempts.push({
-        attempt: state.attempts.length + 1,
-        failures,
-        sourceResolution: pendingActionReport.sourceResolution,
-        actions: pendingActionReport.actions,
-      });
-      state.allowedFiles = snapshot.allowedFiles;
-      await rm(actionReportPath, { force: true });
-    }
+    state.attempts.push({
+      attempt: state.attempts.length + 1,
+      failures: state.lastFailures,
+    });
     state.lastFailures = failures;
   }
 
@@ -460,9 +226,7 @@ async function main() {
     maxAttempts: model.repairPolicy.maxAttempts,
     repairableBlockerCodes: model.repairPolicy.repairableBlockerCodes,
     allowedImplementationPaths: model.repairPolicy.allowedImplementationPaths,
-    actionReportPath,
     implementationPolicy,
-    protectedHashes: state.protectedHashes,
     failures,
     attempts: state.attempts,
   };
@@ -480,10 +244,9 @@ async function main() {
   }
   emit({
     status: 'REPAIR_REQUIRED',
-    message: '读取 Repair Packet，仅修改允许的实现路径；将 Repair Action Report 写入 actionReportPath 后重新运行 canonical-ui-repair。',
+    message: '读取 Repair Packet，修复实现后重新运行 canonical-ui-repair；代码修改不需要 hash 或 Action Report 前置许可。',
     attempt: nextAttempt,
     repairPacket: packetPath,
-    actionReportPath,
     failures,
   }, 'AIH_VISUAL_REPAIR_REQUIRED');
   return 1;

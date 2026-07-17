@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, posix } from 'node:path';
 import {
@@ -35,7 +34,6 @@ function header(title, data, context) {
     'generated: true',
     'artifactRole: user-artifact',
     'internalModel: ' + context.internalModel,
-    'sourceSha256: ' + context.sourceSha256,
     'status: ' + (data.metadata?.status || 'not-applicable'),
     'version: ' + (data.metadata?.version || data.version),
     '---',
@@ -70,7 +68,7 @@ function renderProductPackageSummary(data, context) {
   const coreValues = [...new Set(data.useCases.map((useCase) => useCase.value))];
   const lines = header('Product Package Summary', data, context);
   lines.push(
-    '本文件是 Use Cases 权威模型的只读摘要投影，不拥有独立产品事实，也不得单独编辑。所有摘要字段均可追溯到同一次产物事务提交的 `use-cases.yaml`。',
+    '本文件是 Use Cases 权威模型的只读摘要投影，不拥有独立产品事实，也不得单独编辑。所有摘要字段均可追溯到同一次产物 operation 写入的 `use-cases.yaml`。',
     '',
     '## Product Summary',
     '',
@@ -108,7 +106,7 @@ function renderProductPackageSummary(data, context) {
     '',
     '1. 本摘要只能由 Use Cases 权威模型确定性生成；不存在从 `PSP.md` 反向更新 `use-cases.yaml` 的路径。',
     '2. 依赖、readiness（就绪）和 handoff（移交）关系只由 Harness Manifest 管理，不写入产品内容模型。',
-    '3. 修改 Use Cases 时，产物事务必须原子更新 `UC.md` 与本摘要；任一文件漂移都会被 Validator（校验器）阻断。',
+    '3. 修改 Use Cases 时，产物 operation 从同一候选数据更新 `UC.md` 与本摘要；任一文件漂移都会被 Validator（校验器）识别。',
     '',
     ...gates(data),
     ...gaps(data),
@@ -233,27 +231,75 @@ function renderCapabilities(data, context) {
   return lines.join('\n').trimEnd() + '\n';
 }
 
+function wireframeNodeLines(node, regions, prefix = '', last = true) {
+  const connector = last ? '└─ ' : '├─ ';
+  const childPrefix = prefix + (last ? '   ' : '│  ');
+  if (node.type === 'region') {
+    const region = regions.get(node.region);
+    if (!region) return [prefix + connector + node.region + '（未解析）'];
+    const lines = [prefix + connector + region.id + '：' + region.name];
+    lines.push(childPrefix + '内容：' + region.content.join(' / '));
+    if (region.controls.length > 0) {
+      lines.push(childPrefix + 'Controls：' + region.controls.map((control) => (
+        '[' + control.id + ' ' + control.type + '：' + control.label + ']'
+      )).join(' '));
+    }
+    return lines;
+  }
+  const direction = node.type === 'horizontal' ? 'HORIZONTAL →' : 'VERTICAL ↓';
+  const lines = [prefix + connector + direction];
+  node.children.forEach((child, index) => {
+    lines.push(...wireframeNodeLines(child, regions, childPrefix, index === node.children.length - 1));
+  });
+  return lines;
+}
+
+function textWireframe(screen) {
+  const regions = new Map(screen.regions.map((region) => [region.id, region]));
+  const lines = [
+    '```text',
+    '┌─ ' + screen.id + '：' + screen.name,
+    ...wireframeNodeLines(screen.layoutTree, regions, '│  ', true),
+    '└─',
+    '```',
+  ];
+  return lines.join('\n');
+}
+
+function stateDeltaText(delta) {
+  const parts = [];
+  if (delta.show.length) parts.push('show: ' + delta.show.join(', '));
+  if (delta.hide.length) parts.push('hide: ' + delta.hide.join(', '));
+  if (delta.enable.length) parts.push('enable: ' + delta.enable.join(', '));
+  if (delta.disable.length) parts.push('disable: ' + delta.disable.join(', '));
+  if (delta.content.length) parts.push('content: ' + delta.content.map((item) => item.target + ' = ' + item.value).join('；'));
+  return parts.join('<br>') || '—';
+}
+
+function endpointText(endpoint) {
+  return endpoint.screen + ' / ' + endpoint.state;
+}
+
 function renderInteractions(data, context) {
   const lines = header('Wireflow Mid-Fidelity Specification', data, context);
   lines.push(
-    '本产物把上游 Use Case 场景转换为中保真 Screen、内容层级、语义 Control、可见状态与分支流转；它足以指导 Canonical UI Prototype，但不决定可复用代码组件或视觉 Token。',
+    '本产物是可执行交互蓝图（Executable Interaction Blueprint）：业务目标、Actor 动作和系统责任只引用上游 Use Cases；本产物拥有页面布局、语义 Control、状态差量和可验证迁移。文本线框图由结构化布局树确定性生成，不是第二份手写事实。',
     '',
     '## Wireflow 概览',
     '',
     table(
-      ['Wireflow ID', 'Use Case', '名称', '用户目标', '覆盖场景', '入口 Screen', '完成状态'],
+      ['Wireflow ID', 'Use Case', '名称', '覆盖场景', '入口 Screen / State', '完成状态'],
       data.wireflows.map((item) => [
         item.id,
         item.useCase,
         item.name,
-        item.userGoal,
         item.coveredScenarios.join(', '),
-        item.entryScreen,
+        endpointText(item.entry),
         item.completionStates.join(', '),
       ]),
     ),
     '',
-    '## Screen Registry 与中保真结构',
+    '## Screen Registry 与文本线框图',
     '',
   );
   if (data.screens.length === 0) lines.push('- 暂无正式条目', '');
@@ -263,6 +309,8 @@ function renderInteractions(data, context) {
       '',
       '- 目的：' + screen.purpose,
       '- Use Cases：' + screen.useCases.join(', '),
+      '',
+      textWireframe(screen),
       '',
     );
     for (const region of screen.regions) {
@@ -294,17 +342,15 @@ function renderInteractions(data, context) {
       '### ' + flow.id + '：' + flow.name,
       '',
       table(
-        ['Step ID', 'UC 场景', 'Actor 动作', '系统响应', 'From', '事件/Control', 'Guard', 'To', '可见反馈'],
+        ['Step ID', 'UC 场景引用', 'UC 步骤引用', 'From', 'Trigger', 'Guard', 'To'],
         flow.steps.map((step) => [
           step.id,
-          step.scenario,
-          step.actorAction,
-          step.systemResponse,
-          step.from.screen + ' / ' + step.from.state,
-          step.event + (step.control ? ' / ' + step.control : ''),
+          step.scenarioRef,
+          step.useCaseStepRefs.join(', '),
+          endpointText(step.from),
+          step.trigger.event + (step.trigger.control ? ' / ' + step.trigger.control : ''),
           step.guard || '—',
-          step.to.screen + ' / ' + step.to.state,
-          step.visibleFeedback,
+          endpointText(step.to),
         ]),
       ),
       '',
@@ -314,14 +360,13 @@ function renderInteractions(data, context) {
     '## 可见交互状态',
     '',
     table(
-      ['State ID', 'Screen', '类型', '进入条件', '呈现', '可用 Controls', '终态'],
+      ['State ID', 'Screen', '类型', '进入条件', 'State Delta', '终态'],
       data.interactionStates.map((item) => [
         item.id,
         item.screen,
         item.type,
         item.condition,
-        item.presentation,
-        item.availableControls.join(', ') || '无',
+        stateDeltaText(item.stateDelta),
         item.terminal ? '是' : '否',
       ]),
     ),
@@ -338,12 +383,7 @@ const RENDERERS = {
   'interactions-markdown': renderInteractions,
 };
 
-function structuredHash(data, format) {
-  const content = stringifyStructured(data, format);
-  return createHash('sha256').update(content).digest('hex');
-}
-
-function outputsForArtifact(registry, paths, data, allArtifacts, project, sourceSha256) {
+function outputsForArtifact(registry, paths, data, allArtifacts, project) {
   return paths.outputs.map((output) => {
     const projection = registry.projections?.find((item) => item.id === output.projection);
     const rendererId = projection?.renderer || registry.renderer;
@@ -363,13 +403,12 @@ function outputsForArtifact(registry, paths, data, allArtifacts, project, source
         outputRole: output.role,
         artifacts: allArtifacts,
         project,
-        sourceSha256,
       }),
     };
   });
 }
 
-export function preparedArtifactOutputs(project, manifest, stageId, artifactId, data, sourceSha256 = null) {
+export function preparedArtifactOutputs(project, manifest, stageId, artifactId, data) {
   const registries = manifest.artifactRegistry.filter((registry) => registry.stage === stageId);
   const registry = registries.find((item) => item.id === artifactId);
   if (!registry || registry.authorityKind !== 'internal-model') throw new Error('未知内部模型 artifact：' + artifactId);
@@ -386,7 +425,6 @@ export function preparedArtifactOutputs(project, manifest, stageId, artifactId, 
     data,
     allArtifacts,
     project,
-    sourceSha256 || structuredHash(data, registry.format),
   );
 }
 
@@ -416,7 +454,6 @@ export async function expectedOutputs(root, project, manifest, stageId, artifact
       data,
       allArtifacts,
       project,
-      structuredHash(data, registry.format),
     ));
   }
   return outputs;

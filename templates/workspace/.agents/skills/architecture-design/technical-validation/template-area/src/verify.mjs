@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -34,8 +33,6 @@ const selectedFile = requested + '.case.mjs';
 if (!files.includes(selectedFile)) {
   blocked('未找到实验代码：' + requested, { availableCases: files });
 }
-const sourceContent = await readFile(resolve(casesRoot, selectedFile), 'utf8');
-const sourceSha256 = createHash('sha256').update(sourceContent).digest('hex');
 const loaded = await import(pathToFileURL(resolve(casesRoot, selectedFile)).href);
 const selected = { ...loaded.experiment, file: selectedFile };
 if (selected.id !== requested) {
@@ -50,7 +47,6 @@ if (describe) {
     status: 'PASS',
     experiment: selected.id,
     source: 'cases/' + selected.file,
-    sourceSha256,
     requiredEnvironment: selected.requiredEnvironment || [],
     blockers: [],
   }, null, 2));
@@ -77,7 +73,6 @@ try {
     status: status === 'passed' ? 'PASS' : 'BLOCKED',
     experiment: requested,
     source: 'cases/' + selected.file,
-    sourceSha256,
     executedAt: new Date().toISOString(),
     elapsedMs: Date.now() - startedAt,
     result: execution,

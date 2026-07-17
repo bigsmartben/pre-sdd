@@ -1,21 +1,17 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { appendFile, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
 import test from 'node:test';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { stringify as stringifyYaml } from 'yaml';
 import { cleanupTemporaryRepositories, codes, runScript, temporaryRepository } from './helpers/fixture.mjs';
-import { completeProductFixture, fixtureProject, readArtifact } from './helpers/product-fixture.mjs';
+import { completeProductFixture, fixtureProject, readArtifact, writeArtifact } from './helpers/product-fixture.mjs';
 
 test.after(cleanupTemporaryRepositories);
 
 function sha256(content) {
   return 'sha256:' + createHash('sha256').update(content).digest('hex');
-}
-
-function digest(content) {
-  return createHash('sha256').update(content).digest('hex');
 }
 
 async function canonicalFixture(root) {
@@ -31,45 +27,6 @@ async function canonicalFixture(root) {
 
 async function writeCanonical(path, model) {
   await writeFile(path, 'export const canonicalUi = ' + JSON.stringify(model, null, 2) + ' as const;\n');
-}
-
-function repositoryPath(root, path) {
-  return relative(root, path).split(sep).join('/');
-}
-
-async function writeRepairAction(requested, modifiedPaths, repairLayer = 'paint') {
-  const packet = JSON.parse(await readFile(requested.output.repairPacket, 'utf8'));
-  const groups = new Map();
-  for (const failure of packet.failures) {
-    if (!groups.has(failure.sourceId)) {
-      groups.set(failure.sourceId, {
-        failureAssertionIds: new Set(),
-        sourceEvidenceItemIds: new Set(),
-      });
-    }
-    const group = groups.get(failure.sourceId);
-    group.failureAssertionIds.add(failure.assertionId);
-    for (const evidenceItemId of failure.sourceEvidenceItemIds) group.sourceEvidenceItemIds.add(evidenceItemId);
-  }
-  const report = {
-    version: '1.0.0',
-    attempt: packet.attempt,
-    sourceResolution: {
-      decision: 'no-applicable-source-asset',
-      sourceEvidenceItemIds: [...new Set(packet.failures.flatMap((failure) => failure.sourceEvidenceItemIds))],
-      rationale: '当前差异来自样式值，已核对来源资源，不存在可直接替代本次修改的静态资源。',
-    },
-    actions: [...groups.entries()].map(([sourceId, group]) => ({
-      failureAssertionIds: [...group.failureAssertionIds],
-      sourceId,
-      sourceEvidenceItemIds: [...group.sourceEvidenceItemIds],
-      repairLayer,
-      modifiedPaths: modifiedPaths.map((path) => repositoryPath(packet.workspaceRoot, path)),
-      expectedImpact: '使实现重新满足来源一致性断言',
-    })),
-  };
-  await writeFile(packet.actionReportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
-  return report;
 }
 
 async function prepareExactFixture(root) {
@@ -161,14 +118,17 @@ test('generic initialization creates Canonical UI Prototype and removes old arti
   const runtime = await readFile(resolve(root, '.agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs'), 'utf8');
   assert.match(runtime, /server\.resolvedUrls\?\.local\?\.\[0\]/);
   assert.doesNotMatch(runtime, /searchParams\.set\('annotate', '1'\)/);
+  assert.doesNotMatch(runtime, /runRepairGate|runReviewReadiness|executeRegisteredCommand/);
   assert.match(runtime, /\[READY\] Canonical UI Prototype 评审地址/);
+  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
+  assert.equal(manifest.validationProfiles.some((item) => item.id === 'canonical-ui-review-readiness'), false);
   const skill = await readFile(resolve(root, '.agents/skills/product-design/SKILL.md'), 'utf8');
   assert.match(skill, /AIH_CANONICAL_UI_SERVER_FAILED/);
   assert.match(skill, /不得根据默认端口猜测或伪造地址/);
   assert.ok((await stat(resolve(prototypeRoot, 'public/vendor/html2canvas-1.4.1.min.js'))).isFile());
 });
 
-test('Use Cases transaction commits authority, full document, and Product Package summary from one candidate', async () => {
+test('Use Cases write updates authority and projections without a hash precondition', async () => {
   const root = await temporaryRepository();
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
@@ -178,103 +138,38 @@ test('Use Cases transaction commits authority, full document, and Product Packag
   const artifact = await readArtifact(root, stage, binding);
   const ucPath = resolve(root, stage.root, binding.outputs.find((output) => output.projection === 'use-cases-document').path);
   const summaryPath = resolve(root, stage.root, binding.outputs.find((output) => output.projection === 'product-package-summary').path);
-  artifact.data.intent.productName = '原子事务产品';
+  artifact.data.intent.productName = '轻量产物写入产品';
   const candidate = resolve(root, '.psp/candidate-use-cases.yaml');
   await writeFile(candidate, stringifyYaml(artifact.data));
-  const before = await readFile(artifact.path, 'utf8');
   const applied = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-product-artifact',
     '--artifact', 'capabilities',
     '--input', candidate,
-    '--expected-sha256', digest(before),
     '--json',
   ]);
   assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
   const authority = await readFile(artifact.path, 'utf8');
   const ucMarkdown = await readFile(ucPath, 'utf8');
   const summaryMarkdown = await readFile(summaryPath, 'utf8');
-  assert.match(authority, /原子事务产品/);
-  assert.match(ucMarkdown, /原子事务产品/);
-  assert.match(summaryMarkdown, /原子事务产品/);
+  assert.match(authority, /轻量产物写入产品/);
+  assert.match(ucMarkdown, /轻量产物写入产品/);
+  assert.match(summaryMarkdown, /轻量产物写入产品/);
   assert.match(summaryMarkdown, /intent\.productName/);
-  assert.match(ucMarkdown, new RegExp('sourceSha256: ' + digest(authority)));
-  assert.match(summaryMarkdown, new RegExp('sourceSha256: ' + digest(authority)));
+  assert.doesNotMatch(ucMarkdown, /sourceSha256:/);
+  assert.doesNotMatch(summaryMarkdown, /sourceSha256:/);
 
-  artifact.data.intent.productName = '过期写入';
+  artifact.data.intent.productName = '后续直接写入';
   await writeFile(candidate, stringifyYaml(artifact.data));
-  const stale = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
+  const updated = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-product-artifact',
     '--artifact', 'capabilities',
     '--input', candidate,
-    '--expected-sha256', digest(before),
     '--json',
   ]);
-  assert.ok(codes(stale).has('AIH_USER_CHANGE_COLLISION'));
-  assert.equal(await readFile(artifact.path, 'utf8'), authority);
-  assert.equal(await readFile(ucPath, 'utf8'), ucMarkdown);
-  assert.equal(await readFile(summaryPath, 'utf8'), summaryMarkdown);
-});
-
-test('Use Cases transaction rolls all three targets back after a partial replacement failure', async () => {
-  const root = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
-  assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
-  const project = await fixtureProject(root);
-  const stage = project.stages['product-design'];
-  const binding = stage.artifacts.capabilities;
-  const artifact = await readArtifact(root, stage, binding);
-  const outputPaths = binding.outputs.map((output) => resolve(root, stage.root, output.path));
-  const beforeAuthority = await readFile(artifact.path, 'utf8');
-  const beforeMarkdown = await Promise.all(outputPaths.map((path) => readFile(path, 'utf8')));
-  artifact.data.intent.productName = '不得留下的部分提交';
-  const candidate = resolve(root, '.psp/candidate-use-cases.yaml');
-  await writeFile(candidate, stringifyYaml(artifact.data));
-  const failed = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact',
-    '--artifact', 'capabilities',
-    '--input', candidate,
-    '--expected-sha256', digest(beforeAuthority),
-    '--json',
-  ], { environment: { AI_HARNESS_TRANSACTION_FAIL_AFTER_RENAMES: '1' } });
-  assert.ok(codes(failed).has('AIH_ARTIFACT_TRANSACTION_FAILED'));
-  assert.equal(await readFile(artifact.path, 'utf8'), beforeAuthority);
-  assert.deepEqual(await Promise.all(outputPaths.map((path) => readFile(path, 'utf8'))), beforeMarkdown);
-});
-
-test('artifact operation completes a journaled commit after a process crash', async () => {
-  const root = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
-  assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
-  const project = await fixtureProject(root);
-  const stage = project.stages['product-design'];
-  const binding = stage.artifacts.capabilities;
-  const artifact = await readArtifact(root, stage, binding);
-  const outputPaths = binding.outputs.map((output) => resolve(root, stage.root, output.path));
-  const before = await readFile(artifact.path, 'utf8');
-  artifact.data.intent.productName = '崩溃恢复产品';
-  const candidate = resolve(root, '.psp/candidate-use-cases.yaml');
-  await writeFile(candidate, stringifyYaml(artifact.data));
-  const crashed = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact',
-    '--artifact', 'capabilities',
-    '--input', candidate,
-    '--expected-sha256', digest(before),
-    '--json',
-  ], { environment: { AI_HARNESS_TRANSACTION_CRASH_AFTER_RENAMES: '1' } });
-  assert.equal(crashed.exitCode, 86);
-  const partiallyCommittedAuthority = await readFile(artifact.path, 'utf8');
-  const recovered = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact',
-    '--artifact', 'capabilities',
-    '--input', candidate,
-    '--expected-sha256', digest(partiallyCommittedAuthority),
-    '--json',
-  ]);
-  assert.equal(recovered.exitCode, 0, JSON.stringify(recovered.output, null, 2));
-  assert.match(await readFile(artifact.path, 'utf8'), /崩溃恢复产品/);
-  for (const outputPath of outputPaths) assert.match(await readFile(outputPath, 'utf8'), /崩溃恢复产品/);
-  await assert.rejects(stat(resolve(root, '.psp/transactions/capabilities.json')), { code: 'ENOENT' });
-  await assert.rejects(stat(resolve(root, '.psp/transactions/capabilities.lock')), { code: 'ENOENT' });
+  assert.equal(updated.exitCode, 0, JSON.stringify(updated.output, null, 2));
+  assert.match(await readFile(artifact.path, 'utf8'), /后续直接写入/);
+  assert.match(await readFile(ucPath, 'utf8'), /后续直接写入/);
+  assert.match(await readFile(summaryPath, 'utf8'), /后续直接写入/);
 });
 
 test('Use Cases readiness detects drift in the Product Package summary projection', async () => {
@@ -286,6 +181,48 @@ test('Use Cases readiness detects drift in the Product Package summary projectio
   await appendFile(resolve(root, stage.root, summary.path), '\nmanual summary edit\n');
   const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
   assert.ok(codes(result).has('AIH_GENERATED_DRIFT'));
+});
+
+test('Interactions v4 renders a deterministic text wireframe without repeating Use Case prose', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const binding = stage.artifacts.interactions;
+  const markdown = await readFile(resolve(root, stage.root, binding.outputs[0].path), 'utf8');
+  assert.match(markdown, /可执行交互蓝图（Executable Interaction Blueprint）/);
+  assert.match(markdown, /┌─ SCREEN-001：规格检查页/);
+  assert.match(markdown, /VERTICAL ↓/);
+  assert.match(markdown, /HORIZONTAL →/);
+  assert.match(markdown, /REGION-002：验证工作区/);
+  assert.match(markdown, /\[CONTROL-001 action：运行验证\]/);
+  assert.match(markdown, /UC-001-EXC-01-STEP-01/);
+  assert.doesNotMatch(markdown, /\| 用户目标 \||\| Actor 动作 \||\| 系统响应 \||\| 可见反馈 \|/);
+  assert.doesNotMatch(markdown, /规格作者选择运行验证|执行检查并汇总通过证据|结果区显示通过状态和证据/);
+  const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'wireflow', '--json']);
+  assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
+  const useCasesOnly = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+  assert.equal(useCasesOnly.exitCode, 0, JSON.stringify(useCasesOnly.output, null, 2));
+});
+
+test('Interactions v4 blocks layout drift, invalid UC step references, and unavailable trigger controls', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const interactions = await readArtifact(root, stage, stage.artifacts.interactions);
+  interactions.data.screens[0].layoutTree.children.push({ type: 'region', region: 'REGION-001' });
+  interactions.data.wireflows[0].steps[0].useCaseStepRefs = ['UC-001-STEP-99'];
+  interactions.data.wireflows[0].steps[1].from = { screen: 'SCREEN-001', state: 'WF-STATE-003' };
+  interactions.data.interactionStates[0].stateDelta.enable = [];
+  await writeArtifact(interactions);
+  const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'wireflow', '--json']);
+  assert.notEqual(result.exitCode, 0, JSON.stringify(result.output, null, 2));
+  const messages = result.output.blockers.map((item) => item.message).join('\n');
+  assert.match(messages, /布局树必须且只能放置一次 Region：SCREEN-001 \/ REGION-001/);
+  assert.match(messages, /useCaseStepRefs 引用不存在：UC-001-STEP-99/);
+  assert.match(messages, /触发 Control 在起始状态未启用：WF-001-STEP-01 \/ CONTROL-001/);
+  assert.match(messages, /完成状态无法从 Wireflow 入口到达：WF-001 \/ WF-STATE-003/);
 });
 
 test('static semantic entry generates deterministic hidden JSON and README projections', async () => {
@@ -778,15 +715,15 @@ test('exact visual repair emits a complete packet and passes after an allowed im
   assert.equal(styleFailure.expectedStyle, 'rgb(200, 243, 106)');
 
   await writeFile(appPath, app);
-  await writeRepairAction(requested, [appPath]);
   const repaired = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
   assert.equal(repaired.exitCode, 0, JSON.stringify(repaired.output, null, 2));
   assert.equal(repaired.output.status, 'PASS');
   assert.equal(repaired.output.attempts, 1);
-  assert.equal(repaired.output.attemptHistory[0].actions[0].repairLayer, 'paint');
+  assert.equal(repaired.output.attemptHistory[0].attempt, 1);
+  assert.ok(repaired.output.attemptHistory[0].failures.length > 0);
 });
 
-test('exact visual repair blocks baseline changes and missing source evidence', async () => {
+test('exact visual repair keeps external evidence hashes but does not hash-gate code edits', async () => {
   const changedRoot = await temporaryRepository();
   await completeProductFixture(changedRoot);
   const changed = await prepareExactFixture(changedRoot);
@@ -794,8 +731,8 @@ test('exact visual repair blocks baseline changes and missing source evidence', 
   const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--json']);
   assert.equal(requested.output.status, 'REPAIR_REQUIRED', JSON.stringify(requested.output, null, 2));
   await appendFile(changed.baselinePath, 'baseline-mutated');
-  const scopeViolation = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--json']);
-  assert.equal(scopeViolation.output.blocker.code, 'AIH_VISUAL_REPAIR_SCOPE_VIOLATION', JSON.stringify(scopeViolation.output, null, 2));
+  const changedEvidence = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--json']);
+  assert.ok(codes(changedEvidence).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(changedEvidence.output, null, 2));
 
   const missingRoot = await temporaryRepository();
   await completeProductFixture(missingRoot);
@@ -805,42 +742,6 @@ test('exact visual repair blocks baseline changes and missing source evidence', 
   assert.equal(missingSource.output.status, 'BLOCKED');
   assert.equal(missingSource.output.repairPacket, undefined);
   assert.ok(codes(missingSource).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(missingSource.output, null, 2));
-});
-
-test('exact visual repair protects the Contract-owned implementation policy', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const { appPath, app } = await prepareExactFixture(root);
-  await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
-  const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.equal(requested.output.status, 'REPAIR_REQUIRED', JSON.stringify(requested.output, null, 2));
-
-  const contractPath = resolve(root, '.agents/skills/product-design/canonical-ui-prototype/contract.yaml');
-  await appendFile(contractPath, '\n# repair-policy-mutated\n');
-  const scopeViolation = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.equal(scopeViolation.output.blocker.code, 'AIH_VISUAL_REPAIR_SCOPE_VIOLATION', JSON.stringify(scopeViolation.output, null, 2));
-});
-
-test('exact visual repair requires an action report for implementation changes', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const { appPath, app } = await prepareExactFixture(root);
-  await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
-  const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.equal(requested.output.status, 'REPAIR_REQUIRED', JSON.stringify(requested.output, null, 2));
-
-  await appendFile(appPath, '\n// unreported repair\n');
-  const missingReport = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.equal(missingReport.output.status, 'BLOCKED');
-  assert.ok(codes(missingReport).has('AIH_VISUAL_REPAIR_ACTION_INVALID'), JSON.stringify(missingReport.output, null, 2));
-
-  const invalidReport = await writeRepairAction(requested, [appPath]);
-  invalidReport.actions[0].sourceEvidenceItemIds = ['EVIDENCE-UNKNOWN'];
-  const packet = JSON.parse(await readFile(requested.output.repairPacket, 'utf8'));
-  await writeFile(packet.actionReportPath, JSON.stringify(invalidReport, null, 2) + '\n', 'utf8');
-  const wrongEvidence = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.equal(wrongEvidence.output.status, 'BLOCKED');
-  assert.ok(codes(wrongEvidence).has('AIH_VISUAL_REPAIR_ACTION_INVALID'), JSON.stringify(wrongEvidence.output, null, 2));
 });
 
 test('exact visual repair blocks non-visual failures and exhausts after three implementation attempts', async () => {
@@ -865,7 +766,6 @@ test('exact visual repair blocks non-visual failures and exhausts after three im
   let result = first;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await appendFile(exhausted.appPath, '\n// repair attempt ' + attempt + '\n');
-    await writeRepairAction(result, [exhausted.appPath], 'paint');
     result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--json']);
   }
   assert.equal(result.output.status, 'BLOCKED', JSON.stringify(result.output, null, 2));
@@ -879,7 +779,6 @@ test('exact visual repair blocks non-visual failures and exhausts after three im
     failure.checkKind === 'screenshot-match'
     && typeof failure.differenceRatio === 'number'
   ))));
-  assert.ok(result.output.attempts.every((item) => item.actions.length > 0));
 });
 
 test('browser validator uses the browser accessible-name algorithm for aria-labelledby', async () => {

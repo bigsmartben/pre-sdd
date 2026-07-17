@@ -1,4 +1,4 @@
 interface:
   display_name: "修复规范界面视觉差异"
   short_description: "按 Repair Packet 和固定顺序修复允许路径内的视觉实现"
-  default_prompt: "Use $repair-canonical-ui-visual only after canonical-ui-repair returns a schema-valid Repair Packet with targetId or structured differenceRegions. Resolve reusable source assets before CSS edits, read the packet-provided source context, preserve interactive DOM, modify only allowed implementation paths, write the schema-valid Repair Action Report to actionReportPath, and rerun the same operation without changing baselines, tolerances, visual policy, or business semantics."
+  default_prompt: "Use $repair-canonical-ui-visual after canonical-ui-repair returns a schema-valid Repair Packet with targetId or structured differenceRegions. Resolve reusable source assets before CSS edits, read the packet-provided source context, preserve interactive DOM, treat allowedImplementationPaths as minimal-scope guidance rather than a hash-gated write permit, and rerun the same operation to judge the current code by its real output."

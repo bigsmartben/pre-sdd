@@ -42,7 +42,7 @@ Technical Validation 的真实代码固定放在 `技术验证/cases/EXP-NNN.cas
 2. 使用 `$apply-repository-harness` 解析用户明确请求的当前产物、实际路径和 Manifest 声明的产物级上游。Architecture 阶段初始化通过 `upstreamScopes` 独立验证 Use Cases readiness，不要求也不生成 Use Cases → Architecture handoff；Use Cases readiness 未通过时停止，不生成架构事实，也不得要求 Canonical UI Prototype readiness。
 3. 从 Manifest 登记位置读取当前产物的 Contract、Schema 和模板，并从项目绑定读取固定 `inputRoot`；不得从目录名猜测用户路径，不在本文件复制字段定义。
 4. 只从已验证的产品事实推导架构决策。无法由上游支持的内容记录为 gap、assumption 或 blocker，不得静默回写产品设计。
-5. 对四个内部模型产物，先在工作区外临时位置准备候选 YAML，再解析 Manifest 登记的 artifact transaction；先运行同一 operation 的 `--dry-run`，使用返回的 `currentSha256` 提交。该事务从同一候选数据生成目标 YAML 与 Markdown；不得直接编辑两者，也不得在日常更新中运行 `render:architecture`。Technical Validation 只从已验证 Use Cases 与 System Boundary 提取标记为需要技术验证的关键能力。每个关键能力必须映射到已选择的技术方案，以及与该选择一致、源代码哈希匹配的真实代码测试通过结论；不得要求覆盖全部架构能力，也不得把技术验证证据伪装成产品事实。
+5. 对四个内部模型产物，先在工作区外临时位置准备候选 YAML，再解析 Manifest 登记的 artifact operation；`--dry-run` 只预检 Schema 与目标路径，正式写入不要求旧版本 hash。operation 从同一候选数据生成目标 YAML 与 Markdown；不得直接编辑两者，也不得在日常更新中运行 `render:architecture`。Technical Validation 只从已验证 Use Cases 与 System Boundary 提取标记为需要技术验证的关键能力。每个关键能力必须映射到已选择的技术方案，以及当前真实代码的测试通过结论；修改实验代码后直接重新执行，不维护源码 hash 凭证。
 6. 对全部实际变更路径重新调用 Resolver，并按 Manifest 返回顺序执行所有验证命令；Skill 不维护静态命令清单，也不自行判断 readiness。
 7. 当前产物 readiness 全部通过且 Manifest 为当前产物声明了合法移交边时，必须执行登记的 handoff operation；不得保存用户审批或自动初始化消费者。Manifest 未声明消费者时，在 readiness 通过后结束当前范围。
 

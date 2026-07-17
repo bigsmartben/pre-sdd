@@ -13,19 +13,18 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "useCase", "name", "userGoal", "coveredScenarios", "entryScreen", "completionStates", "steps"],
+        "required": ["id", "useCase", "name", "coveredScenarios", "entry", "completionStates", "steps"],
         "properties": {
           "id": {"$ref": "#/$defs/wireflowId"},
           "useCase": {"$ref": "#/$defs/useCaseId"},
           "name": {"type": "string", "minLength": 1},
-          "userGoal": {"type": "string", "minLength": 1},
           "coveredScenarios": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
             "items": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/useCaseScenarioId"}]}
           },
-          "entryScreen": {"$ref": "#/$defs/screenId"},
+          "entry": {"$ref": "#/$defs/endpoint"},
           "completionStates": {
             "type": "array",
             "minItems": 1,
@@ -45,42 +44,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "name", "purpose", "useCases", "regions"],
+        "required": ["id", "name", "purpose", "useCases", "layoutTree", "regions"],
         "properties": {
           "id": {"$ref": "#/$defs/screenId"},
           "name": {"type": "string", "minLength": 1},
           "purpose": {"type": "string", "minLength": 1},
           "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+          "layoutTree": {"$ref": "#/$defs/layoutContainer"},
           "regions": {
             "type": "array",
             "minItems": 1,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["id", "name", "purpose", "content", "controls"],
-              "properties": {
-                "id": {"$ref": "#/$defs/regionId"},
-                "name": {"type": "string", "minLength": 1},
-                "purpose": {"type": "string", "minLength": 1},
-                "content": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-                "controls": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["id", "type", "label", "purpose", "dataBinding", "action"],
-                    "properties": {
-                      "id": {"$ref": "#/$defs/controlId"},
-                      "type": {"enum": ["display", "input", "action", "navigation", "selection"]},
-                      "label": {"type": "string", "minLength": 1},
-                      "purpose": {"type": "string", "minLength": 1},
-                      "dataBinding": {"$ref": "#/$defs/nullableText"},
-                      "action": {"$ref": "#/$defs/nullableText"}
-                    }
-                  }
-                }
-              }
-            }
+            "items": {"$ref": "#/$defs/region"}
           }
         }
       }
@@ -90,14 +64,13 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "screen", "type", "condition", "presentation", "availableControls", "terminal"],
+        "required": ["id", "screen", "type", "condition", "stateDelta", "terminal"],
         "properties": {
           "id": {"$ref": "#/$defs/stateId"},
           "screen": {"$ref": "#/$defs/screenId"},
           "type": {"enum": ["default", "loading", "empty", "error", "success", "validation", "disabled"]},
           "condition": {"type": "string", "minLength": 1},
-          "presentation": {"type": "string", "minLength": 1},
-          "availableControls": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/controlId"}},
+          "stateDelta": {"$ref": "#/$defs/stateDelta"},
           "terminal": {"type": "boolean"}
         }
       }
@@ -119,12 +92,16 @@
     "nullableText": {"type": ["string", "null"], "minLength": 1},
     "useCaseId": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
     "useCaseScenarioId": {"type": "string", "pattern": "^UC-[0-9]{3}-(ALT|EXC)-[0-9]{2}$"},
+    "useCaseStepId": {"type": "string", "pattern": "^UC-[0-9]{3}(-(ALT|EXC)-[0-9]{2})?-STEP-[0-9]{2}$"},
     "wireflowId": {"type": "string", "pattern": "^WF-[0-9]{3}$"},
     "wireflowStepId": {"type": "string", "pattern": "^WF-[0-9]{3}-STEP-[0-9]{2}$"},
     "screenId": {"type": "string", "pattern": "^SCREEN-[0-9]{3}$"},
     "regionId": {"type": "string", "pattern": "^REGION-[0-9]{3}$"},
     "controlId": {"type": "string", "pattern": "^CONTROL-[0-9]{3}$"},
     "stateId": {"type": "string", "pattern": "^WF-STATE-[0-9]{3}$"},
+    "regionOrControlId": {
+      "oneOf": [{"$ref": "#/$defs/regionId"}, {"$ref": "#/$defs/controlId"}]
+    },
     "endpoint": {
       "type": "object",
       "additionalProperties": false,
@@ -134,23 +111,106 @@
         "state": {"$ref": "#/$defs/stateId"}
       }
     },
+    "layoutContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "children"],
+      "properties": {
+        "type": {"enum": ["vertical", "horizontal"]},
+        "children": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/layoutNode"}
+        }
+      }
+    },
+    "layoutRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "region"],
+      "properties": {
+        "type": {"const": "region"},
+        "region": {"$ref": "#/$defs/regionId"}
+      }
+    },
+    "layoutNode": {
+      "oneOf": [
+        {"$ref": "#/$defs/layoutContainer"},
+        {"$ref": "#/$defs/layoutRegion"}
+      ]
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "label", "purpose", "dataBinding", "action"],
+      "properties": {
+        "id": {"$ref": "#/$defs/controlId"},
+        "type": {"enum": ["display", "input", "action", "navigation", "selection"]},
+        "label": {"type": "string", "minLength": 1},
+        "purpose": {"type": "string", "minLength": 1},
+        "dataBinding": {"$ref": "#/$defs/nullableText"},
+        "action": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "purpose", "content", "controls"],
+      "properties": {
+        "id": {"$ref": "#/$defs/regionId"},
+        "name": {"type": "string", "minLength": 1},
+        "purpose": {"type": "string", "minLength": 1},
+        "content": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "controls": {"type": "array", "items": {"$ref": "#/$defs/control"}}
+      }
+    },
+    "contentChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "value"],
+      "properties": {
+        "target": {"$ref": "#/$defs/regionOrControlId"},
+        "value": {"type": "string", "minLength": 1}
+      }
+    },
+    "stateDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["show", "hide", "enable", "disable", "content"],
+      "properties": {
+        "show": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/regionOrControlId"}},
+        "hide": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/regionOrControlId"}},
+        "enable": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/controlId"}},
+        "disable": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/controlId"}},
+        "content": {"type": "array", "items": {"$ref": "#/$defs/contentChange"}}
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "control"],
+      "properties": {
+        "event": {"type": "string", "minLength": 1},
+        "control": {"oneOf": [{"$ref": "#/$defs/controlId"}, {"type": "null"}]}
+      }
+    },
     "wireflowStep": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id", "scenario", "actorAction", "systemResponse", "from", "event", "control", "guard", "to", "visibleFeedback"
-      ],
+      "required": ["id", "scenarioRef", "useCaseStepRefs", "from", "trigger", "guard", "to"],
       "properties": {
         "id": {"$ref": "#/$defs/wireflowStepId"},
-        "scenario": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/useCaseScenarioId"}]},
-        "actorAction": {"type": "string", "minLength": 1},
-        "systemResponse": {"type": "string", "minLength": 1},
+        "scenarioRef": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/useCaseScenarioId"}]},
+        "useCaseStepRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/useCaseStepId"}
+        },
         "from": {"$ref": "#/$defs/endpoint"},
-        "event": {"type": "string", "minLength": 1},
-        "control": {"oneOf": [{"$ref": "#/$defs/controlId"}, {"type": "null"}]},
+        "trigger": {"$ref": "#/$defs/trigger"},
         "guard": {"$ref": "#/$defs/nullableText"},
-        "to": {"$ref": "#/$defs/endpoint"},
-        "visibleFeedback": {"type": "string", "minLength": 1}
+        "to": {"$ref": "#/$defs/endpoint"}
       }
     },
     "gate": {
