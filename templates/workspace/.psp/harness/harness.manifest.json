@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "12.1.0",
+  "version": "13.0.0",
   "runtime": {
     "protocol": "pre-sdd-harness/v2",
     "authority": "generated-workspace-local",
@@ -191,10 +191,9 @@
         "render-architecture",
         "architecture-structure"
       ],
-      "upstreamHandoff": {
-        "from": "use-cases",
-        "to": "architecture-design"
-      }
+      "upstreamScopes": [
+        "use-cases"
+      ]
     },
     {
       "id": "apply-product-artifact",
@@ -574,6 +573,70 @@
       "domain": "architecture-design"
     },
     {
+      "id": "architecture-system-boundary",
+      "npmScript": "validate:system-boundary",
+      "run": "npm run validate:system-boundary",
+      "purpose": "校验 System Boundary 是否达到独立 readiness",
+      "blocking": true,
+      "domain": "architecture-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/architecture-design/scripts/validate.mjs",
+        "args": [
+          "--step",
+          "system-boundary"
+        ]
+      }
+    },
+    {
+      "id": "architecture-conceptual-model",
+      "npmScript": "validate:conceptual-model",
+      "run": "npm run validate:conceptual-model",
+      "purpose": "校验 Conceptual Model 是否达到独立 readiness",
+      "blocking": true,
+      "domain": "architecture-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/architecture-design/scripts/validate.mjs",
+        "args": [
+          "--step",
+          "conceptual-model"
+        ]
+      }
+    },
+    {
+      "id": "architecture-technical-validation",
+      "npmScript": "validate:technical-validation",
+      "run": "npm run validate:technical-validation",
+      "purpose": "校验 Technical Validation 是否达到独立 readiness",
+      "blocking": true,
+      "domain": "architecture-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/architecture-design/scripts/validate.mjs",
+        "args": [
+          "--step",
+          "technical-validation"
+        ]
+      }
+    },
+    {
+      "id": "architecture-package-readiness",
+      "npmScript": "validate:architecture-package",
+      "run": "npm run validate:architecture-package",
+      "purpose": "校验 Architecture Overview 是否达到独立 readiness",
+      "blocking": true,
+      "domain": "architecture-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/architecture-design/scripts/validate.mjs",
+        "args": [
+          "--step",
+          "architecture-package"
+        ]
+      }
+    },
+    {
       "id": "harness-resolve",
       "npmScript": "harness:resolve",
       "run": "npm run harness:resolve",
@@ -711,6 +774,43 @@
       ]
     },
     {
+      "id": "system-boundary-readiness",
+      "commands": [
+        "harness",
+        "test-architecture",
+        "architecture-structure",
+        "architecture-system-boundary"
+      ]
+    },
+    {
+      "id": "conceptual-model-readiness",
+      "commands": [
+        "harness",
+        "test-architecture",
+        "architecture-structure",
+        "architecture-conceptual-model"
+      ]
+    },
+    {
+      "id": "technical-validation-readiness",
+      "commands": [
+        "harness",
+        "test-architecture",
+        "architecture-structure",
+        "verify-architecture",
+        "architecture-technical-validation"
+      ]
+    },
+    {
+      "id": "architecture-package-readiness",
+      "commands": [
+        "harness",
+        "test-architecture",
+        "architecture-structure",
+        "architecture-package-readiness"
+      ]
+    },
+    {
       "id": "technical-validation",
       "commands": [
         "harness",
@@ -828,8 +928,7 @@
       "readinessProfile": "use-cases-readiness",
       "uninitializedProfile": "product-uninitialized",
       "handoffConsumers": [
-        "wireflow",
-        "architecture-design"
+        "wireflow"
       ]
     },
     {
@@ -900,21 +999,92 @@
       "domain": "architecture-design"
     },
     {
-      "id": "technical-validation",
-      "kind": "subtree",
+      "id": "system-boundary",
+      "kind": "artifact",
       "selectionGroup": "architecture-design",
-      "priority": 200,
+      "priority": 350,
       "status": "active",
       "selector": {
-        "type": "area",
+        "type": "artifact",
         "stage": "architecture-design",
-        "area": "technical-validation"
+        "artifacts": [
+          "system-boundary"
+        ]
       },
-      "defaultProfile": "technical-validation",
-      "readinessProfile": "architecture-delivery",
+      "defaultProfile": "architecture-structure",
+      "readinessProfile": "system-boundary-readiness",
       "uninitializedProfile": "architecture-uninitialized",
       "dependencies": [
-        "architecture-design"
+        "use-cases"
+      ],
+      "domain": "architecture-design"
+    },
+    {
+      "id": "conceptual-model",
+      "kind": "artifact",
+      "selectionGroup": "architecture-design",
+      "priority": 350,
+      "status": "active",
+      "selector": {
+        "type": "artifact",
+        "stage": "architecture-design",
+        "artifacts": [
+          "conceptual-model"
+        ]
+      },
+      "defaultProfile": "architecture-structure",
+      "readinessProfile": "conceptual-model-readiness",
+      "uninitializedProfile": "architecture-uninitialized",
+      "dependencies": [
+        "use-cases",
+        "system-boundary"
+      ],
+      "domain": "architecture-design"
+    },
+    {
+      "id": "technical-validation",
+      "kind": "artifact",
+      "selectionGroup": "architecture-design",
+      "priority": 350,
+      "status": "active",
+      "selector": {
+        "type": "artifact",
+        "stage": "architecture-design",
+        "artifacts": [
+          "technical-validation"
+        ],
+        "areas": [
+          "technical-validation"
+        ]
+      },
+      "defaultProfile": "technical-validation",
+      "readinessProfile": "technical-validation-readiness",
+      "uninitializedProfile": "architecture-uninitialized",
+      "dependencies": [
+        "use-cases",
+        "system-boundary"
+      ],
+      "domain": "architecture-design"
+    },
+    {
+      "id": "architecture-package",
+      "kind": "artifact",
+      "selectionGroup": "architecture-design",
+      "priority": 350,
+      "status": "active",
+      "selector": {
+        "type": "artifact",
+        "stage": "architecture-design",
+        "artifacts": [
+          "architecture-package"
+        ]
+      },
+      "defaultProfile": "architecture-structure",
+      "readinessProfile": "architecture-package-readiness",
+      "uninitializedProfile": "architecture-uninitialized",
+      "dependencies": [
+        "conceptual-model",
+        "technical-validation"
       ],
       "domain": "architecture-design"
     }

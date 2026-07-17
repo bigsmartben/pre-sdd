@@ -18,9 +18,17 @@ import {
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
 const stageId = 'architecture-design';
 const strict = process.argv.includes('--strict');
+const stepIndex = process.argv.indexOf('--step');
+const step = stepIndex >= 0 ? process.argv[stepIndex + 1] : null;
+const readiness = strict || Boolean(step);
 const json = process.argv.includes('--json');
 const blockers = [];
 const warnings = [];
+const readinessSteps = new Set(['architecture-package', 'system-boundary', 'conceptual-model', 'technical-validation']);
+
+if (step && !readinessSteps.has(step)) {
+  block('AIH_COMMAND_INVALID', '未知的架构 readiness step：' + step, 'arguments');
+}
 const models = new Map();
 
 function block(code, message, location) {
@@ -112,7 +120,7 @@ if (project && manifest && stage?.status === 'uninitialized' && !initializing) {
         message: 'uninitialized 架构阶段出现了用户文件；请清理碰撞或重新执行完整初始化。',
         location: stage.root,
       }]
-      : strict
+      : readiness
         ? [{
           code: 'AIH_STAGE_UNINITIALIZED',
           message: '架构设计阶段尚未初始化，不能执行严格 readiness。',
@@ -121,7 +129,7 @@ if (project && manifest && stage?.status === 'uninitialized' && !initializing) {
         : [];
   const lifecycleResult = {
     status: lifecycleBlockers.length === 0 ? 'PASS' : 'BLOCKED',
-    mode: strict ? 'strict' : 'structure',
+    mode: step || (strict ? 'strict' : 'structure'),
     state: 'uninitialized',
     blockerCount: lifecycleBlockers.length,
     blockers: lifecycleBlockers,
@@ -451,8 +459,11 @@ if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_
     }
   }
 
-  if (strict) {
+  if (readiness) {
+    const selectedArtifacts = strict ? new Set(models.keys()) : new Set([step]);
+    const selected = (artifactId) => selectedArtifacts.has(artifactId);
     for (const [artifactId, model] of models) {
+      if (!selected(artifactId)) continue;
       if (model.metadata.status !== 'ready') block('AIH_ARTIFACT_INCOMPLETE', artifactId + ' status 不是 ready。', artifactId + '.metadata.status');
       if (model.gaps.length > 0) block('AIH_ARTIFACT_INCOMPLETE', artifactId + ' 仍存在显式 gaps。', artifactId + '.gaps');
       for (const gate of model.gates) {
@@ -460,78 +471,86 @@ if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_
       }
     }
 
-    if (architecturePackage?.upstream?.version !== capabilities.metadata.version) {
-      block('AIH_UPSTREAM_NOT_READY', 'Architecture Package 记录的上游版本与 capabilities 当前版本不一致。', 'architecture-package.upstream.version');
-    }
-    for (const [field, value] of Object.entries(architecturePackage?.overview || {})) {
-      if (field !== 'constraints' && !value) block('AIH_ARTIFACT_INCOMPLETE', 'Architecture Overview 未定义：' + field, 'architecture-package.overview.' + field);
-    }
-    if (!systemBoundary?.system?.name || !systemBoundary?.system?.mission) {
-      block('AIH_ARTIFACT_INCOMPLETE', '系统名称与使命必须完整。', 'system-boundary.system');
-    }
-    if (!systemBoundary.system.includedResponsibilities.length || !systemBoundary.system.excludedResponsibilities.length) {
-      block('AIH_ARTIFACT_INCOMPLETE', '系统级做什么与不做什么必须显式定义。', 'system-boundary.system');
-    }
-    const responsibilityOverlap = systemBoundary.system.includedResponsibilities.filter((item) => systemBoundary.system.excludedResponsibilities.includes(item));
-    if (responsibilityOverlap.length) {
-      block('AIH_REFERENCE_UNRESOLVED', '系统负责与不负责范围冲突：' + responsibilityOverlap.join(', '), 'system-boundary.system');
-    }
-    if (!sameSet(boundaryUseCases, useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '系统边界必须精确覆盖全部上游 Use Case。', 'system-boundary.useCases');
-    const upstreamActors = new Set(capabilities.useCases.map((item) => item.actor));
-    if (!sameSet(interactionActors, upstreamActors)) block('AIH_REFERENCE_UNRESOLVED', 'Actor 交互必须覆盖所有具有 Use Case 的上游 Actor。', 'system-boundary.actorInteractions');
-    if (!sameSet(unionOf(systemBoundary.actorInteractions, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', 'Actor 交互必须精确覆盖全部 Use Case。', 'system-boundary.actorInteractions');
-    if (!sameSet(unionOf(systemBoundary.subsystems, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '子系统必须精确覆盖全部 Use Case。', 'system-boundary.subsystems');
-    if (!sameSet(unionOf(architectureCapabilities, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '子系统能力必须精确覆盖全部 Use Case。', 'system-boundary.subsystems.capabilities');
-    for (const subsystem of systemBoundary.subsystems) {
-      const expectedActors = new Set(capabilities.useCases.filter((item) => subsystem.useCases.includes(item.id)).map((item) => item.actor));
-      if (!sameSet(new Set(subsystem.actors), expectedActors)) block('AIH_REFERENCE_UNRESOLVED', '子系统 Actor 与其 UC 不一致：' + subsystem.id, 'system-boundary.subsystems.' + subsystem.id + '.actors');
-      if (!subsystem.includedResponsibilities.length || !subsystem.excludedResponsibilities.length) block('AIH_ARTIFACT_INCOMPLETE', '子系统必须明确做什么与不做什么：' + subsystem.id, 'system-boundary.subsystems.' + subsystem.id);
-    }
-    for (const capability of architectureCapabilities) {
-      if (capability.inputs.length + capability.outputs.length === 0) block('AIH_ARTIFACT_INCOMPLETE', '能力必须定义语义输入或输出：' + capability.id, 'system-boundary.capabilities.' + capability.id);
-      if (capability.technicalValidationRequired && (!capability.inputs.length || !capability.outputs.length)) block('AIH_ARTIFACT_INCOMPLETE', '需要真实代码技术验证的关键能力必须同时定义输入和输出：' + capability.id, 'system-boundary.capabilities.' + capability.id);
-    }
-    for (const constraint of systemBoundary.constraints) {
-      if (constraint.status === 'gap') block('AIH_ARTIFACT_INCOMPLETE', '架构约束仍是 gap：' + constraint.id, 'system-boundary.constraints.' + constraint.id);
-    }
-
-    if (!conceptualModel.objects.length) block('AIH_ARTIFACT_INCOMPLETE', '严格门禁要求至少一个关键对象实体。', 'conceptual-model.objects');
-    if (!sameSet(unionOf(conceptualModel.objects, 'useCases'), boundaryUseCases)) block('AIH_REFERENCE_UNRESOLVED', '对象模型必须精确覆盖系统边界 Use Case。', 'conceptual-model.objects');
-    if (!sameSet(unionOf(conceptualModel.objects, 'capabilities'), architectureCapabilityIds)) block('AIH_REFERENCE_UNRESOLVED', '对象模型必须覆盖全部子系统能力。', 'conceptual-model.objects');
-    if (!sameSet(new Set(conceptualModel.objectFlows.map((item) => item.useCase)), boundaryUseCases)) block('AIH_REFERENCE_UNRESOLVED', '对象数据流必须精确覆盖全部 Use Case。', 'conceptual-model.objectFlows');
-    if (!sameSet(new Set(conceptualModel.objectFlows.map((item) => item.object)), objectIds)) block('AIH_REFERENCE_UNRESOLVED', '每个关键对象都必须出现在对象数据流中。', 'conceptual-model.objectFlows');
-    if (!sameSet(new Set(conceptualModel.objectFlows.map((item) => item.capability)), architectureCapabilityIds)) block('AIH_REFERENCE_UNRESOLVED', '对象数据流必须覆盖全部子系统能力。', 'conceptual-model.objectFlows');
-    for (const object of conceptualModel.objects) {
-      if (object.kind === 'entity' && !object.keys.some((key) => ['primary', 'business'].includes(key.type))) block('AIH_ARTIFACT_INCOMPLETE', 'entity 必须定义 primary 或 business key：' + object.id, 'conceptual-model.objects.' + object.id + '.keys');
-      if (object.kind === 'entity') {
-        const initialStates = object.states.filter((state) => state.initial);
-        if (!object.states.length || initialStates.length !== 1) block('AIH_ARTIFACT_INCOMPLETE', 'entity 必须定义且仅定义一个初始状态：' + object.id, 'conceptual-model.objects.' + object.id + '.states');
+    if (selected('architecture-package')) {
+      if (architecturePackage?.upstream?.version !== capabilities.metadata.version) {
+        block('AIH_UPSTREAM_NOT_READY', 'Architecture Package 记录的上游版本与 capabilities 当前版本不一致。', 'architecture-package.upstream.version');
+      }
+      for (const [field, value] of Object.entries(architecturePackage?.overview || {})) {
+        if (field !== 'constraints' && !value) block('AIH_ARTIFACT_INCOMPLETE', 'Architecture Overview 未定义：' + field, 'architecture-package.overview.' + field);
       }
     }
-    for (const flow of conceptualModel.objectFlows) {
-      if (flow.operation === 'create' && (flow.fromState !== null || flow.toState === null)) block('AIH_REFERENCE_UNRESOLVED', 'create flow 必须从空状态进入对象状态：' + flow.id, 'conceptual-model.objectFlows.' + flow.id);
-      if (flow.operation === 'delete' && (flow.fromState === null || flow.toState !== null)) block('AIH_REFERENCE_UNRESOLVED', 'delete flow 必须从对象状态进入空状态：' + flow.id, 'conceptual-model.objectFlows.' + flow.id);
-      if (flow.operation === 'transition' && (!flow.fromState || !flow.toState || flow.fromState === flow.toState)) block('AIH_REFERENCE_UNRESOLVED', 'transition flow 必须声明不同的前后状态：' + flow.id, 'conceptual-model.objectFlows.' + flow.id);
+    if (selected('system-boundary')) {
+      if (!systemBoundary?.system?.name || !systemBoundary?.system?.mission) {
+        block('AIH_ARTIFACT_INCOMPLETE', '系统名称与使命必须完整。', 'system-boundary.system');
+      }
+      if (!systemBoundary.system.includedResponsibilities.length || !systemBoundary.system.excludedResponsibilities.length) {
+        block('AIH_ARTIFACT_INCOMPLETE', '系统级做什么与不做什么必须显式定义。', 'system-boundary.system');
+      }
+      const responsibilityOverlap = systemBoundary.system.includedResponsibilities.filter((item) => systemBoundary.system.excludedResponsibilities.includes(item));
+      if (responsibilityOverlap.length) {
+        block('AIH_REFERENCE_UNRESOLVED', '系统负责与不负责范围冲突：' + responsibilityOverlap.join(', '), 'system-boundary.system');
+      }
+      if (!sameSet(boundaryUseCases, useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '系统边界必须精确覆盖全部上游 Use Case。', 'system-boundary.useCases');
+      const upstreamActors = new Set(capabilities.useCases.map((item) => item.actor));
+      if (!sameSet(interactionActors, upstreamActors)) block('AIH_REFERENCE_UNRESOLVED', 'Actor 交互必须覆盖所有具有 Use Case 的上游 Actor。', 'system-boundary.actorInteractions');
+      if (!sameSet(unionOf(systemBoundary.actorInteractions, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', 'Actor 交互必须精确覆盖全部 Use Case。', 'system-boundary.actorInteractions');
+      if (!sameSet(unionOf(systemBoundary.subsystems, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '子系统必须精确覆盖全部 Use Case。', 'system-boundary.subsystems');
+      if (!sameSet(unionOf(architectureCapabilities, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '子系统能力必须精确覆盖全部 Use Case。', 'system-boundary.subsystems.capabilities');
+      for (const subsystem of systemBoundary.subsystems) {
+        const expectedActors = new Set(capabilities.useCases.filter((item) => subsystem.useCases.includes(item.id)).map((item) => item.actor));
+        if (!sameSet(new Set(subsystem.actors), expectedActors)) block('AIH_REFERENCE_UNRESOLVED', '子系统 Actor 与其 UC 不一致：' + subsystem.id, 'system-boundary.subsystems.' + subsystem.id + '.actors');
+        if (!subsystem.includedResponsibilities.length || !subsystem.excludedResponsibilities.length) block('AIH_ARTIFACT_INCOMPLETE', '子系统必须明确做什么与不做什么：' + subsystem.id, 'system-boundary.subsystems.' + subsystem.id);
+      }
+      for (const capability of architectureCapabilities) {
+        if (capability.inputs.length + capability.outputs.length === 0) block('AIH_ARTIFACT_INCOMPLETE', '能力必须定义语义输入或输出：' + capability.id, 'system-boundary.capabilities.' + capability.id);
+        if (capability.technicalValidationRequired && (!capability.inputs.length || !capability.outputs.length)) block('AIH_ARTIFACT_INCOMPLETE', '需要真实代码技术验证的关键能力必须同时定义输入和输出：' + capability.id, 'system-boundary.capabilities.' + capability.id);
+      }
+      for (const constraint of systemBoundary.constraints) {
+        if (constraint.status === 'gap') block('AIH_ARTIFACT_INCOMPLETE', '架构约束仍是 gap：' + constraint.id, 'system-boundary.constraints.' + constraint.id);
+      }
     }
 
-    const requiredCapabilities = new Set(architectureCapabilities.filter((item) => item.technicalValidationRequired).map((item) => item.id));
-    const selectedCapabilities = unionOf(technicalValidation.decisions, 'capabilities');
-    if (!sameSet(requiredCapabilities, selectedCapabilities)) block('AIH_REFERENCE_UNRESOLVED', '技术决策必须精确覆盖所有标记为 technicalValidationRequired 的关键能力，且不得扩展到其他架构能力。', 'technical-validation.decisions');
-    for (const decision of technicalValidation.decisions) {
-      if (decision.status !== 'selected' || !decision.selectedCandidate || !decision.rationale) block('AIH_ARTIFACT_INCOMPLETE', '技术决策尚未完成最终选择：' + decision.id, 'technical-validation.decisions.' + decision.id);
-      const passed = technicalValidation.experiments.some((experiment) =>
-        experiment.decision === decision.id
-        && experiment.candidate === decision.selectedCandidate
-        && experiment.result.status === 'passed',
-      );
-      if (!passed) block('AIH_TECHNICAL_VALIDATION_FAILED', '最终选型缺少 passed 代码实验：' + decision.id, 'technical-validation.decisions.' + decision.id);
-    }
-    for (const experiment of technicalValidation.experiments) {
-      if (!['passed', 'failed'].includes(experiment.result.status)) block('AIH_TECHNICAL_VALIDATION_FAILED', '实验尚未形成终态结果：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result');
-      if (!experiment.result.executedAt || !experiment.result.sourceSha256 || !experiment.result.summary || !experiment.result.evidence.length) block('AIH_ARTIFACT_INCOMPLETE', '实验缺少执行时间、源代码哈希、摘要或证据：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result');
+    if (selected('conceptual-model')) {
+      if (!conceptualModel.objects.length) block('AIH_ARTIFACT_INCOMPLETE', '严格门禁要求至少一个关键对象实体。', 'conceptual-model.objects');
+      if (!sameSet(unionOf(conceptualModel.objects, 'useCases'), boundaryUseCases)) block('AIH_REFERENCE_UNRESOLVED', '对象模型必须精确覆盖系统边界 Use Case。', 'conceptual-model.objects');
+      if (!sameSet(unionOf(conceptualModel.objects, 'capabilities'), architectureCapabilityIds)) block('AIH_REFERENCE_UNRESOLVED', '对象模型必须覆盖全部子系统能力。', 'conceptual-model.objects');
+      if (!sameSet(new Set(conceptualModel.objectFlows.map((item) => item.useCase)), boundaryUseCases)) block('AIH_REFERENCE_UNRESOLVED', '对象数据流必须精确覆盖全部 Use Case。', 'conceptual-model.objectFlows');
+      if (!sameSet(new Set(conceptualModel.objectFlows.map((item) => item.object)), objectIds)) block('AIH_REFERENCE_UNRESOLVED', '每个关键对象都必须出现在对象数据流中。', 'conceptual-model.objectFlows');
+      if (!sameSet(new Set(conceptualModel.objectFlows.map((item) => item.capability)), architectureCapabilityIds)) block('AIH_REFERENCE_UNRESOLVED', '对象数据流必须覆盖全部子系统能力。', 'conceptual-model.objectFlows');
+      for (const object of conceptualModel.objects) {
+        if (object.kind === 'entity' && !object.keys.some((key) => ['primary', 'business'].includes(key.type))) block('AIH_ARTIFACT_INCOMPLETE', 'entity 必须定义 primary 或 business key：' + object.id, 'conceptual-model.objects.' + object.id + '.keys');
+        if (object.kind === 'entity') {
+          const initialStates = object.states.filter((state) => state.initial);
+          if (!object.states.length || initialStates.length !== 1) block('AIH_ARTIFACT_INCOMPLETE', 'entity 必须定义且仅定义一个初始状态：' + object.id, 'conceptual-model.objects.' + object.id + '.states');
+        }
+      }
+      for (const flow of conceptualModel.objectFlows) {
+        if (flow.operation === 'create' && (flow.fromState !== null || flow.toState === null)) block('AIH_REFERENCE_UNRESOLVED', 'create flow 必须从空状态进入对象状态：' + flow.id, 'conceptual-model.objectFlows.' + flow.id);
+        if (flow.operation === 'delete' && (flow.fromState === null || flow.toState !== null)) block('AIH_REFERENCE_UNRESOLVED', 'delete flow 必须从对象状态进入空状态：' + flow.id, 'conceptual-model.objectFlows.' + flow.id);
+        if (flow.operation === 'transition' && (!flow.fromState || !flow.toState || flow.fromState === flow.toState)) block('AIH_REFERENCE_UNRESOLVED', 'transition flow 必须声明不同的前后状态：' + flow.id, 'conceptual-model.objectFlows.' + flow.id);
+      }
     }
 
-    const serialized = JSON.stringify([...models.values()]);
+    if (selected('technical-validation')) {
+      const requiredCapabilities = new Set(architectureCapabilities.filter((item) => item.technicalValidationRequired).map((item) => item.id));
+      const selectedCapabilities = unionOf(technicalValidation.decisions, 'capabilities');
+      if (!sameSet(requiredCapabilities, selectedCapabilities)) block('AIH_REFERENCE_UNRESOLVED', '技术决策必须精确覆盖所有标记为 technicalValidationRequired 的关键能力，且不得扩展到其他架构能力。', 'technical-validation.decisions');
+      for (const decision of technicalValidation.decisions) {
+        if (decision.status !== 'selected' || !decision.selectedCandidate || !decision.rationale) block('AIH_ARTIFACT_INCOMPLETE', '技术决策尚未完成最终选择：' + decision.id, 'technical-validation.decisions.' + decision.id);
+        const passed = technicalValidation.experiments.some((experiment) =>
+          experiment.decision === decision.id
+          && experiment.candidate === decision.selectedCandidate
+          && experiment.result.status === 'passed',
+        );
+        if (!passed) block('AIH_TECHNICAL_VALIDATION_FAILED', '最终选型缺少 passed 代码实验：' + decision.id, 'technical-validation.decisions.' + decision.id);
+      }
+      for (const experiment of technicalValidation.experiments) {
+        if (!['passed', 'failed'].includes(experiment.result.status)) block('AIH_TECHNICAL_VALIDATION_FAILED', '实验尚未形成终态结果：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result');
+        if (!experiment.result.executedAt || !experiment.result.sourceSha256 || !experiment.result.summary || !experiment.result.evidence.length) block('AIH_ARTIFACT_INCOMPLETE', '实验缺少执行时间、源代码哈希、摘要或证据：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.result');
+      }
+    }
+
+    const serialized = JSON.stringify([...models].filter(([artifactId]) => selected(artifactId)).map(([, model]) => model));
     if (/(?:待填写|(?:^|[^A-Z])NNN(?:[^A-Z]|$)|未定义)/.test(serialized)) block('AIH_ARTIFACT_INCOMPLETE', '权威实例仍含禁止的占位符。', stageId);
   } else if ([...models.values()].some((model) => model.metadata.status === 'draft' || model.gaps.length > 0)) {
     warnings.push('结构有效，但架构实例仍处于 draft 或包含显式 gap；不得声明 ready。');
@@ -550,7 +569,7 @@ if (project && manifest && ['active', 'uninitialized'].includes(stage?.status)) 
 
 const result = {
   status: blockers.length === 0 ? 'PASS' : 'BLOCKED',
-  mode: strict ? 'strict' : 'structure',
+  mode: step || (strict ? 'strict' : 'structure'),
   state: initializing ? 'initializing' : 'active',
   blockerCount: blockers.length,
   blockers,
@@ -560,7 +579,7 @@ const result = {
 if (json) console.log(JSON.stringify(result, null, 2));
 else {
   for (const warning of warnings) console.warn('[WARN] ' + warning);
-  if (result.status === 'PASS') console.log('[PASS] 架构 ' + (strict ? '严格' : '结构') + '校验通过。');
+  if (result.status === 'PASS') console.log('[PASS] 架构 ' + (step || (strict ? '严格' : '结构')) + '校验通过。');
   else for (const item of blockers) console.error('[' + item.code + '] (' + (item.location || 'unknown') + ') ' + item.message);
 }
 

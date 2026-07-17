@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -42,6 +43,18 @@ function runNode(arguments_, workspaceRoot, options) {
   return result.status ?? 1;
 }
 
+function npmCliInvocation(arguments_) {
+  const candidates = [
+    process.env.npm_execpath,
+    resolve(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ].filter(Boolean);
+  const npmCli = candidates.find((candidate) => existsSync(resolve(candidate)));
+  if (!npmCli) {
+    throw Object.assign(new Error('无法定位可信的 npm CLI 入口。'), { code: 'AIH_RUNTIME_UNAVAILABLE' });
+  }
+  return { executable: process.execPath, arguments: [resolve(npmCli), ...arguments_] };
+}
+
 async function expandTestPaths(patterns, workspaceRoot) {
   const files = [];
   for (const pattern of patterns) {
@@ -66,13 +79,12 @@ async function runAreaScript(executor, workspaceRoot, forwarded) {
   const target = resolve(workspaceRoot, ...binding.path.split('/'));
   const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path') || 'PATH';
   const runtimeBin = resolve(dependencyRoot(), 'node_modules', '.bin');
-  const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(executable, ['--prefix', target, 'run', executor.script, ...forwarded], {
+  const invocation = npmCliInvocation(['--prefix', target, 'run', executor.script, ...forwarded]);
+  const result = spawnSync(invocation.executable, invocation.arguments, {
     cwd: workspaceRoot,
     env: { ...childEnvironment(workspaceRoot), [pathKey]: [runtimeBin, process.env[pathKey] || ''].join(delimiter) },
     stdio: 'inherit',
     windowsHide: true,
-    shell: process.platform === 'win32',
   });
   return result.status ?? 1;
 }

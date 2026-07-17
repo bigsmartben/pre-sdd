@@ -34,10 +34,12 @@ description: 在 PSP 仓库中编写、审查或验证 Architecture Package、Sy
 
 Technical Validation 的真实代码固定放在 `技术验证/cases/EXP-NNN.case.mjs`。输入目录可以保存当前产物的补充来源说明或真实执行回执，但不得复制已绑定的上游正式产物。
 
+产物级 Scope 依赖固定为：System Boundary 依赖 Use Cases；Conceptual Model 依赖 Use Cases 与 System Boundary；Technical Validation 依赖 Use Cases 与 System Boundary；Architecture Package 依赖 Conceptual Model 与 Technical Validation。每个产物使用自己的 readiness Profile，不得用整个 Architecture Delivery 的严格门禁代替中间步骤检查。
+
 ## 工作流
 
 1. 读取 `AGENTS.md`、`.psp/harness/HARNESS.md`、`psp.project.yaml` 和项目绑定的 Manifest。
-2. 使用 `$apply-repository-harness` 解析用户明确请求的当前产物、实际路径和 `capabilities`（Use Cases）上游。Use Cases readiness 未通过时停止，不生成架构事实；不得要求 Canonical UI Prototype readiness。
+2. 使用 `$apply-repository-harness` 解析用户明确请求的当前产物、实际路径和 Manifest 声明的产物级上游。Architecture 阶段初始化通过 `upstreamScopes` 独立验证 Use Cases readiness，不要求也不生成 Use Cases → Architecture handoff；Use Cases readiness 未通过时停止，不生成架构事实，也不得要求 Canonical UI Prototype readiness。
 3. 从 Manifest 登记位置读取当前产物的 Contract、Schema 和模板，并从项目绑定读取固定 `inputRoot`；不得从目录名猜测用户路径，不在本文件复制字段定义。
 4. 只从已验证的产品事实推导架构决策。无法由上游支持的内容记录为 gap、assumption 或 blocker，不得静默回写产品设计。
 5. 对四个内部模型产物，先在工作区外临时位置准备候选 YAML，再解析 Manifest 登记的 artifact transaction；先运行同一 operation 的 `--dry-run`，使用返回的 `currentSha256` 提交。该事务从同一候选数据生成目标 YAML 与 Markdown；不得直接编辑两者，也不得在日常更新中运行 `render:architecture`。Technical Validation 只从已验证 Use Cases 与 System Boundary 提取标记为需要技术验证的关键能力。每个关键能力必须映射到已选择的技术方案，以及与该选择一致、源代码哈希匹配的真实代码测试通过结论；不得要求覆盖全部架构能力，也不得把技术验证证据伪装成产品事实。

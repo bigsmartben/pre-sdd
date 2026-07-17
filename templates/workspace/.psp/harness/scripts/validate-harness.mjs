@@ -310,6 +310,20 @@ if (manifest && manifestValid) {
       }
       continue;
     }
+    if (operation.upstreamScopes && operation.upstreamHandoff) {
+      block('AIH_CONTRACT_INVALID', '阶段初始化不能同时声明 upstreamScopes 与 upstreamHandoff。', operation.id);
+    }
+    const stageScope = [...scopes.values()].find((scope) =>
+      scope.selector?.type === 'stage' && scope.selector.stage === operation.stage,
+    );
+    for (const scopeId of operation.upstreamScopes || []) {
+      const upstream = scopes.get(scopeId);
+      if (!upstream || upstream.status !== 'active') {
+        block('AIH_SCOPE_INVALID', '阶段初始化引用未知或不可用的上游 Scope：' + scopeId, operation.id);
+      } else if (!stageScope?.dependencies?.includes(scopeId)) {
+        block('AIH_SCOPE_INVALID', '阶段 Scope 未声明初始化所需上游依赖：' + scopeId, operation.id);
+      }
+    }
     for (const [areaId, template] of Object.entries(operation.areaTemplates || {})) {
       if (!stage?.areas?.[areaId]) {
         block('AIH_PROJECT_BINDING_INVALID', 'Operation 引用未知 area：' + areaId, operation.id);

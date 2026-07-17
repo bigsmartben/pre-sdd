@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:f
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -30,23 +30,36 @@ function runCli(args, cwd = repositoryRoot) {
   });
 }
 
-function runWorkspaceScript(script, cwd, environment = {}, forwarded = []) {
-  const args = ['run', script, ...(forwarded.length ? ['--', ...forwarded] : [])];
-  if (process.env.npm_execpath) {
-    return spawnSync(process.execPath, [process.env.npm_execpath, ...args], {
-      cwd,
-      env: { ...process.env, ...environment },
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-  }
-  return spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, {
+function runNpm(args, cwd = repositoryRoot, environment = {}) {
+  const npmCli = resolve(process.env.npm_execpath || resolve(
+    dirname(process.execPath),
+    'node_modules',
+    'npm',
+    'bin',
+    'npm-cli.js',
+  ));
+  return spawnSync(process.execPath, [npmCli, ...args], {
     cwd,
     env: { ...process.env, ...environment },
     encoding: 'utf8',
     windowsHide: true,
-    shell: process.platform === 'win32',
   });
+}
+
+function runWorkspaceScript(script, cwd, environment = {}, forwarded = []) {
+  const args = ['run', script, ...(forwarded.length ? ['--', ...forwarded] : [])];
+  return runNpm(args, cwd, environment);
+}
+
+function runInstalledPreSdd(prefix, args, cwd) {
+  if (process.platform === 'win32') {
+    return spawnSync(process.execPath, [resolve(prefix, 'node_modules/pre-sdd/bin/pre-sdd.mjs'), ...args], {
+      cwd,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+  }
+  return spawnSync(resolve(prefix, 'bin/pre-sdd'), args, { cwd, encoding: 'utf8', windowsHide: true });
 }
 
 function workspaceRuntimeEnvironment(workspaceRoot) {
@@ -491,6 +504,18 @@ test('Vite and browser execution are registered in the Product Design domain Ski
   ]) assert.ok(manifest.blockers.some((item) => item.code === code), code);
 });
 
+test('Area Script execution uses a trusted npm CLI without a shell', async () => {
+  for (const path of [
+    'runtime/dispatch.mjs',
+    'templates/workspace/.psp/harness/scripts/lib/execute-command.mjs',
+  ]) {
+    const source = await readFile(resolve(repositoryRoot, path), 'utf8');
+    assert.match(source, /process\.env\.npm_execpath/);
+    assert.match(source, /executable: process\.execPath/);
+    assert.doesNotMatch(source, /shell:\s*process\.platform\s*===\s*['"]win32['"]/);
+  }
+});
+
 test('package allowlist includes runtime and template but excludes root workspace state', async () => {
   const packageJson = JSON.parse(await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'));
   assert.equal(packageJson.name, 'pre-sdd');
@@ -499,12 +524,7 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.equal(packageJson.bin['pre-sdd'], './bin/pre-sdd.mjs');
   assert.equal(packageJson.dependencies['axe-core'], '^4.12.1');
 
-  const packed = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json'], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const packed = runNpm(['pack', '--dry-run', '--json']);
   assert.equal(packed.status, 0, packed.stderr);
   const files = new Set(JSON.parse(packed.stdout)[0].files.map((item) => item.path));
   assert.ok(files.has('README.md'));
@@ -555,29 +575,12 @@ test('packed software installs globally in an isolated npm prefix', async () => 
     mkdir(prefix, { recursive: true }),
     mkdir(target, { recursive: true }),
   ]);
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const packed = spawnSync(npm, ['pack', '--json', '--pack-destination', packDirectory], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const packed = runNpm(['pack', '--json', '--pack-destination', packDirectory]);
   assert.equal(packed.status, 0, packed.stderr);
   const tarball = resolve(packDirectory, JSON.parse(packed.stdout)[0].filename);
-  const installed = spawnSync(npm, ['install', '--global', '--prefix', prefix, '--ignore-scripts', tarball], {
-    cwd: root,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const installed = runNpm(['install', '--global', '--prefix', prefix, '--ignore-scripts', tarball], root);
   assert.equal(installed.status, 0, installed.stderr + installed.stdout);
-  const executable = process.platform === 'win32' ? resolve(prefix, 'pre-sdd.cmd') : resolve(prefix, 'bin/pre-sdd');
-  const initialized = spawnSync(executable, ['init', target], {
-    cwd: target,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const initialized = runInstalledPreSdd(prefix, ['init', target], target);
   assert.equal(initialized.status, 0, initialized.stderr + initialized.stdout);
   assert.equal(await exists(resolve(target, 'psp.project.yaml')), true);
   assert.equal(await findDirectory(target, 'node_modules'), null);
@@ -590,13 +593,7 @@ test('git package installs globally without a repository build lifecycle', async
   const prefix = resolve(root, 'prefix');
   const target = resolve(root, 'workspace');
   await Promise.all([packDirectory, sourceParent, prefix, target].map((path) => mkdir(path, { recursive: true })));
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const packed = spawnSync(npm, ['pack', '--json', '--pack-destination', packDirectory], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const packed = runNpm(['pack', '--json', '--pack-destination', packDirectory]);
   assert.equal(packed.status, 0, packed.stderr);
   const tarball = resolve(packDirectory, JSON.parse(packed.stdout)[0].filename);
   const extracted = spawnSync('tar', ['-xf', tarball, '-C', sourceParent], { encoding: 'utf8', windowsHide: true });
@@ -613,20 +610,9 @@ test('git package installs globally without a repository build lifecycle', async
     assert.equal(git.status, 0, git.stderr + git.stdout);
   }
   const gitSpec = pathToFileURL(source).href.replace(/^file:/, 'git+file:');
-  const installed = spawnSync(npm, ['install', '--global', '--prefix', prefix, gitSpec], {
-    cwd: root,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const installed = runNpm(['install', '--global', '--prefix', prefix, gitSpec], root);
   assert.equal(installed.status, 0, installed.stderr + installed.stdout);
-  const executable = process.platform === 'win32' ? resolve(prefix, 'pre-sdd.cmd') : resolve(prefix, 'bin/pre-sdd');
-  const initialized = spawnSync(executable, ['init', target], {
-    cwd: target,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const initialized = runInstalledPreSdd(prefix, ['init', target], target);
   assert.equal(initialized.status, 0, initialized.stderr + initialized.stdout);
   assert.equal(await exists(resolve(target, 'psp.project.yaml')), true);
 });
@@ -636,21 +622,10 @@ test('npm exec can initialize without creating a local dependency tree', async (
   const packDirectory = resolve(root, 'pack');
   const target = resolve(root, 'workspace');
   await Promise.all([packDirectory, target].map((path) => mkdir(path, { recursive: true })));
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const packed = spawnSync(npm, ['pack', '--json', '--pack-destination', packDirectory], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const packed = runNpm(['pack', '--json', '--pack-destination', packDirectory]);
   assert.equal(packed.status, 0, packed.stderr);
   const tarball = resolve(packDirectory, JSON.parse(packed.stdout)[0].filename);
-  const executed = spawnSync(npm, ['exec', '--yes', '--package=' + tarball, '--', 'pre-sdd', 'init', target], {
-    cwd: target,
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
+  const executed = runNpm(['exec', '--yes', '--package=' + tarball, '--', 'pre-sdd', 'init', target], target);
   assert.equal(executed.status, 0, executed.stderr + executed.stdout);
   assert.equal(await exists(resolve(target, 'psp.project.yaml')), true);
   assert.equal(await findDirectory(target, 'node_modules'), null);

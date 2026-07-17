@@ -48,7 +48,7 @@ test('resolver maps Canonical UI authority and projections to one artifact scope
   assert.deepEqual(result.downstreamConsumers, []);
 });
 
-test('Use Cases is the only product handoff source for Architecture Design', () => {
+test('Use Cases has Wireflow as its only handoff consumer', () => {
   const active = structuredClone(project);
   active.stages['product-design'].status = 'active';
   const stage = active.stages['product-design'];
@@ -57,7 +57,7 @@ test('Use Cases is the only product handoff source for Architecture Design', () 
   assert.equal(authority.status, 'READY', JSON.stringify(authority.blockers));
   assert.deepEqual(authority.scopes, ['use-cases']);
   assert.deepEqual(authority.upstreamScopes, []);
-  assert.deepEqual(authority.downstreamConsumers, ['wireflow', 'architecture-design']);
+  assert.deepEqual(authority.downstreamConsumers, ['wireflow']);
   for (const output of binding.outputs) {
     const projection = resolveHarness(manifest, active, [stage.root + '/' + output.path], 'change', repositoryRoot);
     assert.equal(projection.status, 'BLOCKED');
@@ -71,6 +71,35 @@ test('User Harness declares only internal handoff consumers', () => {
   const architecture = manifest.scopes.find((item) => item.id === 'architecture-design');
   assert.deepEqual(architecture.dependencies, ['use-cases']);
   assert.deepEqual(architecture.handoffConsumers || [], []);
+});
+
+test('resolver uses artifact-level Architecture Design dependencies and readiness profiles', () => {
+  const active = structuredClone(project);
+  active.stages['product-design'].status = 'active';
+  active.stages['architecture-design'].status = 'active';
+  const stage = active.stages['architecture-design'];
+  const pathFor = (artifactId) => stage.root + '/' + stage.artifacts[artifactId].internalModel;
+
+  const systemBoundary = resolveHarness(manifest, active, [pathFor('system-boundary')], 'readiness', repositoryRoot);
+  assert.deepEqual(systemBoundary.scopes, ['system-boundary']);
+  assert.deepEqual(systemBoundary.upstreamScopes, ['use-cases']);
+  assert.ok(systemBoundary.commandIds.includes('architecture-system-boundary'));
+
+  const conceptualModel = resolveHarness(manifest, active, [pathFor('conceptual-model')], 'readiness', repositoryRoot);
+  assert.deepEqual(conceptualModel.scopes, ['conceptual-model']);
+  assert.deepEqual(conceptualModel.upstreamScopes, ['use-cases', 'system-boundary']);
+  assert.ok(conceptualModel.commandIds.includes('architecture-conceptual-model'));
+
+  const technicalArea = stage.root + '/' + stage.areas['technical-validation'].root + '/cases/EXP-001.case.mjs';
+  const technicalValidation = resolveHarness(manifest, active, [technicalArea], 'change', repositoryRoot);
+  assert.deepEqual(technicalValidation.scopes, ['technical-validation']);
+  assert.deepEqual(technicalValidation.upstreamScopes, ['use-cases', 'system-boundary']);
+  assert.ok(!technicalValidation.commandIds.includes('architecture-strict'));
+
+  const architecturePackage = resolveHarness(manifest, active, [pathFor('architecture-package')], 'readiness', repositoryRoot);
+  assert.deepEqual(architecturePackage.scopes, ['architecture-package']);
+  assert.deepEqual(architecturePackage.upstreamScopes, ['use-cases', 'system-boundary', 'conceptual-model', 'technical-validation']);
+  assert.ok(architecturePackage.commandIds.includes('architecture-package-readiness'));
 });
 
 test('Harness validator accepts registered domains and rejects a vertical path outside its domain', async () => {
@@ -117,7 +146,7 @@ test('handoff rejects unknown edges and reports uninitialized source without per
   const root = await temporaryRepository();
   const invalid = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'wireflow', '--to', 'architecture-design', '--json']);
   assert.ok(codes(invalid).has('AIH_HANDOFF_EDGE_INVALID'));
-  const uninitialized = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'architecture-design', '--json']);
+  const uninitialized = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'wireflow', '--json']);
   assert.ok(codes(uninitialized).has('AIH_STAGE_UNINITIALIZED'));
   const bound = parseYaml(await readFile(resolve(root, 'psp.project.yaml'), 'utf8'));
   assert.equal(bound.stages['architecture-design'].status, 'uninitialized');
@@ -137,11 +166,11 @@ test('handoff returns a transient PASS receipt without initializing downstream',
   bound.stages['product-design'].status = 'active';
   await writeFile(projectPath, stringifyYaml(bound));
 
-  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'architecture-design', '--json']);
+  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'wireflow', '--json']);
   assert.equal(result.exitCode, 0, JSON.stringify(result.output));
   assert.equal(result.output.status, 'PASS');
   assert.equal(result.output.from, 'use-cases');
-  assert.equal(result.output.to, 'architecture-design');
+  assert.equal(result.output.to, 'wireflow');
   assert.equal(result.output.profile, 'product-delivery');
   assert.deepEqual(result.output.validation.map((item) => item.status), ['PASS']);
   assert.equal(result.output.downstreamAction, 'NOT_RUN');
@@ -172,7 +201,7 @@ test('handoff executes commands in manifest order and marks commands after failu
   const bound = parseYaml(await readFile(projectPath, 'utf8'));
   bound.stages['product-design'].status = 'active';
   await writeFile(projectPath, stringifyYaml(bound));
-  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'architecture-design', '--json']);
+  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'wireflow', '--json']);
   assert.equal(result.output.status, 'FAIL');
   assert.deepEqual(result.output.validation.map((item) => item.status), ['PASS', 'FAIL', 'NOT_RUN']);
   assert.equal(result.output.downstreamAction, 'NOT_RUN');

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { delimiter, dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
@@ -27,6 +27,20 @@ function expandTestPaths(root, patterns) {
   return files;
 }
 
+function npmCliInvocation(args) {
+  const candidates = [
+    process.env.npm_execpath,
+    resolve(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ].filter(Boolean);
+  const npmCli = candidates.find((candidate) => existsSync(resolve(candidate)));
+  if (!npmCli) {
+    const error = new Error('无法定位可信的 npm CLI 入口。');
+    error.code = 'AIH_RUNTIME_UNAVAILABLE';
+    throw error;
+  }
+  return { executable: process.execPath, args: [resolve(npmCli), ...args] };
+}
+
 function executionArguments(root, command) {
   const executor = command.executor;
   if (executor.kind === 'module') {
@@ -46,8 +60,8 @@ function executionArguments(root, command) {
       throw error;
     }
     const areaRoot = resolve(root, ...matches[0].stage.root.split('/'), ...matches[0].area.root.split('/'));
-    const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    return { executable, args: ['--prefix', areaRoot, 'run', executor.script], cwd: root, shell: process.platform === 'win32' };
+    const invocation = npmCliInvocation(['--prefix', areaRoot, 'run', executor.script]);
+    return { ...invocation, cwd: root };
   }
   const error = new Error('不支持的 command executor：' + executor.kind);
   error.code = 'AIH_COMMAND_INVALID';
@@ -72,7 +86,7 @@ export function executeRegisteredCommand(root, command, options = {}) {
       },
       timeout: options.timeout || 120_000,
       windowsHide: true,
-      shell: prepared.shell || false,
+      shell: false,
     });
   } catch (error) {
     execution = { status: 1, stdout: '', stderr: '[' + (error.code || 'AIH_VALIDATION_FAILED') + '] ' + error.message };

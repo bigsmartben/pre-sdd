@@ -309,6 +309,16 @@ test('complete Use Case to key capability to selection to real-code conclusion m
   assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
 });
 
+test('each Architecture artifact passes its independent readiness step', async () => {
+  const root = await temporaryRepository();
+  await completeArchitectureFixture(root);
+  for (const step of ['system-boundary', 'conceptual-model', 'technical-validation', 'architecture-package']) {
+    const result = runScript('.agents/skills/architecture-design/scripts/validate.mjs', root, ['--step', step, '--json']);
+    assert.equal(result.exitCode, 0, step + ': ' + JSON.stringify(result.output, null, 2));
+    assert.equal(result.output.mode, step);
+  }
+});
+
 test('strict validation blocks a recorded pass when the experiment source hash changes', async () => {
   const root = await temporaryRepository();
   const { validation } = await completeArchitectureFixture(root);

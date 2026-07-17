@@ -44,7 +44,7 @@ flowchart LR
 
 每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
 
-例如，Use Cases 通过后，Agent 必须分别在使用者明确请求下游时取得到 `wireflow` 或 `architecture-design` 的移交凭证；生成 `PSP.md` 摘要不构成独立生命周期步骤。
+例如，Use Cases 通过后只向 `wireflow` 形成产品设计移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。生成 `PSP.md` 摘要不构成独立生命周期步骤。
 
 当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
 
@@ -97,7 +97,7 @@ flowchart LR
 
 `primaryChain`、`supportingArtifacts`、旧 Product Package gates 和 handoff 信息属于旧治理模型，不迁入产品事实。迁入完成后只能通过 Use Cases 产物事务生成新的 `UC.md` 与 `PSP.md`，不得从旧 `PSP.md` 反向生成用例。
 
-架构阶段只有在 `use-cases` 到 `architecture-design` 的上游移交通过后才能初始化。初始化后的关键结构如下：
+架构阶段只有在 `use-cases` 上游 readiness 通过后才能初始化；这是一条显式依赖，不是 handoff。初始化后的关键结构如下：
 
 ```text
 02-architecture-design/
@@ -190,7 +190,7 @@ flowchart LR
 |---|---|---|
 | 解析实际变更路径 | `npm run harness:resolve -- --intent change --path <仓库相对路径> --json` | 路径使用正斜杠 |
 | 初始化产品阶段 | `npm run init:product` | 使用者明确开始产品阶段 |
-| 初始化架构阶段 | `npm run init:architecture` | Use Cases 到 Architecture Design 的移交通过 |
+| 初始化架构阶段 | `npm run init:architecture` | Use Cases readiness 通过 |
 | 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件> --expected-sha256 <旧哈希>` | 阶段已初始化；先运行同一操作的 `--dry-run` |
 | 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件> --expected-sha256 <旧哈希>` | 阶段已初始化；先运行同一操作的 `--dry-run` |
 | 验证产品阶段 | `npm run validate:product` | 按 Resolver 返回顺序执行 |
