@@ -140,9 +140,7 @@ async function dev() {
     await server.close();
     throw Object.assign(new Error('开发服务器已启动，但没有返回可访问的本地地址。'), { code: 'AIH_CANONICAL_UI_SERVER_FAILED' });
   }
-  const reviewUrl = new URL(localUrl);
-  reviewUrl.searchParams.set('annotate', '1');
-  console.log('[READY] Canonical UI Prototype 评审地址：' + reviewUrl.href);
+  console.log('[READY] Canonical UI Prototype 评审地址：' + new URL(localUrl).href);
   return await new Promise((resolveExit) => {
     const close = async () => { await server.close(); resolveExit(0); };
     process.once('SIGINT', close);

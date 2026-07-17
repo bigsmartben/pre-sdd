@@ -789,6 +789,119 @@ async function verifyReducedMotion(page, model, routePath) {
   }
 }
 
+function cleanReviewUrl(base, routePath) {
+  const url = new URL(routePath, base);
+  url.searchParams.set('annotate', '0');
+  return url.href;
+}
+
+async function verifyDefaultReviewTool(page, routePath) {
+  const tool = page.locator('inconsistency-annotator[data-review-tool="inconsistency-annotator"]');
+  if (await tool.count() !== 1) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '页面默认未显示不一致标记工具。', routePath);
+    return;
+  }
+  const toolbar = tool.locator('.ia-toolbar');
+  if (await toolbar.count() !== 1 || !await toolbar.isVisible()) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '页面默认未显示不一致标记工具栏。', routePath);
+    return;
+  }
+  const placement = await toolbar.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { position: style.position, right: style.right, top: style.top };
+  });
+  if (placement.position !== 'fixed' || placement.right === 'auto' || placement.top === 'auto') {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具未固定在页面右上方。', routePath);
+  }
+}
+
+async function installClipboardProbe(page) {
+  await page.addInitScript(() => {
+    globalThis.__pspClipboardMode = 'success';
+    globalThis.__pspClipboardWrites = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        write: async (items) => {
+          const write = {
+            active: navigator.userActivation?.isActive === true,
+            mode: globalThis.__pspClipboardMode,
+            types: [],
+          };
+          for (const item of items) {
+            for (const type of item.types) {
+              const value = await item.getType(type);
+              write.types.push({ type, size: value.size });
+            }
+          }
+          globalThis.__pspClipboardWrites.push(write);
+          if (write.mode === 'denied') {
+            throw new DOMException('Write permission denied.', 'NotAllowedError');
+          }
+        },
+      },
+    });
+  });
+}
+
+async function verifyReviewToolCopy(page, routePath) {
+  const viewport = page.viewportSize();
+  const startX = Math.min(16, Math.max(1, viewport.width - 40));
+  const startY = Math.min(120, Math.max(1, viewport.height - 100));
+  const endX = Math.min(viewport.width - 1, startX + 120);
+  const endY = Math.min(viewport.height - 1, startY + 100);
+  await page.locator('[data-action="start"]').click();
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(endX, endY, { steps: 4 });
+  await page.mouse.up();
+  await page.locator('[data-issue-type="visual"]').click();
+
+  const copy = page.locator('[data-action="copy"]');
+  await copy.click();
+  await page.waitForFunction(() => document.querySelector('.ia-status')?.textContent?.includes('已复制'));
+  let writes = await page.evaluate(() => globalThis.__pspClipboardWrites);
+  const successfulTypes = new Set(writes[0]?.types?.map((item) => item.type));
+  if (writes.length !== 1 || writes[0]?.active !== true || !successfulTypes.has('image/png') || !successfulTypes.has('text/plain')) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具没有在用户点击期间写入 PNG 与文字。', routePath);
+  }
+
+  await page.waitForFunction(() => document.querySelector('[data-action="copy"]')?.textContent === '复制');
+  await page.evaluate(() => { globalThis.__pspClipboardMode = 'denied'; });
+  await copy.click();
+  await page.waitForFunction(() => document.querySelector('.ia-status')?.textContent?.includes('复制失败'));
+  writes = await page.evaluate(() => globalThis.__pspClipboardWrites);
+  const failureStatus = await page.locator('.ia-status').textContent();
+  if (writes.length !== 2 || !failureStatus?.includes('下载图片')) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '剪贴板拒绝后没有提供下载图片降级入口。', routePath);
+  }
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('[data-action="download"]').click(),
+  ]);
+  if (!download.suggestedFilename().endsWith('.png')) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具下载的文件不是 PNG。', routePath);
+  }
+  await page.waitForFunction(() => document.querySelector('.ia-status')?.textContent?.includes('已下载'));
+}
+
+async function verifyReviewToolWorkflow(viewport, base, routePath) {
+  const context = await browser.newContext({
+    acceptDownloads: true,
+    viewport: { width: viewport.width, height: viewport.height },
+  });
+  const page = await context.newPage();
+  try {
+    await installClipboardProbe(page);
+    await page.goto(new URL(routePath, base).href, { waitUntil: 'networkidle' });
+    await verifyDefaultReviewTool(page, routePath);
+    await verifyReviewToolCopy(page, routePath);
+  } finally {
+    await context.close();
+  }
+}
+
 async function capture(page, evidenceRoot, item) {
   const parts = [item.kind, item.viewportId, item.routeId, item.scenarioId].filter(Boolean);
   const screenshot = join(evidenceRoot, parts.join('-') + '.png');
@@ -826,12 +939,25 @@ try {
   const base = 'http://127.0.0.1:' + address.port;
   browser = await chromium.launch({ headless: true });
 
+  if (model.viewports[0] && model.routes[0]) {
+    try {
+      await verifyReviewToolWorkflow(model.viewports[0], base, model.routes[0].path);
+    } catch (error) {
+      block(error.code || 'AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具复制回归失败：' + error.message, model.routes[0].path);
+    }
+  }
+
   for (const viewport of model.viewports) {
     for (const route of model.routes) {
       const { context, page } = await guardedPage(viewport, base);
       let screen = null;
       try {
-        await page.goto(base + route.path, { waitUntil: 'networkidle' });
+        await page.goto(new URL(route.path, base).href, { waitUntil: 'networkidle' });
+        await verifyDefaultReviewTool(page, route.path);
+        await page.goto(cleanReviewUrl(base, route.path), { waitUntil: 'networkidle' });
+        if (await page.locator('inconsistency-annotator').count() !== 0) {
+          block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'annotate=0 未关闭不一致标记工具。', route.path);
+        }
         screen = await verifyBaseSemantics(page, model, route);
         await runVisualAssertions(page, model, route.id, viewport);
         await runSourceParityAssertions(page, model, route.id, viewport, parityEvidence, thresholds, evidenceRoot);
@@ -862,7 +988,7 @@ try {
       if (!route || !viewport) continue;
       const { context, page } = await guardedPage(viewport, base);
       try {
-        await page.goto(base + route.path, { waitUntil: 'networkidle' });
+        await page.goto(cleanReviewUrl(base, route.path), { waitUntil: 'networkidle' });
         const screen = await verifyBaseSemantics(page, model, route);
         for (const stateId of scenario.initialStateIds) {
           const initialState = page.locator(stateSelector(model, stateId)).first();

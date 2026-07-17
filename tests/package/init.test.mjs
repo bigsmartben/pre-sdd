@@ -426,7 +426,7 @@ test('workspace-local runtime typechecks and builds an initialized product witho
   assert.equal(await findDirectory(target, 'node_modules'), null);
 });
 
-test('Canonical UI dev command publishes a reachable annotated HTTP review URL', async () => {
+test('Canonical UI dev command publishes a reachable default-annotated HTTP review URL', async () => {
   const target = await temporaryDirectory('pre-sdd-canonical-ui-dev-');
   assert.equal(runCli(['init', target]).status, 0);
 
@@ -462,7 +462,7 @@ test('Canonical UI dev command publishes a reachable annotated HTTP review URL',
   try {
     const ready = await waitForCanonicalUiReady(child);
     const reviewUrl = new URL(ready.url);
-    assert.equal(reviewUrl.searchParams.get('annotate'), '1');
+    assert.equal(reviewUrl.searchParams.has('annotate'), false);
     const response = await fetch(reviewUrl);
     assert.equal(response.status, 200, ready.output);
     assert.match(await response.text(), /<script[^>]+src="\/src\/main\.ts"/);

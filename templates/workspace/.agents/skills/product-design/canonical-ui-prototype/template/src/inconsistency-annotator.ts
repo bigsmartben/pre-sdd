@@ -64,6 +64,7 @@ class InconsistencyAnnotator extends HTMLElement {
   private typePicker?: HTMLElement;
   private startButton?: HTMLButtonElement;
   private copyButton?: HTMLButtonElement;
+  private downloadButton?: HTMLButtonElement;
   private statusNode?: HTMLElement;
   private currentPageKey = '';
   private pageObserver?: MutationObserver;
@@ -191,23 +192,24 @@ class InconsistencyAnnotator extends HTMLElement {
       .filter((marker): marker is Marker & { type: IssueType } => Boolean(marker.type));
     if (markers.length === 0 || !this.copyButton) return;
 
+    if (!window.isSecureContext || !navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      this.setStatus('当前浏览器不能直接写入图片剪贴板，请点击“下载图片”。');
+      return;
+    }
+
     this.copyButton.disabled = true;
     this.copyButton.textContent = '复制中…';
     this.setStatus('正在生成带标记的当前页面截图。');
 
+    const image = this.captureViewport(markers);
+    void image.catch(() => undefined);
     try {
-      const image = await this.captureViewport(markers);
       const text = this.buildPlainText(markers);
       const clipboardData = {
         'image/png': image,
-        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/plain': Promise.resolve(new Blob([text], { type: 'text/plain' })),
       };
-
-      try {
-        await navigator.clipboard.write([new ClipboardItem(clipboardData)]);
-      } catch {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]);
-      }
+      await navigator.clipboard.write([new ClipboardItem(clipboardData)]);
 
       this.copyButton.textContent = '已复制';
       this.setStatus('已复制带标记截图，现在可以直接粘贴发送给 AI。');
@@ -218,8 +220,41 @@ class InconsistencyAnnotator extends HTMLElement {
     } catch (error: unknown) {
       this.copyButton.textContent = '复制';
       this.refreshControls();
+      const denied = error instanceof DOMException && error.name === 'NotAllowedError';
+      const message = denied
+        ? '浏览器拒绝写入剪贴板，请允许权限后重试'
+        : (error instanceof Error ? error.message : '未知错误');
+      this.setStatus(`复制失败：${message}；也可以点击“下载图片”。`);
+    }
+  };
+
+  private readonly downloadAnnotatedScreenshot = async (): Promise<void> => {
+    const markers = this.currentPageMarkers()
+      .filter((marker): marker is Marker & { type: IssueType } => Boolean(marker.type));
+    if (markers.length === 0 || !this.downloadButton) return;
+
+    this.downloadButton.disabled = true;
+    this.downloadButton.textContent = '生成中…';
+    this.setStatus('正在生成带标记的 PNG 图片。');
+
+    try {
+      const image = await this.captureViewport(markers);
+      const href = URL.createObjectURL(image);
+      const link = document.createElement('a');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      link.href = href;
+      link.download = `ui-inconsistency-${timestamp}.png`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+      this.setStatus('已下载带标记图片，可以作为文件发送给 AI。');
+    } catch (error: unknown) {
       const message = error instanceof Error ? error.message : '未知错误';
-      this.setStatus(`复制失败：${message}`);
+      this.setStatus(`下载失败：${message}`);
+    } finally {
+      this.downloadButton.textContent = '下载图片';
+      this.refreshControls();
     }
   };
 
@@ -272,7 +307,7 @@ class InconsistencyAnnotator extends HTMLElement {
         .ia-is-selecting, .ia-is-selecting * { user-select: none !important; }
         inconsistency-annotator { position: relative; z-index: 2147483000; font-family: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
         .ia-toolbar {
-          position: fixed; z-index: 2147483600; right: 20px; bottom: 20px; display: grid; gap: 10px;
+          position: fixed; z-index: 2147483600; top: 20px; right: 20px; display: grid; gap: 10px;
           width: 252px; padding: 14px; border: 1px solid rgba(255,255,255,.82); border-radius: 18px;
           color: #202124; background: rgba(255,255,255,.96); box-shadow: 0 18px 55px rgba(24,25,31,.28);
           backdrop-filter: blur(18px);
@@ -312,7 +347,7 @@ class InconsistencyAnnotator extends HTMLElement {
         .ia-type-button { min-height: 42px; padding: 0 10px; border: 1px solid #e3e4e7; border-radius: 11px; color: #25262a; background: #f8f8f9; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
         .ia-type-button:hover { border-color: #e5484d; color: #c9343a; background: #fff4f4; }
         @media (max-width: 560px) {
-          .ia-toolbar { right: 12px; bottom: 12px; left: 12px; width: auto; }
+          .ia-toolbar { top: 12px; right: 12px; width: min(252px, calc(100vw - 24px)); }
           .ia-type-picker { left: 12px !important; width: calc(100vw - 24px); }
         }
       </style>
@@ -337,6 +372,7 @@ class InconsistencyAnnotator extends HTMLElement {
           <button class="ia-button" type="button" data-action="copy" disabled>复制</button>
         </div>
         <div class="ia-toolbar-secondary">
+          <button class="ia-link-button" type="button" data-action="download" disabled>下载图片</button>
           <button class="ia-link-button" type="button" data-action="undo" disabled>撤销上一个</button>
           <button class="ia-link-button" type="button" data-action="clear" disabled>清空</button>
         </div>
@@ -350,10 +386,12 @@ class InconsistencyAnnotator extends HTMLElement {
     this.typePicker = this.querySelector<HTMLElement>('.ia-type-picker') ?? undefined;
     this.startButton = this.querySelector<HTMLButtonElement>('[data-action="start"]') ?? undefined;
     this.copyButton = this.querySelector<HTMLButtonElement>('[data-action="copy"]') ?? undefined;
+    this.downloadButton = this.querySelector<HTMLButtonElement>('[data-action="download"]') ?? undefined;
     this.statusNode = this.querySelector<HTMLElement>('.ia-status') ?? undefined;
 
     this.startButton?.addEventListener('click', this.beginSelection);
     this.copyButton?.addEventListener('click', this.copyAnnotatedScreenshot);
+    this.downloadButton?.addEventListener('click', this.downloadAnnotatedScreenshot);
     this.querySelector<HTMLButtonElement>('[data-action="undo"]')?.addEventListener('click', this.undoLastMarker);
     this.querySelector<HTMLButtonElement>('[data-action="clear"]')?.addEventListener('click', this.clearMarkers);
     this.typePicker?.addEventListener('click', this.chooseIssueType);
@@ -421,10 +459,6 @@ class InconsistencyAnnotator extends HTMLElement {
   }
 
   private async captureViewport(markers: Array<Marker & { type: IssueType }>): Promise<Blob> {
-    if (!window.isSecureContext || !navigator.clipboard || typeof ClipboardItem === 'undefined') {
-      throw new Error('当前浏览器不支持图片剪贴板，请使用 localhost 评审入口');
-    }
-
     const html2canvas = await this.loadScreenshotRenderer();
     const scale = Math.min(Math.max(window.devicePixelRatio, 1), 2);
     const previousVisibility = this.style.visibility;
@@ -604,6 +638,7 @@ class InconsistencyAnnotator extends HTMLElement {
     const markers = this.currentPageMarkers();
     const readyToCopy = markers.length > 0 && markers.every((marker) => Boolean(marker.type));
     if (this.copyButton) this.copyButton.disabled = !readyToCopy;
+    if (this.downloadButton) this.downloadButton.disabled = !readyToCopy;
     const empty = markers.length === 0;
     const undo = this.querySelector<HTMLButtonElement>('[data-action="undo"]');
     const clear = this.querySelector<HTMLButtonElement>('[data-action="clear"]');
@@ -664,7 +699,7 @@ class InconsistencyAnnotator extends HTMLElement {
 
 customElements.define('inconsistency-annotator', InconsistencyAnnotator);
 
-if (new URLSearchParams(window.location.search).get('annotate') === '1') {
+if (new URLSearchParams(window.location.search).get('annotate') !== '0') {
   document.body.append(document.createElement('inconsistency-annotator'));
 }
 

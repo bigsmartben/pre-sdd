@@ -39,4 +39,4 @@
 10. `exact` 只在阻断码完全属于 `repairPolicy.repairableBlockerCodes` 时生成 Repair Packet；随后必须路由到 `$repair-canonical-ui-visual`，由该技能按 Contract 固定实现策略修改允许路径，并在 `actionReportPath` 写入通过 Schema 校验的 Repair Action Report。本验证文档不拥有具体 HTML、CSS 或组件修改算法。修复前后的设计来源、截图基线、视觉策略、Canonical UI 业务语义、Use Cases 与 Wireflow 哈希必须一致；任何变化以 `AIH_VISUAL_REPAIR_SCOPE_VIOLATION` 阻断。
 11. Validator 最多接受 3 次实现修复；第 3 次仍失败时报告 `AIH_VISUAL_REPAIR_EXHAUSTED`，保留每次差异比例、实际截图和差异图。来源缺失、哈希不一致、覆盖不完整、业务冲突、运行时错误、网络错误、无障碍错误等非修复码不得生成可执行 Repair Packet。
 12. 运行 Product strict Profile；任何 FAIL、BLOCKED 或 NOT_RUN 都必须保留为 residual，不能表述为 ready。
-13. 修复 operation 与全部检查通过后启动 Manifest 登记的 Canonical UI 开发服务器，读取其实际输出的 `[READY]` 评审地址并请求一次确认可访问。默认向用户提供带 `?annotate=1` 的地址，使不一致标记工具处于开启状态；服务器进程必须在当前评审期间保持运行。
+13. 修复 operation 与全部检查通过后启动 Manifest 登记的 Canonical UI 开发服务器，读取其实际输出的 `[READY]` 评审地址并请求一次确认可访问。普通评审地址默认开启固定在每个页面右上方的不一致标记工具；只有干净预览才使用 `?annotate=0`。服务器进程必须在当前评审期间保持运行。
