@@ -3,7 +3,7 @@
   "$id": "https://psp.dev/schemas/artifacts/capabilities.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "metadata", "intent", "actors", "productScope", "businessRules", "useCases", "gates", "gaps"],
+  "required": ["apiVersion", "kind", "metadata", "intent", "actors", "productScope", "businessRules", "useCases", "gaps"],
   "properties": {
     "apiVersion": {"const": "psp.dev/v1"},
     "kind": {"const": "UseCaseSpecification"},
@@ -25,12 +25,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "name", "goal", "description"],
+        "required": ["id", "name", "goal"],
         "properties": {
           "id": {"$ref": "#/$defs/actorId"},
           "name": {"type": "string", "minLength": 1},
-          "goal": {"type": "string", "minLength": 1},
-          "description": {"type": "string", "minLength": 1}
+          "goal": {"type": "string", "minLength": 1}
         }
       }
     },
@@ -48,11 +47,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "statement", "rationale", "appliesTo"],
+        "required": ["id", "statement", "appliesTo"],
         "properties": {
           "id": {"$ref": "#/$defs/businessRuleId"},
           "statement": {"type": "string", "minLength": 1},
-          "rationale": {"type": "string", "minLength": 1},
           "appliesTo": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}}
         }
       }
@@ -63,8 +61,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "id", "name", "actor", "goal", "value", "trigger", "preconditions", "postconditions",
-          "mainScenario", "alternateScenarios", "businessRules", "acceptanceCriteria", "relationships"
+          "id", "name", "actor", "goal", "value", "trigger", "preconditions", "successOutcome",
+          "minimumGuarantee", "mainScenario", "alternateScenarios", "businessRules", "relationships"
         ],
         "properties": {
           "id": {"$ref": "#/$defs/useCaseId"},
@@ -74,15 +72,8 @@
           "value": {"type": "string", "minLength": 1},
           "trigger": {"type": "string", "minLength": 1},
           "preconditions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-          "postconditions": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["success", "failure"],
-            "properties": {
-              "success": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-              "failure": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
-            }
-          },
+          "successOutcome": {"type": "string", "minLength": 1},
+          "minimumGuarantee": {"type": "string", "minLength": 1},
           "mainScenario": {
             "type": "array",
             "minItems": 1,
@@ -93,11 +84,6 @@
             "items": {"$ref": "#/$defs/alternateScenario"}
           },
           "businessRules": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/businessRuleId"}},
-          "acceptanceCriteria": {
-            "type": "array",
-            "minItems": 1,
-            "items": {"$ref": "#/$defs/acceptanceCriterion"}
-          },
           "relationships": {
             "type": "array",
             "items": {
@@ -113,7 +99,6 @@
         }
       }
     },
-    "gates": {"$ref": "#/$defs/gates"},
     "gaps": {"$ref": "#/$defs/gaps"}
   },
   "$defs": {
@@ -133,17 +118,15 @@
     "mainStepId": {"type": "string", "pattern": "^UC-[0-9]{3}-STEP-[0-9]{2}$"},
     "scenarioId": {"type": "string", "pattern": "^UC-[0-9]{3}-(ALT|EXC)-[0-9]{2}$"},
     "scenarioStepId": {"type": "string", "pattern": "^UC-[0-9]{3}-(ALT|EXC)-[0-9]{2}-STEP-[0-9]{2}$"},
-    "acceptanceId": {"type": "string", "pattern": "^AC-[0-9]{3}$"},
     "mainStep": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "initiator", "action", "systemResponse", "observableResult"],
+      "required": ["id", "initiator", "action", "outcome"],
       "properties": {
         "id": {"$ref": "#/$defs/mainStepId"},
         "initiator": {"enum": ["actor", "system"]},
         "action": {"type": "string", "minLength": 1},
-        "systemResponse": {"type": "string", "minLength": 1},
-        "observableResult": {"type": "string", "minLength": 1}
+        "outcome": {"type": "string", "minLength": 1}
       }
     },
     "alternateScenario": {
@@ -162,42 +145,18 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "initiator", "action", "systemResponse", "observableResult"],
+            "required": ["id", "initiator", "action", "outcome"],
             "properties": {
               "id": {"$ref": "#/$defs/scenarioStepId"},
               "initiator": {"enum": ["actor", "system"]},
               "action": {"type": "string", "minLength": 1},
-              "systemResponse": {"type": "string", "minLength": 1},
-              "observableResult": {"type": "string", "minLength": 1}
+              "outcome": {"type": "string", "minLength": 1}
             }
           }
         },
         "outcome": {"type": "string", "minLength": 1}
       }
     },
-    "acceptanceCriterion": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "scenario", "given", "when", "then"],
-      "properties": {
-        "id": {"$ref": "#/$defs/acceptanceId"},
-        "scenario": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/scenarioId"}]},
-        "given": {"type": "string", "minLength": 1},
-        "when": {"type": "string", "minLength": 1},
-        "then": {"type": "string", "minLength": 1}
-      }
-    },
-    "gate": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "label", "checked"],
-      "properties": {
-        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-        "label": {"type": "string", "minLength": 1},
-        "checked": {"type": "boolean"}
-      }
-    },
-    "gates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gate"}},
     "gap": {
       "type": "object",
       "additionalProperties": false,

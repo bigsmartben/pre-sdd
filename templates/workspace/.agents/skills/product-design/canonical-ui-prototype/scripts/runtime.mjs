@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { build, createServer } from 'vite';
-import { artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const require = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || process.env.PRE_SDD_RUNTIME_ENTRY || import.meta.url);
@@ -48,7 +48,7 @@ function dependencyRoot(specifier) {
   throw new Error('无法定位领域运行依赖：' + specifier);
 }
 
-async function prototypeRoot() {
+async function prototypeRoots() {
   const { project } = await loadProjectAndManifest(root);
   const stage = project.stages?.['product-design'];
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
@@ -56,11 +56,27 @@ async function prototypeRoot() {
     throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   }
   if (!paths?.area) throw Object.assign(new Error('项目未绑定 Canonical UI Prototype Area。'), { code: 'AIH_PROJECT_BINDING_INVALID' });
-  return repositoryFile(root, project.stages['product-design'].root + '/' + project.stages['product-design'].areas[paths.area].root);
+  if (paths.authorityKind === 'area-set') {
+    const members = await artifactCollectionMembers(root, paths);
+    return members.map((member) => ({ actor: member.actor, root: repositoryFile(root, paths.authorityRoot + '/' + member.actor) }));
+  }
+  return [{ actor: null, root: repositoryFile(root, project.stages['product-design'].root + '/' + project.stages['product-design'].areas[paths.area].root) }];
 }
 
-async function typecheck() {
-  const area = await prototypeRoot();
+async function selectedPrototypeRoots(requireActor = false) {
+  const members = await prototypeRoots();
+  const actor = argument('actor');
+  if (members.length === 0) throw Object.assign(new Error('尚未创建任何参与者 Canonical UI 应用。'), { code: 'AIH_ARTIFACT_INCOMPLETE' });
+  if (actor) {
+    const selected = members.find((member) => member.actor === actor);
+    if (!selected) throw Object.assign(new Error('未找到参与者 Canonical UI 应用：' + actor), { code: 'AIH_PATH_INVALID' });
+    return [selected];
+  }
+  if (requireActor && members.length > 1) throw Object.assign(new Error('存在多个独立应用；请使用 --actor ACTOR-NNN 选择评审应用。'), { code: 'AIH_COMMAND_INVALID' });
+  return members;
+}
+
+async function typecheckArea(area, actor) {
   const sourceConfig = JSON.parse(await readFile(resolve(area, 'tsconfig.json'), 'utf8'));
   const temporary = await mkdtemp(join(tmpdir(), 'psp-canonical-typecheck-'));
   try {
@@ -85,24 +101,34 @@ async function typecheck() {
       stdio: 'inherit',
       windowsHide: true,
     });
-    if (result.status === 0) console.log('[PASS] Canonical UI Prototype TypeScript 校验通过。');
+    if (result.status === 0) console.log('[PASS] ' + (actor || 'Canonical UI Prototype') + ' TypeScript 校验通过。');
     return result.status ?? 1;
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
 }
 
+async function typecheck() {
+  for (const member of await selectedPrototypeRoots()) {
+    const status = await typecheckArea(member.root, member.actor);
+    if (status !== 0) return status;
+  }
+  return 0;
+}
+
 async function buildPrototype() {
-  const checked = await typecheck();
-  if (checked !== 0) return checked;
-  const area = await prototypeRoot();
-  await build({ root: area, configFile: false, resolve: { alias: dependencyAliases() }, build: { emptyOutDir: true } });
-  console.log('[PASS] Canonical UI Prototype 构建通过。');
+  for (const member of await selectedPrototypeRoots()) {
+    const checked = await typecheckArea(member.root, member.actor);
+    if (checked !== 0) return checked;
+    await build({ root: member.root, configFile: false, resolve: { alias: dependencyAliases() }, build: { emptyOutDir: true } });
+    console.log('[PASS] ' + (member.actor || 'Canonical UI Prototype') + ' 独立应用构建通过。');
+  }
   return 0;
 }
 
 async function dev() {
-  const area = await prototypeRoot();
+  const [member] = await selectedPrototypeRoots(true);
+  const area = member.root;
   const server = await createServer({ root: area, configFile: false, resolve: { alias: dependencyAliases() }, server: { port: 4173 } });
   await server.listen();
   server.printUrls();
@@ -111,7 +137,7 @@ async function dev() {
     await server.close();
     throw Object.assign(new Error('开发服务器已启动，但没有返回可访问的本地地址。'), { code: 'AIH_CANONICAL_UI_SERVER_FAILED' });
   }
-  console.log('[READY] Canonical UI Prototype 评审地址：' + new URL(localUrl).href);
+  console.log('[READY] ' + (member.actor || 'Canonical UI Prototype') + ' 独立应用评审地址：' + new URL(localUrl).href);
   return await new Promise((resolveExit) => {
     const close = async () => { await server.close(); resolveExit(0); };
     process.once('SIGINT', close);

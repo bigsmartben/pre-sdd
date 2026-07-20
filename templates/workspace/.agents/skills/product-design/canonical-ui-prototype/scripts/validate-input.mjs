@@ -1,13 +1,34 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { artifactPaths, loadProjectAndManifest, readJson, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readJson, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const json = process.argv.includes('--json');
 const blockers = [];
+const actorIndex = process.argv.indexOf('--actor');
+const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
+
+if (!requestedActor) {
+  const { project } = await loadProjectAndManifest(root);
+  const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
+  const members = await artifactCollectionMembers(root, paths);
+  const childBlockers = [];
+  for (const member of members) {
+    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json'], { cwd: root, encoding: 'utf8', env: process.env, windowsHide: true });
+    try { childBlockers.push(...(JSON.parse(child.stdout || '{}').blockers || [])); }
+    catch { childBlockers.push({ code: 'AIH_VALIDATION_FAILED', message: child.stderr || '参与者输入校验没有返回 JSON。', location: member.actor }); }
+  }
+  if (members.length === 0) childBlockers.push({ code: 'AIH_ARTIFACT_INCOMPLETE', message: '尚未创建参与者 Canonical UI 应用。', location: paths.authorityRoot });
+  const aggregate = { status: childBlockers.length === 0 ? 'PASS' : 'BLOCKED', actors: members.map((member) => member.actor), blockers: childBlockers };
+  if (json) console.log(JSON.stringify(aggregate, null, 2));
+  else if (aggregate.status === 'PASS') console.log('[PASS] 全部参与者 Canonical UI 输入校验通过。');
+  else for (const item of childBlockers) console.error('[' + item.code + '] ' + item.message);
+  process.exit(aggregate.status === 'PASS' ? 0 : 1);
+}
 
 function block(code, message, location) {
   blockers.push({ code, message, ...(location ? { location } : {}) });
@@ -60,15 +81,18 @@ try {
   for (const artifactId of ['capabilities', 'interactions']) {
     const registry = manifest.artifactRegistry.find((item) => item.id === artifactId);
     const paths = artifactPaths(project, artifactId, 'product-design');
-    const model = await readStructured(root, paths.authorityPath, registry.format);
+    const authorityPath = paths.authorityKind === 'internal-model-set' ? artifactMemberPath(paths, requestedActor) : paths.authorityPath;
+    const model = await readStructured(root, authorityPath, registry.format);
     if (model.metadata?.status !== 'ready' || model.gaps?.length > 0 || model.gates?.some((gate) => gate.checked !== true)) {
-      block('AIH_UPSTREAM_NOT_READY', '上游产物未达到严格就绪：' + artifactId, paths.authorityPath);
+      block('AIH_UPSTREAM_NOT_READY', '上游产物未达到严格就绪：' + artifactId, authorityPath);
     }
   }
 
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
-  const model = await extractCanonicalUi(root, paths.authorityPath);
-  const areaPath = stage.root + '/' + stage.areas[paths.area].root;
+  const authorityPath = artifactMemberPath(paths, requestedActor);
+  const model = await extractCanonicalUi(root, authorityPath);
+  if (model.actor !== requestedActor) block('AIH_REFERENCE_UNRESOLVED', '应用 actor 与目录参与者不一致。', authorityPath);
+  const areaPath = paths.authorityRoot + '/' + requestedActor;
   const areaDirectory = repositoryFile(root, areaPath);
   const evidenceSchema = await readJson(root, '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json');
   const validateEvidence = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(evidenceSchema);

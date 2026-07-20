@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { runScript } from './fixture.mjs';
@@ -9,8 +9,10 @@ export async function fixtureProject(root) {
   return parseYaml(await readFile(resolve(root, 'psp.project.yaml'), 'utf8'));
 }
 
-export async function readArtifact(root, stage, binding, format = 'yaml') {
-  const path = resolve(root, stage.root, binding.internalModel);
+export async function readArtifact(root, stage, binding, format = 'yaml', actor = 'ACTOR-001') {
+  const path = binding.internalModelSet
+    ? resolve(root, stage.root, binding.internalModelSet.root, actor, binding.internalModelSet.member)
+    : resolve(root, stage.root, binding.internalModel);
   const raw = await readFile(path, 'utf8');
   return { path, data: format === 'json' ? JSON.parse(raw) : parseYaml(raw) };
 }
@@ -25,7 +27,7 @@ export async function writeArtifact(artifact, format = 'yaml') {
 export function markReady(model) {
   model.metadata.status = 'ready';
   model.gaps = [];
-  for (const gate of model.gates) gate.checked = true;
+  for (const gate of model.gates || []) gate.checked = true;
 }
 
 function sha256(content) {
@@ -38,6 +40,10 @@ export async function completeProductFixture(root) {
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
   const capabilities = await readArtifact(root, stage, stage.artifacts.capabilities);
+  const interactionBinding = stage.artifacts.interactions;
+  const interactionPath = resolve(root, stage.root, interactionBinding.internalModelSet.root, 'ACTOR-001', interactionBinding.internalModelSet.member);
+  await mkdir(resolve(interactionPath, '..'), { recursive: true });
+  await copyFile(resolve(root, '.agents/skills/product-design/interactions/template.yaml'), interactionPath);
   const interactions = await readArtifact(root, stage, stage.artifacts.interactions);
 
   markReady(capabilities.data);
@@ -52,7 +58,6 @@ export async function completeProductFixture(root) {
     id: 'ACTOR-001',
     name: '规格作者',
     goal: '交付一致的产品规格',
-    description: '创建和维护产品设计 Package',
   }];
   capabilities.data.productScope = {
     included: ['创建结构化产品规格'],
@@ -61,7 +66,6 @@ export async function completeProductFixture(root) {
   capabilities.data.businessRules = [{
     id: 'BR-001',
     statement: '只有结构与引用全部有效的 Package 才能通过验证',
-    rationale: '保证下游消费输入确定且可追溯',
     appliesTo: ['UC-001'],
   }];
   capabilities.data.useCases = [{
@@ -72,16 +76,13 @@ export async function completeProductFixture(root) {
     value: '在交付前发现结构和引用问题',
     trigger: '规格作者请求验证当前 Package',
     preconditions: ['Package 已包含待验证的规格内容'],
-    postconditions: {
-      success: ['显示可交付状态及对应证据'],
-      failure: ['保留原始规格并显示可定位错误'],
-    },
+    successOutcome: '显示可交付状态及对应证据',
+    minimumGuarantee: '保留原始规格并显示可定位错误',
     mainScenario: [{
       id: 'UC-001-STEP-01',
       initiator: 'actor',
       action: '规格作者提交 Package 验证请求',
-      systemResponse: '系统执行结构、引用和门禁检查',
-      observableResult: '规格作者看到通过状态和验证证据',
+      outcome: '系统完成结构、引用和门禁检查并展示结果',
     }],
     alternateScenarios: [{
       id: 'UC-001-EXC-01',
@@ -93,29 +94,20 @@ export async function completeProductFixture(root) {
         id: 'UC-001-EXC-01-STEP-01',
         initiator: 'system',
         action: '系统停止交付判定',
-        systemResponse: '系统返回引用错误位置和 blocker code',
-        observableResult: '规格作者看到失败状态且原始规格未被修改',
+        outcome: '规格作者看到失败状态和可定位错误，原始规格保持不变',
       }],
       outcome: 'Package 保持不可交付，等待规格作者修复引用',
     }],
     businessRules: ['BR-001'],
-    acceptanceCriteria: [{
-      id: 'AC-001',
-      scenario: 'main',
-      given: 'Package 结构与引用均有效',
-      when: '规格作者运行验证',
-      then: '系统显示通过状态和验证证据',
-    }, {
-      id: 'AC-002',
-      scenario: 'UC-001-EXC-01',
-      given: 'Package 存在无效引用',
-      when: '规格作者运行验证',
-      then: '系统显示失败状态、错误位置和 blocker code',
-    }],
     relationships: [],
   }];
 
   markReady(interactions.data);
+  interactions.data.metadata.actor = 'ACTOR-001';
+  interactions.data.siteMap = {
+    entryScreen: 'SCREEN-001',
+    nodes: [{ screen: 'SCREEN-001', parent: null }],
+  };
   interactions.data.screens = [{
     id: 'SCREEN-001',
     name: '规格检查页',
@@ -226,6 +218,7 @@ export async function completeProductFixture(root) {
       from: { screen: 'SCREEN-001', state: 'WF-STATE-001' },
       trigger: { event: 'validate-package', control: 'CONTROL-001' },
       guard: null,
+      branchLabel: '成功',
       to: { screen: 'SCREEN-001', state: 'WF-STATE-002' },
     }, {
       id: 'WF-001-STEP-02',
@@ -234,12 +227,14 @@ export async function completeProductFixture(root) {
       from: { screen: 'SCREEN-001', state: 'WF-STATE-001' },
       trigger: { event: 'validate-package', control: 'CONTROL-001' },
       guard: 'Package 中存在无法解析的引用',
+      branchLabel: '失败',
       to: { screen: 'SCREEN-001', state: 'WF-STATE-003' },
     }],
   }];
 
-  const prototypeRoot = stage.areas['canonical-ui-prototype'].root;
-  const areaPath = resolve(root, stage.root, prototypeRoot);
+  const prototypeRoot = stage.areas['canonical-ui-prototypes'].root;
+  const areaPath = resolve(root, stage.root, prototypeRoot, 'ACTOR-001');
+  await cp(resolve(root, '.agents/skills/product-design/canonical-ui-prototype/template'), areaPath, { recursive: true });
   const sourceId = 'DESIGN-SOURCE-001';
   const sourceRoot = resolve(areaPath, 'design-sources', sourceId);
   const assetRoot = resolve(areaPath, 'public/assets', sourceId);
@@ -370,7 +365,8 @@ export async function completeProductFixture(root) {
   const allStateIds = ['WF-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '4.0.0',
+    version: '5.0.0',
+    actor: 'ACTOR-001',
     visualPolicy: {
       mode: 'guided',
       selectedBy: 'user-explicit',

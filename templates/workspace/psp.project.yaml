@@ -13,27 +13,36 @@ stages:
           - path: UC.md
             role: user-artifact
             projection: use-cases-document
-          - path: PSP.md
-            role: user-artifact
-            projection: product-package-summary
       interactions:
-        internalModel: .psp/models/wireflow-mid.yaml
+        internalModelSet:
+          root: .psp/models/wireflows
+          member: wireflow-mid.yaml
+          partitionKey: metadata.actor
         outputs:
-          - path: wireflow-mid.md
+          - path: wireflows/README.md
             role: user-artifact
+            projection: wireflow-index
+        memberOutputs:
+          - root: wireflows
+            member: wireflow-mid.md
+            role: user-artifact
+            projection: interactions-markdown
       canonical-ui-prototype:
         authority:
-          kind: area
-          area: canonical-ui-prototype
+          kind: area-set
+          area: canonical-ui-prototypes
           semanticEntry: src/spec/canonical-ui.ts
-        projections:
-          - path: .psp/models/canonical-ui-prototype.json
+          partitionKey: actor
+        memberProjections:
+          - root: .psp/models/canonical-ui-prototypes
+            member: canonical-ui-prototype.json
             role: generated-support
-          - path: Canonical-UI-Prototype/README.md
+          - root: Canonical-UI-Prototypes
+            member: README.md
             role: user-artifact
     areas:
-      canonical-ui-prototype:
-        root: Canonical-UI-Prototype
+      canonical-ui-prototypes:
+        root: Canonical-UI-Prototypes
   architecture-design:
     status: uninitialized
     root: 02-architecture-design

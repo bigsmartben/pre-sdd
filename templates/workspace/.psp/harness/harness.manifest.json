@@ -60,10 +60,6 @@
         {
           "id": "use-cases-document",
           "renderer": "capabilities-markdown"
-        },
-        {
-          "id": "product-package-summary",
-          "renderer": "product-package-summary-markdown"
         }
       ]
     },
@@ -71,18 +67,27 @@
       "id": "interactions",
       "stage": "product-design",
       "domain": "product-design",
-      "authorityKind": "internal-model",
+      "authorityKind": "internal-model-set",
       "format": "yaml",
       "contract": ".agents/skills/product-design/interactions/contract.yaml",
       "schema": ".agents/skills/product-design/interactions/schema.json",
       "template": ".agents/skills/product-design/interactions/template.yaml",
-      "renderer": "interactions-markdown"
+      "projections": [
+        {
+          "id": "wireflow-index",
+          "renderer": "wireflow-index"
+        },
+        {
+          "id": "interactions-markdown",
+          "renderer": "interactions-markdown"
+        }
+      ]
     },
     {
       "id": "canonical-ui-prototype",
       "stage": "product-design",
       "domain": "product-design",
-      "authorityKind": "area",
+      "authorityKind": "area-set",
       "format": "typescript",
       "contract": ".agents/skills/product-design/canonical-ui-prototype/contract.yaml",
       "schema": ".agents/skills/product-design/canonical-ui-prototype/schema.json",
@@ -160,9 +165,7 @@
       "stage": "product-design",
       "fromState": "uninitialized",
       "toState": "active",
-      "areaTemplates": {
-        "canonical-ui-prototype": ".agents/skills/product-design/canonical-ui-prototype/template"
-      },
+      "areaTemplates": {},
       "commands": [
         "render-product",
         "product-structure"
@@ -364,7 +367,7 @@
       "id": "wireflow-strict",
       "npmScript": "validate:wireflow",
       "run": "npm run validate:wireflow",
-      "purpose": "校验 Wireflow 是否可移交给 Canonical UI Prototype",
+      "purpose": "校验按参与者拆分的 Wireflow 集合、全局标识与 Use Case 覆盖是否可移交给独立 Canonical UI 应用",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -392,7 +395,7 @@
       "id": "canonical-ui-typecheck",
       "npmScript": "typecheck",
       "run": "npm run typecheck",
-      "purpose": "校验 Canonical UI Prototype TypeScript",
+      "purpose": "逐个校验参与者 Canonical UI 独立应用的 TypeScript",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -408,7 +411,7 @@
       "id": "canonical-ui-build",
       "npmScript": "workspace:build",
       "run": "npm run workspace:build",
-      "purpose": "构建 Canonical UI Prototype",
+      "purpose": "逐个构建参与者 Canonical UI 独立应用",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -424,7 +427,7 @@
       "id": "canonical-ui-runtime",
       "npmScript": "validate:canonical-ui-runtime",
       "run": "npm run validate:canonical-ui-runtime",
-      "purpose": "验证 Canonical UI Prototype 路由、交互、视口、网络、控制台、资源、视觉断言与无障碍要求",
+      "purpose": "逐个验证参与者 Canonical UI 独立应用的路由、交互、视口、网络、控制台、资源、视觉断言与无障碍要求",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -477,7 +480,7 @@
       "id": "canonical-ui-dev",
       "npmScript": "dev",
       "run": "npm run dev",
-      "purpose": "在界面达到可运行状态后立即启动 Canonical UI Prototype 开发服务器并输出带不一致标记工具的实际 HTTP 评审地址，不以前置视觉修复或正式就绪为条件",
+      "purpose": "用 --actor ACTOR-NNN 启动一个参与者 Canonical UI 独立应用并输出带不一致标记工具的实际 HTTP 评审地址，不以前置视觉修复或正式就绪为条件",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -958,7 +961,7 @@
           "canonical-ui-prototype"
         ],
         "areas": [
-          "canonical-ui-prototype"
+          "canonical-ui-prototypes"
         ]
       },
       "defaultProfile": "canonical-ui-prototype",

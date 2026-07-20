@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { artifactPaths, readJson, repositoryFile } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactPaths, readJson, repositoryFile } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
 function markdown(model, authorityPath) {
@@ -23,6 +23,7 @@ function markdown(model, authorityPath) {
     '## 规格摘要',
     '',
     '- 版本：' + model.version,
+    '- 参与者：' + model.actor,
     '- 路由：' + model.routes.length,
     '- 页面：' + model.screens.length,
     '- 组件：' + model.components.length,
@@ -73,23 +74,42 @@ export async function canonicalExpectedOutputs(root, project, manifest) {
   const registry = manifest.artifactRegistry.find((item) => item.id === 'canonical-ui-prototype');
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   if (!registry || !paths) return [];
-  const model = await extractCanonicalUi(root, paths.authorityPath);
   const schema = await readJson(root, registry.schema);
   const validate = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(schema);
-  if (!validate(model)) {
-    const error = new Error('Canonical UI Prototype Schema 校验失败：' + validate.errors.map((item) => item.instancePath + ' ' + item.message).join('; '));
-    error.code = 'AIH_ARTIFACT_SCHEMA_FAILED';
-    throw error;
+  const members = paths.authorityKind === 'area-set'
+    ? await artifactCollectionMembers(root, paths)
+    : [{ actor: null, authorityPath: paths.authorityPath }];
+  const outputs = [];
+  for (const member of members) {
+    const model = await extractCanonicalUi(root, member.authorityPath);
+    if (member.actor && model.actor !== member.actor) {
+      const error = new Error('Canonical UI 目录参与者与 actor 不一致：' + member.actor + ' / ' + model.actor);
+      error.code = 'AIH_ARTIFACT_SCHEMA_FAILED';
+      throw error;
+    }
+    if (!validate(model)) {
+      const error = new Error('Canonical UI Prototype Schema 校验失败：' + validate.errors.map((item) => item.instancePath + ' ' + item.message).join('; '));
+      error.code = 'AIH_ARTIFACT_SCHEMA_FAILED';
+      throw error;
+    }
+    const bindings = paths.authorityKind === 'area-set' ? paths.memberOutputs : paths.outputs;
+    for (const output of bindings) {
+      const target = paths.authorityKind === 'area-set'
+        ? output.root + '/' + member.actor + '/' + output.member
+        : output.path;
+      outputs.push({
+        artifact: registry.id,
+        actor: member.actor,
+        authorityPath: member.authorityPath,
+        output: target,
+        role: output.role,
+        content: target.endsWith('.json')
+          ? JSON.stringify(model, null, 2) + '\n'
+          : markdown(model, member.authorityPath),
+      });
+    }
   }
-  return paths.outputs.map((output) => ({
-    artifact: registry.id,
-    authorityPath: paths.authorityPath,
-    output: output.path,
-    role: output.role,
-    content: output.path.endsWith('.json')
-      ? JSON.stringify(model, null, 2) + '\n'
-      : markdown(model, paths.authorityPath),
-  }));
+  return outputs;
 }
 
 export async function canonicalOutputDrift(root, project, manifest) {

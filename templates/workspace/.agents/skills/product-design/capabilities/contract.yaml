@@ -2,20 +2,21 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: capabilities
-  version: 4.0.0
+  version: 5.0.0
 spec:
   stage: product-design
   internalModelFormat: yaml
   outputRole: user-artifact
-  purpose: 以产品事实定义 Actor、产品范围和可被 Wireflow 消费的完整 Use Case 场景。
+  purpose: 维护稳定的产品行为目录，定义 Actor、产品范围、业务规则及可被 Wireflow 消费的 Use Case 场景；详细功能验收不由本产物拥有。
   owns:
-    - 产品名称
-    - 产品意图
-    - Actor
+    - 产品名称与产品意图
+    - Actor 及其目标
     - 产品范围内外
-    - Use Case 触发、前后置条件、主成功场景和备选/异常场景
-    - 业务规则与可验收结果
+    - 稳定的 Use Case 目标、价值、触发、前置条件与结果保证
+    - 主场景及备选或异常场景的稳定步骤标识
+    - 业务规则与 Use Case 关系
   excludes:
+    - 详细 Given、When、Then 功能验收规格（由后续 spec.md 拥有）
     - 页面与导航
     - Screen、Control 与交互状态
     - 组件与视觉规则
@@ -26,9 +27,9 @@ spec:
     - capability-actor-references
     - use-case-scenario-integrity
     - use-case-business-rule-integrity
-    - use-case-acceptance-coverage
+    - use-case-relationship-integrity
     - product-scope-complete
-    - product-summary-projection-deterministic
+    - use-cases-projection-deterministic
   projections:
     - id: use-cases-document
       outputRole: user-artifact
@@ -39,23 +40,8 @@ spec:
         - productScope
         - businessRules
         - useCases
-        - gates
-        - gaps
-    - id: product-package-summary
-      outputRole: user-artifact
-      readOnly: true
-      sources:
-        - intent.productName
-        - intent.productConcept
-        - intent.problem
-        - intent.businessGoal
-        - intent.successSignal
-        - actors
-        - productScope
-        - useCases
-        - gates
         - gaps
   readiness:
     requiredStatus: ready
     requireNoGaps: true
-    requireAllGates: true
+    requireAllGates: false

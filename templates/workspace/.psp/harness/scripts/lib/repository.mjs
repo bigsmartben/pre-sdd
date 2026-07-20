@@ -135,6 +135,13 @@ export function artifactPaths(project, artifactId, stageId) {
     role: output.role,
     projection: output.projection || null,
   }));
+  const memberBindings = binding.memberOutputs || binding.memberProjections || [];
+  const memberOutputs = memberBindings.map((output) => ({
+    root: joinRepositoryPath(stage.root, output.root),
+    member: output.member,
+    role: output.role,
+    projection: output.projection || null,
+  }));
   const inputRoot = binding.inputRoot
     ? joinRepositoryPath(stage.root, binding.inputRoot)
     : null;
@@ -154,6 +161,39 @@ export function artifactPaths(project, artifactId, stageId) {
       semanticEntry: binding.authority.semanticEntry,
       outputPaths: outputs.map((output) => output.path),
       outputs,
+      memberOutputs,
+    };
+  }
+  if (binding.authority?.kind === 'area-set') {
+    const area = stage.areas?.[binding.authority.area];
+    if (!area) return null;
+    const authorityRoot = joinRepositoryPath(stage.root, area.root);
+    return {
+      authorityKind: 'area-set',
+      authorityPath: authorityRoot,
+      authorityRoot,
+      inputRoot,
+      area: binding.authority.area,
+      semanticEntry: binding.authority.semanticEntry,
+      partitionKey: binding.authority.partitionKey,
+      outputPaths: outputs.map((output) => output.path),
+      outputs,
+      memberOutputs,
+    };
+  }
+  if (binding.internalModelSet) {
+    const authorityRoot = joinRepositoryPath(stage.root, binding.internalModelSet.root);
+    return {
+      authorityKind: 'internal-model-set',
+      authorityPath: authorityRoot,
+      authorityRoot,
+      inputRoot,
+      internalModel: authorityRoot,
+      member: binding.internalModelSet.member,
+      partitionKey: binding.internalModelSet.partitionKey,
+      outputPaths: outputs.map((output) => output.path),
+      outputs,
+      memberOutputs,
     };
   }
   const authorityPath = joinRepositoryPath(stage.root, binding.internalModel);
@@ -164,5 +204,55 @@ export function artifactPaths(project, artifactId, stageId) {
     internalModel: authorityPath,
     outputPaths: outputs.map((output) => output.path),
     outputs,
+    memberOutputs,
   };
+}
+
+export function actorPartition(value) {
+  return typeof value === 'string' && /^ACTOR-[0-9]{3}$/.test(value);
+}
+
+export function artifactMemberPath(paths, actor) {
+  if (!actorPartition(actor)) {
+    const error = new Error('参与者分区必须使用 ACTOR-NNN：' + actor);
+    error.code = 'AIH_PATH_INVALID';
+    throw error;
+  }
+  if (paths.authorityKind === 'internal-model-set') {
+    return joinRepositoryPath(paths.authorityRoot, actor, paths.member);
+  }
+  if (paths.authorityKind === 'area-set') {
+    return joinRepositoryPath(paths.authorityRoot, actor, paths.semanticEntry);
+  }
+  return paths.authorityPath;
+}
+
+export async function artifactCollectionMembers(root, paths) {
+  if (!['internal-model-set', 'area-set'].includes(paths?.authorityKind)) return [];
+  let entries = [];
+  try {
+    entries = await readdir(repositoryFile(root, paths.authorityRoot), { withFileTypes: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  const members = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !actorPartition(entry.name)) {
+      const error = new Error('参与者集合根只能包含 ACTOR-NNN 目录：' + paths.authorityRoot + '/' + entry.name);
+      error.code = 'AIH_PROJECT_BINDING_INVALID';
+      throw error;
+    }
+    const authorityPath = artifactMemberPath(paths, entry.name);
+    try {
+      await readFile(repositoryFile(root, authorityPath));
+      members.push({ actor: entry.name, authorityPath });
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const missing = new Error('参与者目录缺少权威入口：' + authorityPath);
+      missing.code = 'AIH_ARTIFACT_INCOMPLETE';
+      throw missing;
+    }
+  }
+  return members.sort((left, right) => left.actor.localeCompare(right.actor));
 }

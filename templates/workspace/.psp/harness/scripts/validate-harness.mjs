@@ -155,7 +155,7 @@ if (project && manifest) {
           }
         }
         const boundOutputs = projectValid
-          ? binding?.projections || binding?.outputs || []
+          ? [...(binding?.projections || binding?.outputs || []), ...(binding?.memberOutputs || binding?.memberProjections || [])]
           : [];
         if (projectValid && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)) {
           block('AIH_CONTRACT_INVALID', 'Contract outputRole 与项目 Artifact binding 不一致。', registry.contract);
@@ -288,7 +288,7 @@ if (manifest && manifestValid) {
           !registered
           || registered.stage !== operation.stage
           || registered.domain !== operation.domain
-          || registered.authorityKind !== 'internal-model'
+          || !['internal-model', 'internal-model-set'].includes(registered.authorityKind)
           || !stage?.artifacts?.[artifactId]
         ) {
           block('AIH_CONTRACT_INVALID', '产物 operation 引用无效 Artifact：' + artifactId, operation.id);
@@ -302,7 +302,7 @@ if (manifest && manifestValid) {
         !registered
         || registered.stage !== operation.stage
         || registered.domain !== operation.domain
-        || registered.authorityKind !== 'area'
+        || !['area', 'area-set'].includes(registered.authorityKind)
         || !stage?.artifacts?.[operation.artifact]
       ) {
         block('AIH_CONTRACT_INVALID', '修复 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
@@ -553,7 +553,7 @@ if (manifest && manifestValid) {
         const firstId = Object.keys(stage.artifacts)[0];
         selfChecks.push([artifactPaths(project, firstId, stageId).authorityPath, 'change', 'READY']);
         for (const area of Object.values(stage.areas || {})) {
-          selfChecks.push([stage.root + '/' + area.root + '/package.json', 'change', 'READY']);
+          selfChecks.push([stage.root + '/' + area.root, 'change', 'READY']);
         }
       } else if (stage.status === 'uninitialized') {
         const firstId = Object.keys(stage.artifacts)[0];

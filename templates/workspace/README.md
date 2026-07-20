@@ -14,7 +14,7 @@
 
 Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次需要的阶段，在临时位置准备候选结构化数据，再通过已登记的产物 operation（操作）生成权威 YAML 与面向使用者的 Markdown，最后执行当前范围要求的验证。完成当前产物不会自动开始下游工作；是否继续仍由使用者明确决定。
 
-阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化也会创建 `PSP.md` 摘要、页面流程模板和界面工程；Agent 仍只能填写和验证 Use Cases 事实。
+阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化也会创建 `UC.md`、页面流程模板和界面工程；Agent 仍只能填写和验证 Use Cases 事实。
 
 ## 初始状态
 
@@ -33,56 +33,64 @@ Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次�
 
 ```mermaid
 flowchart LR
-    I["Product Idea<br/>产品想法（使用者输入）"] --> U["Use Cases<br/>用例（唯一产品事实）"]
-    U -.只读摘要投影.-> O["Product Package / PSP.md<br/>产品摘要"]
-    U --> W["Wireflow<br/>页面流程"]
-    W --> C["Canonical UI Prototype<br/>规范界面原型"]
-    U --> A["Architecture Design<br/>架构设计"]
+    I["Product Idea / 产品想法（使用者输入）"] --> U["Use Cases / 用例（唯一产品事实）"]
+    U --> W["Wireflow / 站点地图、用户流程图与线框图"]
+    W --> C["Canonical UI Prototype / 规范界面原型"]
+    U --> A["Architecture Design / 架构设计"]
 ```
 
-“Product Idea（产品想法）”是使用者提供的输入；进入工作区后形成的第一个权威产物是 Use Cases。Product Package / `PSP.md` 只从 Use Cases 内部模型确定性生成摘要，不拥有独立产品事实、readiness、依赖或 handoff。Architecture Design 只依赖已通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。
+“Product Idea（产品想法）”是使用者提供的输入；进入工作区后形成的第一个权威产物是 Use Cases。`use-cases.yaml` 是机器权威视图，`UC.md` 是唯一人类视图。Architecture Design 只依赖已通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。
 
 每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
 
-例如，Use Cases 通过后只向 `wireflow` 形成产品设计移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。生成 `PSP.md` 摘要不构成独立生命周期步骤。
+例如，Use Cases 通过后只向 `wireflow` 形成产品设计移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。
 
 当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
 
 ## 权威模型与正式产物
 
-内部模型产物通过一个轻量 artifact operation（产物操作）更新：Agent 在工作区外准备候选 YAML，operation 校验 Schema（结构定义）、生成 Markdown，并用短期文件锁避免同一产物同时写入。它不要求旧版本 hash，也不维护事务恢复状态机；写入未完成时重新运行同一 operation，Validator 会识别尚未同步的投影。Agent 不得直接修改 `.psp/models/` 目标文件或对应 Markdown。规范界面原型是例外：可执行界面及其 `src/spec/canonical-ui.ts` 是语义事实来源，README 是面向人的评审投影。
+内部模型产物通过一个轻量 artifact operation（产物操作）更新：Agent 在工作区外准备候选 YAML，或为集合产物准备完整候选目录；operation 校验 Schema（结构定义）、生成 Markdown，并用短期文件锁避免同一产物同时写入。它不要求旧版本 hash，也不维护事务恢复状态机；写入未完成时重新运行同一 operation，Validator 会识别尚未同步的投影。Agent 不得直接修改 `.psp/models/` 目标文件或对应 Markdown。规范界面原型是例外：每个参与者可执行界面及其 `src/spec/canonical-ui.ts` 是该应用语义事实来源，README 是面向人的评审投影。
 
 | 当前产物 | 权威入口 | 正式用户产物 |
 |---|---|---|
-| Use Cases（用例） | `01-product-design/.psp/models/use-cases.yaml` | `01-product-design/UC.md` 与只读摘要 `01-product-design/PSP.md` |
-| Wireflow（页面流程） | `01-product-design/.psp/models/wireflow-mid.yaml` | `01-product-design/wireflow-mid.md` |
-| Canonical UI Prototype（规范界面原型） | `01-product-design/Canonical-UI-Prototype/src/spec/canonical-ui.ts` | 可执行界面与 `01-product-design/Canonical-UI-Prototype/README.md` |
+| Use Cases（用例） | `01-product-design/.psp/models/use-cases.yaml` | `01-product-design/UC.md` |
+| Wireflow（交互蓝图） | `.psp/models/wireflows/<ACTOR-ID>/wireflow-mid.yaml`：`useCases[].actor` 去重后每位关键参与者一份机器权威模型 | `wireflows/README.md` 导航到每位参与者的 `wireflows/<ACTOR-ID>/wireflow-mid.md` |
+| Canonical UI Prototype（规范界面原型） | `Canonical-UI-Prototypes/<ACTOR-ID>/src/spec/canonical-ui.ts`：每位参与者一份独立界面规格 | 每个参与者目录拥有独立源码、`package.json`、构建配置和 README；`dist`、HTTP 地址与临时证据由运行和校验过程管理 |
 | Architecture Design（架构设计） | `02-architecture-design/.psp/models/*.yaml` | `02-architecture-design/README.md`、`02-architecture-design/系统边界.md`、`02-architecture-design/概念建模.md` 与 `02-architecture-design/技术验证/README.md` |
 
-例如，调整一个用例时，Agent 先在临时文件准备候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml`、`UC.md` 与 `PSP.md`。直接修改其中任何一个目标文件，或单独运行 `render:product`，都会被视为不符合日常更新协议；Validator 会把任一摘要漂移报告为 `AIH_GENERATED_DRIFT`。
+例如，调整一个用例时，Agent 先在临时文件准备候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml` 与 `UC.md`。Wireflow 候选输入则是完整参与者目录集合：每个 `ACTOR-ID/` 只能包含 `wireflow-mid.yaml`。一次 operation 校验并更新整组 YAML、参与者索引及对应 Markdown，同时清理已从候选集合移除的受管参与者分区；目录里出现其他文件时会停止，避免误删用户内容。直接修改任何目标 YAML/Markdown，或单独运行 `render:product`，都会被视为不符合日常更新协议。
 
 ## 阶段初始化后的关键结构
 
-产品阶段初始化后会创建两个 YAML 权威模型、一个 JSON 支撑投影、三个 Markdown 产物，以及规范界面原型的本地工程：
+产品阶段初始化只创建 Use Cases 初始模型、Wireflow 集合根与 Canonical UI 应用集合根，不虚构参与者实例。参与者确定后形成如下结构：
 
 ```text
 01-product-design/
 ├─ .psp/models/
 │  ├─ use-cases.yaml
-│  ├─ wireflow-mid.yaml
-│  └─ canonical-ui-prototype.json
-├─ PSP.md
+│  ├─ wireflows/
+│  │  ├─ ACTOR-001/wireflow-mid.yaml
+│  │  └─ ACTOR-002/wireflow-mid.yaml
+│  └─ canonical-ui-prototypes/
+│     ├─ ACTOR-001/canonical-ui-prototype.json
+│     └─ ACTOR-002/canonical-ui-prototype.json
 ├─ UC.md
-├─ wireflow-mid.md
-└─ Canonical-UI-Prototype/
-   ├─ src/spec/canonical-ui.ts
-   ├─ src/mocks/
-   ├─ public/
-   ├─ README.md
-   └─ package.json
+├─ wireflows/
+│  ├─ README.md
+│  ├─ ACTOR-001/wireflow-mid.md
+│  └─ ACTOR-002/wireflow-mid.md
+└─ Canonical-UI-Prototypes/
+   ├─ ACTOR-001/
+   │  ├─ src/spec/canonical-ui.ts
+   │  ├─ README.md
+   │  └─ package.json
+   └─ ACTOR-002/
+      ├─ src/spec/canonical-ui.ts
+      ├─ README.md
+      └─ package.json
 ```
 
-其中不存在 `product-package.yaml`：`PSP.md` 与 `UC.md` 共享 `use-cases.yaml` 这一权威来源。
+其中不存在单独的产品摘要模型；`use-cases.yaml` 只生成一个面向人的 `UC.md`。
 
 ## 旧 Product Package 的迁入策略
 
@@ -95,7 +103,7 @@ flowchart LR
 | `overview.targetUsers` | `actors[]` | 旧字段是自由文本，必须拆分并确认 Actor，不自动解析后覆盖 |
 | `overview.coreValue` | `useCases[].value` | 无法归属具体 Use Case 的内容记录为 gap |
 
-`primaryChain`、`supportingArtifacts`、旧 Product Package gates 和 handoff 信息属于旧治理模型，不迁入产品事实。迁入完成后只能通过 Use Cases 产物 operation 生成新的 `UC.md` 与 `PSP.md`，不得从旧 `PSP.md` 反向生成用例。
+`primaryChain`、`supportingArtifacts`、旧 Product Package gates 和 handoff 信息属于旧治理模型，不迁入产品事实。迁入完成后只能通过 Use Cases 产物 operation 生成新的 `UC.md`，不得从旧摘要文档反向生成用例。
 
 架构阶段只有在 `use-cases` 上游 readiness 通过后才能初始化；这是一条显式依赖，不是 handoff。初始化后的关键结构如下：
 

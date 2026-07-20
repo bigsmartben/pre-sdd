@@ -1,5 +1,6 @@
 export const canonicalUi = {
-  version: '4.0.0',
+  version: '5.0.0',
+  actor: 'ACTOR-001',
   visualPolicy: {
     mode: 'unresolved',
     selectedBy: 'default-policy',

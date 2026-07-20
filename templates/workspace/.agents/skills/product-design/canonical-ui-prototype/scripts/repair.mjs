@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse as parseYaml } from 'yaml';
 import {
+  artifactCollectionMembers,
+  artifactMemberPath,
   artifactPaths,
   loadProjectAndManifest,
   repositoryFile,
@@ -14,6 +16,8 @@ import { extractCanonicalUi } from './extract.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const json = process.argv.includes('--json');
+const actorIndex = process.argv.indexOf('--actor');
+const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
 
 async function readState(path) {
   try {
@@ -62,7 +66,7 @@ function parseGateOutput(execution, commandId) {
   }
 }
 
-function runGate(manifest, commandId) {
+function runGate(manifest, commandId, actor) {
   const command = manifest.commands.find((item) => item.id === commandId);
   if (!command || command.executor?.kind !== 'module') {
     return {
@@ -73,7 +77,7 @@ function runGate(manifest, commandId) {
   }
   const execution = spawnSync(
     process.execPath,
-    [repositoryFile(root, command.executor.path), ...(command.executor.args || []), '--json'],
+    [repositoryFile(root, command.executor.path), ...(command.executor.args || []), '--actor', actor, '--json'],
     {
       cwd: root,
       env: process.env,
@@ -144,11 +148,19 @@ async function main() {
     error.code = 'AIH_STAGE_UNINITIALIZED';
     throw error;
   }
-  const model = await extractCanonicalUi(root, paths.authorityPath);
+  const members = await artifactCollectionMembers(root, paths);
+  const actor = requestedActor || (members.length === 1 ? members[0].actor : null);
+  if (!actor) {
+    const error = new Error('视觉修复必须用 --actor ACTOR-NNN 指定一个独立应用。');
+    error.code = 'AIH_COMMAND_INVALID';
+    throw error;
+  }
+  const authorityPath = artifactMemberPath(paths, actor);
+  const model = await extractCanonicalUi(root, authorityPath);
   const {
     implementationPolicy,
   } = await loadRepairContract(manifest);
-  const sessionId = Buffer.from(root).toString('base64url');
+  const sessionId = Buffer.from(root + ':' + actor).toString('base64url');
   const sessionRoot = resolve(tmpdir(), 'psp-canonical-ui-repair-' + sessionId);
   const statePath = resolve(sessionRoot, 'state.json');
   const packetPath = resolve(sessionRoot, 'repair-packet.json');
@@ -156,7 +168,7 @@ async function main() {
 
   let state = await readState(statePath);
 
-  const input = runGate(manifest, 'canonical-ui-input');
+  const input = runGate(manifest, 'canonical-ui-input', actor);
   if (input.status !== 'PASS') {
     if (state) await rm(sessionRoot, { recursive: true, force: true });
     const code = input.blockers?.[0]?.code || 'AIH_VALIDATION_FAILED';
@@ -164,7 +176,7 @@ async function main() {
     return 1;
   }
 
-  const runtime = runGate(manifest, 'canonical-ui-runtime');
+  const runtime = runGate(manifest, 'canonical-ui-runtime', actor);
   if (runtime.status === 'PASS') {
     const attemptHistory = state
       ? [...state.attempts, {

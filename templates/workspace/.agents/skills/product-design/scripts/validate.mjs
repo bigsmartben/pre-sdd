@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import {
+  artifactCollectionMembers,
   artifactPaths,
   loadProjectAndManifest,
   readJson,
@@ -47,6 +48,76 @@ function requireReferences(values, available, location, label) {
   for (const value of values || []) if (!available.has(value)) block('AIH_REFERENCE_UNRESOLVED', label + ' 引用不存在：' + value, location);
 }
 
+function addUniqueId(id, available, location) {
+  if (available.has(id)) block('AIH_REFERENCE_UNRESOLVED', '标识重复：' + id, location);
+  available.add(id);
+}
+
+function validateCapabilities(capabilities) {
+  const actorIds = ids(capabilities?.actors, 'capabilities.actors');
+  const businessRuleIds = ids(capabilities?.businessRules, 'capabilities.businessRules');
+  const useCaseIds = ids(capabilities?.useCases, 'capabilities.useCases');
+  const scenarioIds = new Set();
+  const stepIds = new Set();
+
+  for (const rule of capabilities?.businessRules || []) {
+    requireReferences(rule.appliesTo, useCaseIds, 'capabilities.businessRules.' + rule.id + '.appliesTo', 'Use Case');
+  }
+
+  for (const useCase of capabilities?.useCases || []) {
+    const location = 'capabilities.useCases.' + useCase.id;
+    requireReferences([useCase.actor], actorIds, location + '.actor', 'Actor');
+    requireReferences(useCase.businessRules, businessRuleIds, location + '.businessRules', 'Business Rule');
+    for (const relationship of useCase.relationships || []) {
+      requireReferences([relationship.target], useCaseIds, location + '.relationships', 'Use Case');
+      if (relationship.target === useCase.id) {
+        block('AIH_REFERENCE_UNRESOLVED', 'Use Case 关系不得自引用：' + useCase.id, location + '.relationships');
+      }
+    }
+
+    const mainStepIds = new Set();
+    for (const step of useCase.mainScenario || []) {
+      addUniqueId(step.id, stepIds, location + '.mainScenario');
+      mainStepIds.add(step.id);
+      if (!step.id.startsWith(useCase.id + '-STEP-')) {
+        block('AIH_REFERENCE_UNRESOLVED', '主场景步骤不属于当前 Use Case：' + step.id, location + '.mainScenario');
+      }
+    }
+
+    for (const scenario of useCase.alternateScenarios || []) {
+      addUniqueId(scenario.id, scenarioIds, location + '.alternateScenarios');
+      if (!scenario.id.startsWith(useCase.id + '-ALT-') && !scenario.id.startsWith(useCase.id + '-EXC-')) {
+        block('AIH_REFERENCE_UNRESOLVED', '分支场景不属于当前 Use Case：' + scenario.id, location + '.alternateScenarios');
+      }
+      if (!mainStepIds.has(scenario.startsAt)) {
+        block('AIH_REFERENCE_UNRESOLVED', 'startsAt 未引用当前 Use Case 主步骤：' + scenario.startsAt, location + '.alternateScenarios.' + scenario.id);
+      }
+      for (const step of scenario.steps || []) {
+        addUniqueId(step.id, stepIds, location + '.alternateScenarios.' + scenario.id + '.steps');
+        if (!step.id.startsWith(scenario.id + '-STEP-')) {
+          block('AIH_REFERENCE_UNRESOLVED', '分支步骤不属于当前场景：' + step.id, location + '.alternateScenarios.' + scenario.id + '.steps');
+        }
+      }
+    }
+  }
+
+  return { actorIds, businessRuleIds, useCaseIds, scenarioIds, stepIds };
+}
+
+function validateCapabilitiesReadiness(capabilities) {
+  const intentFields = ['productName', 'productConcept', 'problem', 'businessGoal', 'successSignal'];
+  for (const field of intentFields) {
+    if (typeof capabilities?.intent?.[field] !== 'string' || capabilities.intent[field].trim() === '') {
+      block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 产品意图未完成：' + field, 'capabilities.intent.' + field);
+    }
+  }
+  if ((capabilities?.actors || []).length === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 缺少 Actor。', 'capabilities.actors');
+  if ((capabilities?.useCases || []).length === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 缺少稳定产品行为。', 'capabilities.useCases');
+  if ((capabilities?.productScope?.included || []).length === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 缺少产品范围内条目。', 'capabilities.productScope.included');
+  if (capabilities?.metadata?.status !== 'ready') block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 状态不是 ready。', 'capabilities.metadata.status');
+  if ((capabilities?.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 仍有待确认问题。', 'capabilities.gaps');
+}
+
 function endpointKey(endpoint) {
   return endpoint?.screen + '::' + endpoint?.state;
 }
@@ -63,10 +134,89 @@ function intersection(left, right) {
   return (left || []).filter((value) => rightSet.has(value));
 }
 
+function validateSiteMap(interactions, screenIds) {
+  const siteMap = interactions?.siteMap || { entryScreen: null, nodes: [] };
+  const siteMapScreenIds = new Set();
+  for (const node of siteMap.nodes || []) {
+    if (siteMapScreenIds.has(node.screen)) {
+      block('AIH_REFERENCE_UNRESOLVED', 'Sitemap 重复放置 Screen：' + node.screen, 'interactions.siteMap.nodes');
+    }
+    siteMapScreenIds.add(node.screen);
+  }
+  requireReferences([...siteMapScreenIds], screenIds, 'interactions.siteMap.nodes', 'Screen');
+  if (siteMap.entryScreen) requireReferences([siteMap.entryScreen], siteMapScreenIds, 'interactions.siteMap.entryScreen', 'Sitemap node');
+
+  for (const screenId of screenIds) {
+    if (!siteMapScreenIds.has(screenId)) {
+      block('AIH_ARTIFACT_INCOMPLETE', 'Sitemap 未覆盖 Screen：' + screenId, 'interactions.siteMap.nodes');
+    }
+  }
+
+  const roots = (siteMap.nodes || []).filter((node) => node.parent === null);
+  if ((siteMap.nodes || []).length > 0 && roots.length !== 1) {
+    block('AIH_ARTIFACT_INCOMPLETE', 'Sitemap 必须且只能有一个根页面，实际为 ' + roots.length + ' 个。', 'interactions.siteMap.nodes');
+  }
+  if (roots.length === 1 && siteMap.entryScreen !== roots[0].screen) {
+    block('AIH_REFERENCE_UNRESOLVED', 'Sitemap 入口必须是根页面：' + siteMap.entryScreen, 'interactions.siteMap.entryScreen');
+  }
+
+  const children = new Map();
+  for (const node of siteMap.nodes || []) {
+    if (node.parent === null) continue;
+    requireReferences([node.parent], siteMapScreenIds, 'interactions.siteMap.nodes.' + node.screen, 'parent');
+    if (node.parent === node.screen) {
+      block('AIH_REFERENCE_UNRESOLVED', 'Sitemap 页面不能以自身为父页面：' + node.screen, 'interactions.siteMap.nodes.' + node.screen);
+    }
+    if (!children.has(node.parent)) children.set(node.parent, []);
+    children.get(node.parent).push(node.screen);
+  }
+
+  const reachable = new Set();
+  const pending = siteMap.entryScreen ? [siteMap.entryScreen] : [];
+  while (pending.length > 0) {
+    const screenId = pending.pop();
+    if (reachable.has(screenId)) continue;
+    reachable.add(screenId);
+    pending.push(...(children.get(screenId) || []));
+  }
+  for (const screenId of siteMapScreenIds) {
+    if (!reachable.has(screenId)) {
+      block('AIH_ARTIFACT_INCOMPLETE', 'Sitemap 页面无法从入口沿层级到达：' + screenId, 'interactions.siteMap.nodes');
+    }
+  }
+}
+
+function validateInteractionsReadiness(interactions) {
+  const requiredSections = [
+    ['Sitemap', interactions?.siteMap?.nodes],
+    ['User Flow', interactions?.wireflows],
+    ['Wireframe', interactions?.screens],
+    ['交互状态', interactions?.interactionStates],
+  ];
+  for (const [label, value] of requiredSections) {
+    if (!Array.isArray(value) || value.length === 0) {
+      block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 缺少可评审的 ' + label + ' 内容。', 'interactions');
+    }
+  }
+  if (interactions?.metadata?.status !== 'ready') block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 状态不是 ready。', 'interactions.metadata.status');
+  if ((interactions?.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 仍有待确认问题。', 'interactions.gaps');
+  if ((interactions?.gates || []).some((gate) => gate.checked !== true)) block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 仍有未通过门禁。', 'interactions.gates');
+}
+
 function readinessArtifacts(step) {
   if (step === 'use-cases') return new Set(['capabilities']);
   if (step === 'wireflow') return new Set(['capabilities', 'interactions']);
   return new Set(['capabilities', 'interactions', 'canonical-ui-prototype']);
+}
+
+function aggregateMembers(members) {
+  if (!members?.length) return null;
+  const first = members[0].data;
+  const result = { ...first };
+  for (const key of Object.keys(first)) {
+    if (Array.isArray(first[key])) result[key] = members.flatMap((member) => member.data[key] || []);
+  }
+  return result;
 }
 
 if (strict && !validSteps.has(readinessStep)) block('AIH_COMMAND_INVALID', '未知产品步骤：' + readinessStep, 'step');
@@ -93,13 +243,30 @@ try {
         continue;
       }
       try {
-        const model = registry.authorityKind === 'area'
-          ? await extractCanonicalUi(root, paths.authorityPath)
-          : await readStructured(root, paths.authorityPath, registry.format);
-        models.set(registry.id, model);
         const validate = ajv.compile(await readJson(root, registry.schema));
-        if (!validate(model)) {
-          for (const error of validate.errors || []) block('AIH_ARTIFACT_SCHEMA_FAILED', error.instancePath + ' ' + error.message, registry.id);
+        if (['internal-model-set', 'area-set'].includes(registry.authorityKind)) {
+          const members = [];
+          for (const member of await artifactCollectionMembers(root, paths)) {
+            const model = registry.authorityKind === 'area-set'
+              ? await extractCanonicalUi(root, member.authorityPath)
+              : await readStructured(root, member.authorityPath, registry.format);
+            if ((registry.authorityKind === 'area-set' ? model.actor : model.metadata?.actor) !== member.actor) {
+              block('AIH_REFERENCE_UNRESOLVED', '模型参与者与目录分区不一致：' + member.actor, member.authorityPath);
+            }
+            if (!validate(model)) for (const error of validate.errors || []) {
+              block('AIH_ARTIFACT_SCHEMA_FAILED', error.instancePath + ' ' + error.message, member.authorityPath);
+            }
+            members.push({ ...member, data: model });
+          }
+          models.set(registry.id, members);
+        } else {
+          const model = registry.authorityKind === 'area'
+            ? await extractCanonicalUi(root, paths.authorityPath)
+            : await readStructured(root, paths.authorityPath, registry.format);
+          models.set(registry.id, model);
+          if (!validate(model)) {
+            for (const error of validate.errors || []) block('AIH_ARTIFACT_SCHEMA_FAILED', error.instancePath + ' ' + error.message, registry.id);
+          }
         }
       } catch (error) {
         block(error.code || 'AIH_ARTIFACT_SCHEMA_FAILED', error.message, paths.authorityPath);
@@ -107,10 +274,36 @@ try {
     }
 
     const capabilities = models.get('capabilities');
-    const interactions = models.get('interactions');
-    const canonical = models.get('canonical-ui-prototype');
-    const useCaseIds = ids(capabilities?.useCases, 'capabilities.useCases');
+    const interactionMembers = models.get('interactions') || [];
+    const canonicalMembers = models.get('canonical-ui-prototype') || [];
+    const interactions = aggregateMembers(interactionMembers);
+    const canonical = aggregateMembers(canonicalMembers);
+    const { useCaseIds } = validateCapabilities(capabilities);
     const useCasesById = new Map((capabilities?.useCases || []).map((useCase) => [useCase.id, useCase]));
+    const actorIds = new Set((capabilities?.actors || []).map((actor) => actor.id));
+    const expectedActors = new Set((capabilities?.useCases || []).map((useCase) => useCase.actor));
+    const interactionActors = new Set();
+    for (const member of interactionMembers) {
+      const actor = member.data.metadata.actor;
+      if (interactionActors.has(actor)) block('AIH_REFERENCE_UNRESOLVED', '参与者存在多份 Wireflow：' + actor, member.authorityPath);
+      interactionActors.add(actor);
+      requireReferences([actor], actorIds, member.authorityPath, 'Actor');
+      const localScreens = new Set((member.data.screens || []).map((screen) => screen.id));
+      validateSiteMap(member.data, localScreens);
+      for (const flow of member.data.wireflows || []) {
+        const useCase = useCasesById.get(flow.useCase);
+        if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Wireflow 引用了其他参与者的 Use Case：' + flow.useCase, member.authorityPath);
+        requireReferences([flow.entry?.screen, ...(flow.steps || []).flatMap((step) => [step.from?.screen, step.to?.screen])], localScreens, member.authorityPath, '同参与者 Screen');
+      }
+      for (const state of member.data.interactionStates || []) requireReferences([state.screen], localScreens, member.authorityPath, '同参与者 Screen');
+      for (const screen of member.data.screens || []) for (const useCaseId of screen.useCases || []) {
+        const useCase = useCasesById.get(useCaseId);
+        if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Screen 引用了其他参与者的 Use Case：' + useCaseId, member.authorityPath);
+      }
+    }
+    if (selected.has('interactions')) for (const actor of expectedActors) {
+      if (!interactionActors.has(actor)) block('AIH_ARTIFACT_INCOMPLETE', '关键参与者缺少独立 Wireflow 模型：' + actor, 'interactions');
+    }
     const wireflowIds = ids(interactions?.wireflows, 'interactions.wireflows');
     const wireflowStateIds = ids(interactions?.interactionStates, 'interactions.interactionStates');
     const wireflowScreenIds = ids(interactions?.screens, 'interactions.screens');
@@ -215,6 +408,30 @@ try {
         }
       }
 
+      const transitionGroups = new Map();
+      for (const step of flow.steps || []) {
+        const triggerKey = step.trigger?.control || 'system:' + step.trigger?.event;
+        const groupKey = step.from?.state + '\u0000' + triggerKey;
+        if (!transitionGroups.has(groupKey)) transitionGroups.set(groupKey, []);
+        transitionGroups.get(groupKey).push(step);
+      }
+      for (const steps of transitionGroups.values()) {
+        const requiresDecision = steps.length > 1 || steps.some((step) => step.guard);
+        if (!requiresDecision) continue;
+        const labels = new Set();
+        for (const step of steps) {
+          const label = step.branchLabel?.trim();
+          if (!label) {
+            block('AIH_ARTIFACT_INCOMPLETE', '判断分支缺少简短 branchLabel：' + step.id, location + '.steps.' + step.id + '.branchLabel');
+            continue;
+          }
+          if (labels.has(label)) {
+            block('AIH_ARTIFACT_INCOMPLETE', '同一判断的 branchLabel 必须唯一：' + flow.id + ' / ' + label, location + '.steps');
+          }
+          labels.add(label);
+        }
+      }
+
       for (const scenarioId of flow.coveredScenarios || []) {
         if (!(flow.steps || []).some((step) => step.scenarioRef === scenarioId)) {
           block('AIH_ARTIFACT_INCOMPLETE', 'coveredScenarios 中的场景缺少 Wireflow 步骤：' + flow.id + ' / ' + scenarioId, location + '.steps');
@@ -250,6 +467,47 @@ try {
         .flatMap((flow) => flow.coveredScenarios || []));
       for (const scenarioId of expectedScenarios) {
         if (!coveredScenarios.has(scenarioId)) block('AIH_ARTIFACT_INCOMPLETE', 'Use Case 场景未被 Wireflow 覆盖：' + useCase.id + ' / ' + scenarioId, 'interactions.wireflows');
+      }
+    }
+
+    const canonicalActors = new Set();
+    const canonicalActorByAssetId = new Map();
+    const interactionByActor = new Map(interactionMembers.map((member) => [member.actor, member.data]));
+    for (const member of canonicalMembers) {
+      const actor = member.data.actor;
+      if (canonicalActors.has(actor)) block('AIH_REFERENCE_UNRESOLVED', '参与者存在多个 Canonical UI 独立应用：' + actor, member.authorityPath);
+      canonicalActors.add(actor);
+      if (!interactionByActor.has(actor)) block('AIH_REFERENCE_UNRESOLVED', 'Canonical UI 没有同参与者 Wireflow：' + actor, member.authorityPath);
+      const localInteractions = interactionByActor.get(actor);
+      const localScreens = new Set((localInteractions?.screens || []).map((screen) => screen.id));
+      const localControls = new Set((localInteractions?.screens || []).flatMap((screen) => screen.regions || []).flatMap((region) => region.controls || []).map((control) => control.id));
+      const localWireflowIds = new Set((localInteractions?.wireflows || []).map((flow) => flow.id));
+      const localWireflowStateIds = new Set((localInteractions?.interactionStates || []).map((state) => state.id));
+      const localWireflowReferences = new Set([...localWireflowIds, ...localWireflowStateIds]);
+      requireReferences((member.data.screens || []).map((screen) => screen.id), localScreens, member.authorityPath, '同参与者 Wireflow screen');
+      requireReferences((member.data.controls || []).map((control) => control.id), localControls, member.authorityPath, '同参与者 Wireflow control');
+      for (const state of member.data.states || []) if (state.scope === 'workflow') {
+        requireReferences([state.id], localWireflowStateIds, member.authorityPath, '同参与者 Wireflow workflow state');
+      }
+      for (const scenario of member.data.scenarios || []) {
+        const useCase = useCasesById.get(scenario.useCaseId);
+        if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Canonical UI 场景引用了其他参与者的 Use Case：' + scenario.useCaseId, member.authorityPath);
+        requireReferences(scenario.wireflowIds, localWireflowReferences, member.authorityPath, '同参与者 Wireflow 场景');
+      }
+      for (const trace of member.data.traceability || []) {
+        const useCase = useCasesById.get(trace.useCaseId);
+        if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Canonical UI 追溯了其他参与者的 Use Case：' + trace.useCaseId, member.authorityPath);
+        requireReferences(trace.wireflowIds, localWireflowReferences, member.authorityPath, '同参与者 Wireflow 追溯');
+      }
+      for (const asset of member.data.assets || []) canonicalActorByAssetId.set(asset.id, actor);
+      if (strict && readinessStep === 'canonical-ui-prototype') {
+        if (member.data.visualPolicy.mode === 'unresolved') block('AIH_VISUAL_POLICY_UNRESOLVED', 'Canonical UI Prototype 尚未选择视觉策略。', member.authorityPath);
+        if ((member.data.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Canonical UI Prototype 仍有未决 gaps。', member.authorityPath);
+      }
+    }
+    if (strict && readinessStep === 'canonical-ui-prototype') {
+      for (const actor of interactionActors) if (!canonicalActors.has(actor)) {
+        block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 缺少一对一 Canonical UI 独立应用：' + actor, 'canonical-ui-prototype');
       }
     }
 
@@ -435,7 +693,9 @@ try {
       for (const asset of canonical.assets) {
         requireReferences(asset.sourceIds, designSourceIds, 'canonical.assets.' + asset.id, 'sourceIds');
         requireReferences(asset.usageTargetIds, targetIds, 'canonical.assets.' + asset.id, 'usageTargetIds');
-        const target = repositoryFile(root, stage.root + '/' + stage.areas['canonical-ui-prototype'].root + '/' + asset.path);
+        const actor = canonicalActorByAssetId.get(asset.id);
+        const canonicalPaths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
+        const target = repositoryFile(root, canonicalPaths.authorityRoot + '/' + actor + '/' + asset.path);
         try { await access(target); } catch { block('AIH_SOURCE_INTEGRITY_FAILED', '资源文件不存在：' + asset.path, 'canonical.assets.' + asset.id); }
       }
       for (const token of canonical.tokens) {
@@ -513,8 +773,13 @@ try {
       for (const artifactId of selected) {
         if (artifactId === 'canonical-ui-prototype') continue;
         const model = models.get(artifactId);
-        if (model?.metadata?.status !== 'ready' || (model?.gaps || []).length > 0 || (model?.gates || []).some((gate) => gate.checked !== true)) {
-          block('AIH_ARTIFACT_INCOMPLETE', '上游产物未达到严格就绪：' + artifactId, artifactId);
+        if (artifactId === 'capabilities') {
+          validateCapabilitiesReadiness(model);
+          continue;
+        }
+        if (artifactId === 'interactions') {
+          for (const member of model || []) validateInteractionsReadiness(member.data);
+          continue;
         }
       }
     }

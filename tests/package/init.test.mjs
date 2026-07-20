@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -19,6 +19,18 @@ async function temporaryDirectory(prefix) {
   const path = await mkdtemp(join(tmpdir(), prefix));
   temporaryRoots.push(path);
   return path;
+}
+
+async function materializeCanonicalApp(workspace, actor = 'ACTOR-001') {
+  const project = parseYaml(await readFile(resolve(workspace, 'psp.project.yaml'), 'utf8'));
+  const stage = project.stages['product-design'];
+  const target = resolve(workspace, stage.root, stage.areas['canonical-ui-prototypes'].root, actor);
+  await cp(resolve(workspace, '.agents/skills/product-design/canonical-ui-prototype/template'), target, { recursive: true });
+  if (actor !== 'ACTOR-001') {
+    const source = resolve(target, 'src/spec/canonical-ui.ts');
+    await writeFile(source, (await readFile(source, 'utf8')).replace("actor: 'ACTOR-001'", "actor: '" + actor + "'"));
+  }
+  return target;
 }
 
 function runCli(args, cwd = repositoryRoot) {
@@ -90,7 +102,7 @@ function waitForCanonicalUiReady(child, timeoutMilliseconds = 60_000) {
     }, timeoutMilliseconds);
     const onData = (chunk) => {
       output += chunk.toString();
-      const match = output.match(/\[READY\] Canonical UI Prototype 评审地址：(https?:\/\/\S+)/);
+      const match = output.match(/\[READY\] (?:ACTOR-[0-9]{3}|Canonical UI Prototype) (?:独立应用)?评审地址：(https?:\/\/\S+)/);
       if (!match) return;
       cleanup();
       resolveReady({ url: match[1], output });
@@ -248,7 +260,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
     '01-product-design/PSP.md',
     '01-product-design/UC.md',
     '01-product-design/HTML-Mock',
-    '01-product-design/Canonical-UI-Prototype',
+    '01-product-design/Canonical-UI-Prototypes',
     '01-product-design/.psp/models',
     '02-architecture-design/README.md',
     '02-architecture-design/技术验证',
@@ -310,8 +322,8 @@ test('generated workspace applies an artifact operation through its local runtim
   const stage = project.stages['product-design'];
   const binding = stage.artifacts.capabilities;
   const modelPath = resolve(target, stage.root, binding.internalModel);
-  const ucPath = resolve(target, stage.root, binding.outputs.find((output) => output.projection === 'use-cases-document').path);
-  const summaryPath = resolve(target, stage.root, binding.outputs.find((output) => output.projection === 'product-package-summary').path);
+  assert.deepEqual(binding.outputs.map((output) => output.path), ['UC.md']);
+  const ucPath = resolve(target, stage.root, binding.outputs[0].path);
   const before = await readFile(modelPath, 'utf8');
   const candidate = parseYaml(before);
   candidate.intent.productName = '本地事务执行验证';
@@ -325,12 +337,12 @@ test('generated workspace applies an artifact operation through its local runtim
   assert.equal(applied.status, 0, applied.stderr + applied.stdout);
   const authority = await readFile(modelPath, 'utf8');
   const ucMarkdown = await readFile(ucPath, 'utf8');
-  const summaryMarkdown = await readFile(summaryPath, 'utf8');
   assert.match(authority, /本地事务执行验证/);
   assert.match(ucMarkdown, /本地事务执行验证/);
-  assert.match(summaryMarkdown, /本地事务执行验证/);
-  assert.doesNotMatch(ucMarkdown, /sourceSha256:/);
-  assert.doesNotMatch(summaryMarkdown, /sourceSha256:/);
+  assert.match(ucMarkdown, /- 范围内：尚待确认/);
+  assert.match(ucMarkdown, /尚待定义 Actor 与 Use Case/);
+  assert.doesNotMatch(ucMarkdown, /```mermaid/);
+  assert.doesNotMatch(ucMarkdown, /<!-- OFFICIAL|artifactRole|internalModel|## Gates|GAP-001|PSP\.md/);
 
   const legacyRender = runWorkspaceScript('render:product', target);
   assert.notEqual(legacyRender.status, 0);
@@ -397,13 +409,14 @@ test('workspace-local runtime typechecks and builds an initialized product witho
   assert.equal(runCli(['init', target]).status, 0);
   const product = runWorkspaceScript('init:product', target);
   assert.equal(product.status, 0, product.stderr + product.stdout);
+  const app = await materializeCanonicalApp(target);
   const typecheck = runWorkspaceScript('typecheck', target);
   assert.equal(typecheck.status, 0, typecheck.stderr + typecheck.stdout);
   const build = runWorkspaceScript('workspace:build', target);
   assert.equal(build.status, 0, build.stderr + build.stdout);
   const browserAcceptance = runWorkspaceScript('validate:canonical-ui-runtime', target);
   assert.equal(browserAcceptance.status, 0, browserAcceptance.stderr + browserAcceptance.stdout);
-  assert.equal(await exists(resolve(target, '01-product-design/Canonical-UI-Prototype/dist/index.html')), true);
+  assert.equal(await exists(resolve(app, 'dist/index.html')), true);
   assert.equal(await findDirectory(target, 'node_modules'), null);
 });
 
@@ -429,13 +442,14 @@ test('Canonical UI dev publishes a reachable annotated URL before visual readine
 
   const initialized = runWorkspaceScript('init:product', target);
   assert.equal(initialized.status, 0, initialized.stderr + initialized.stdout);
+  await materializeCanonicalApp(target);
   const strict = runWorkspaceScript('validate:product:strict', target);
   assert.notEqual(strict.status, 0, strict.stderr + strict.stdout);
   assert.match(strict.stderr + strict.stdout, /AIH_VISUAL_POLICY_UNRESOLVED/);
 
   const child = spawn(
     process.execPath,
-    [resolve(target, ...command.executor.path.split('/')), ...(command.executor.args || [])],
+    [resolve(target, ...command.executor.path.split('/')), ...(command.executor.args || []), '--actor', 'ACTOR-001'],
     {
       cwd: target,
       env: workspaceRuntimeEnvironment(target),

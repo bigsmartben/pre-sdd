@@ -40,7 +40,7 @@ test('resolver maps Canonical UI authority and projections to one artifact scope
   const active = structuredClone(project);
   active.stages['product-design'].status = 'active';
   const stage = active.stages['product-design'];
-  const path = stage.root + '/' + stage.areas['canonical-ui-prototype'].root + '/src/spec/canonical-ui.ts';
+  const path = stage.root + '/' + stage.areas['canonical-ui-prototypes'].root + '/ACTOR-001/src/spec/canonical-ui.ts';
   const result = resolveHarness(manifest, active, [path], 'change', repositoryRoot);
   assert.equal(result.status, 'READY', JSON.stringify(result.blockers));
   assert.deepEqual(result.scopes, ['canonical-ui-prototype']);
@@ -113,12 +113,16 @@ test('Harness validator accepts registered domains and rejects a vertical path o
   assert.ok(codes(invalid).has('AIH_DOMAIN_BOUNDARY_INVALID'));
 });
 
-test('Harness rejects an unregistered Product Package summary projection binding', async () => {
+test('Harness accepts only the registered UC human projection binding', async () => {
   const root = await temporaryRepository();
   const projectPath = resolve(root, 'psp.project.yaml');
   const bound = parseYaml(await readFile(projectPath, 'utf8'));
-  bound.stages['product-design'].artifacts.capabilities.outputs
-    .find((output) => output.path === 'PSP.md').projection = 'unknown-summary';
+  assert.deepEqual(bound.stages['product-design'].artifacts.capabilities.outputs, [{
+    path: 'UC.md',
+    role: 'user-artifact',
+    projection: 'use-cases-document',
+  }]);
+  bound.stages['product-design'].artifacts.capabilities.outputs[0].projection = 'unknown-use-cases-view';
   await writeFile(projectPath, stringifyYaml(bound));
   const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
   assert.ok(codes(invalid).has('AIH_PROJECT_BINDING_INVALID'));

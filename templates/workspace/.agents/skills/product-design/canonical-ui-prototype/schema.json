@@ -5,13 +5,14 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "version", "visualPolicy", "repairPolicy", "designSources", "assets", "tokens", "routes", "screens", "components",
+    "version", "actor", "visualPolicy", "repairPolicy", "designSources", "assets", "tokens", "routes", "screens", "components",
     "componentInventory", "componentMappings", "componentVariantCoverage",
     "controls", "states", "events", "actions", "scenarios", "mockBehaviors", "viewports",
     "renderAssertions", "sourceParityAssertions", "motions", "traceability", "gaps"
   ],
   "properties": {
-    "version": {"const": "4.0.0"},
+    "version": {"const": "5.0.0"},
+    "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "visualPolicy": {"$ref": "#/$defs/visualPolicy"},
     "repairPolicy": {"$ref": "#/$defs/repairPolicy"},
     "designSources": {"type": "array", "items": {"$ref": "#/$defs/designSource"}},

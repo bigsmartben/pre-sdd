@@ -110,13 +110,17 @@ try {
   const copies = [];
   const generatedTargets = [];
   const inputRoots = [];
+  const collectionRoots = [];
   for (const registry of manifest.artifactRegistry.filter((item) => item.stage === operation.stage)) {
     const paths = artifactPaths(project, registry.id, registry.stage);
     if (!paths) throw Object.assign(new Error('项目缺少 Artifact 绑定：' + registry.id), { code: 'AIH_PROJECT_BINDING_INVALID' });
     if (registry.authorityKind === 'internal-model') copies.push({ source: registry.template, target: paths.authorityPath });
+    if (registry.authorityKind === 'internal-model-set') collectionRoots.push(paths.authorityRoot, ...(paths.memberOutputs || []).map((output) => output.root));
+    if (registry.authorityKind === 'area-set') collectionRoots.push(paths.authorityRoot, ...(paths.memberOutputs || []).map((output) => output.root));
     if (paths.inputRoot) inputRoots.push(paths.inputRoot);
     generatedTargets.push(...paths.outputPaths);
   }
+  for (const area of Object.values(stage.areas || {})) collectionRoots.push(joinRepositoryPath(stage.root, area.root));
   for (const [areaId, templateRoot] of Object.entries(operation.areaTemplates || {})) {
     const area = stage.areas?.[areaId];
     if (!area) throw Object.assign(new Error('项目缺少 Area 绑定：' + areaId), { code: 'AIH_PROJECT_BINDING_INVALID' });
@@ -129,7 +133,8 @@ try {
   if (await stageHasUserFiles(root, stage.root, [workspaceRootMarker(manifest)].filter(Boolean))) {
     throw Object.assign(new Error('目标阶段已有用户文件：' + stage.root), { code: 'AIH_USER_CHANGE_COLLISION' });
   }
-  const targets = [...copies.map((item) => item.target), ...inputRoots, ...generatedTargets, 'psp.project.yaml'];
+  const uniqueCollectionRoots = [...new Set(collectionRoots)];
+  const targets = [...copies.map((item) => item.target), ...inputRoots, ...uniqueCollectionRoots, ...generatedTargets, 'psp.project.yaml'];
   const duplicate = targets.find((path, index) => targets.indexOf(path) !== index);
   if (duplicate) throw Object.assign(new Error('初始化目标重复：' + duplicate), { code: 'AIH_PROJECT_BINDING_INVALID' });
 
@@ -147,6 +152,10 @@ try {
       for (const inputRoot of inputRoots) {
         await mkdir(repositoryFile(root, inputRoot), { recursive: true });
         created.push(inputRoot);
+      }
+      for (const collectionRoot of uniqueCollectionRoots) {
+        await mkdir(repositoryFile(root, collectionRoot), { recursive: true });
+        created.push(collectionRoot);
       }
       const commands = new Map(manifest.commands.map((command) => [command.id, command]));
       for (const commandId of operation.commands || []) {

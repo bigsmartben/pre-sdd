@@ -1,16 +1,45 @@
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import playwright from '@playwright/test';
 import { createServer } from 'vite';
-import { artifactPaths, loadProjectAndManifest, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const { chromium } = playwright;
 const require = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || process.env.PRE_SDD_RUNTIME_ENTRY || import.meta.url);
 const json = process.argv.includes('--json');
+const actorIndex = process.argv.indexOf('--actor');
+const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
+
+if (!requestedActor) {
+  const { project } = await loadProjectAndManifest(root);
+  const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
+  const members = await artifactCollectionMembers(root, paths);
+  const aggregateBlockers = [];
+  const aggregateEvidence = [];
+  const evidenceRoots = [];
+  for (const member of members) {
+    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json'], { cwd: root, encoding: 'utf8', env: process.env, windowsHide: true });
+    try {
+      const result = JSON.parse(child.stdout || '{}');
+      aggregateBlockers.push(...(result.blockers || []));
+      aggregateEvidence.push(...(result.evidence || []).map((item) => ({ actor: member.actor, ...item })));
+      if (result.evidenceRoot) evidenceRoots.push({ actor: member.actor, path: result.evidenceRoot });
+    } catch {
+      aggregateBlockers.push({ code: 'AIH_VALIDATION_FAILED', message: child.stderr || '参与者运行时校验没有返回 JSON。', location: member.actor });
+    }
+  }
+  if (members.length === 0) aggregateBlockers.push({ code: 'AIH_ARTIFACT_INCOMPLETE', message: '尚未创建参与者 Canonical UI 应用。', location: paths.authorityRoot });
+  const aggregate = { status: aggregateBlockers.length === 0 ? 'PASS' : 'BLOCKED', actors: members.map((member) => member.actor), blockers: aggregateBlockers, evidence: aggregateEvidence, evidenceRoots };
+  if (json) console.log(JSON.stringify(aggregate, null, 2));
+  else if (aggregate.status === 'PASS') console.log('[PASS] 全部参与者 Canonical UI 浏览器验收通过。');
+  else for (const item of aggregateBlockers) console.error('[' + item.code + '] ' + item.message);
+  process.exit(aggregate.status === 'PASS' ? 0 : 1);
+}
 const blockers = [];
 const blockerKeys = new Set();
 const evidence = [];
@@ -914,8 +943,10 @@ try {
   const stage = project.stages?.['product-design'];
   if (stage?.status !== 'active') throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
-  const model = await extractCanonicalUi(root, paths.authorityPath);
-  const areaPath = repositoryFile(root, stage.root + '/' + stage.areas[paths.area].root);
+  const authorityPath = artifactMemberPath(paths, requestedActor);
+  const model = await extractCanonicalUi(root, authorityPath);
+  if (model.actor !== requestedActor) block('AIH_REFERENCE_UNRESOLVED', '应用 actor 与目录参与者不一致。', authorityPath);
+  const areaPath = repositoryFile(root, paths.authorityRoot + '/' + requestedActor);
   const registry = manifest.artifactRegistry.find((item) => item.id === 'canonical-ui-prototype');
   const contract = await readStructured(root, registry.contract, 'yaml');
   const thresholds = contract.spec.visualParity;

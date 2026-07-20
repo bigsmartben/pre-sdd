@@ -32,15 +32,15 @@ pre-sdd init .
 
 评审 `01-product-design/UC.md` 和 `01-product-design/PSP.md`；只要求修改 Use Cases，不单独编辑 `PSP.md`。
 
-### 1.2 Wireflow（页面流程）
+### 1.2 Wireflow（站点地图、用户流程图与线框图）
 
 ```text
 请根据已确认的 Use Cases 开始 Wireflow。
-覆盖入口、正常流程、空状态、失败状态、恢复和返回路径。
-本轮只完成页面流程，不要开始界面原型。
+按关键参与者拆分 Wireflow；每位参与者的独立文档都覆盖站点地图（Sitemap）、用户流程图（User Flow）和线框图（Wireframe），并包含入口、正常流程、空状态、失败状态、恢复和返回路径。
+本轮只完成交互蓝图，不要开始界面原型。
 ```
 
-评审 `01-product-design/wireflow-mid.md`，确认页面、操作、状态和跳转。
+先打开 `01-product-design/wireflows/README.md`，再按参与者评审 `wireflows/<ACTOR-ID>/wireflow-mid.md` 中的站点层级、用户路径和页面骨架；机器引用与状态差量保存在 `.psp/models/wireflows/<ACTOR-ID>/wireflow-mid.yaml`，不要求使用者逐字段评审 YAML。
 
 ### 1.3 没有 Figma：生成 UI HTML
 
@@ -49,7 +49,7 @@ pre-sdd init .
 运行环境：电脑网页；本轮不做其他版本。
 ```
 
-页面可运行后，智能代理必须立即启动 HTTP 服务、验证并提供 UI HTML 地址；严格检查继续执行，未通过项不能阻塞地址。
+每个参与者对应 `Canonical-UI-Prototypes/<ACTOR-ID>/` 中一个完全独立的 UI 应用。页面可运行后，智能代理必须启动该参与者的 HTTP 服务、验证并提供 UI HTML 地址；严格检查继续执行，未通过项不能阻塞地址。
 
 ## 2. 按 Figma 实现 UI HTML
 

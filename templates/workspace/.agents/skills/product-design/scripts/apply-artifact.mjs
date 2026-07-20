@@ -3,7 +3,7 @@ import { preparedArtifactOutputs } from './lib/rendering.mjs';
 
 await executeArtifactTransaction({
   stageId: 'product-design',
-  prepareOutputs({ project, manifest, stageId, artifactId, data }) {
-    return preparedArtifactOutputs(project, manifest, stageId, artifactId, data);
+  prepareOutputs({ root, project, manifest, stageId, artifactId, data, members }) {
+    return preparedArtifactOutputs(root, project, manifest, stageId, artifactId, data, members);
   },
 });

@@ -4,10 +4,17 @@ metadata:
   status: draft
   version: 0.1.0
   upstreamArtifact: capabilities
+  actor: ACTOR-001
+siteMap:
+  entryScreen: null
+  nodes: []
 wireflows: []
 screens: []
 interactionStates: []
 gates:
+  - id: sitemap-complete
+    label: 当前参与者的 Sitemap 覆盖其全部 Screen 并可从唯一入口到达
+    checked: false
   - id: upstream-valid
     label: 每个 Wireflow 引用有效 Use Case
     checked: false
@@ -17,11 +24,14 @@ gates:
   - id: upstream-step-traceable
     label: 每个 Wireflow 步骤都引用所属场景中的有效 Use Case 步骤
     checked: false
+  - id: user-flow-generated
+    label: User Flow 可由 Wireflow 状态迁移确定性生成
+    checked: false
   - id: layout-tree-complete
     label: 每个 Screen 的布局树恰好放置全部 Region
     checked: false
-  - id: text-wireframe-generated
-    label: 文本线框图可由布局树确定性生成
+  - id: wireframe-generated
+    label: Wireframe 可由 Screen 布局树确定性生成
     checked: false
   - id: control-placement-complete
     label: 每个语义 Control 都归属于明确 Region 和 Screen
@@ -38,4 +48,4 @@ gates:
 gaps:
   - id: GAP-001
     field: wireflows
-    reason: 上游 Use Case 场景尚未形成可生成文本线框图的页面布局与可验证状态迁移
+    reason: 上游 Use Case 场景尚未形成完整的 Sitemap、User Flow 与 Wireframe

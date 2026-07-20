@@ -45,7 +45,7 @@ export function selectorPatterns(selector, project, manifest = {}) {
   if (selector.type === 'artifact') {
     const artifactPatterns = selector.artifacts.flatMap((artifactId) => {
       const paths = artifactPaths(project, artifactId, selector.stage);
-      return paths ? [paths.authorityPath, ...paths.outputPaths, ...(
+      return paths ? [paths.authorityPath, ...(paths.authorityRoot ? [paths.authorityRoot + '/**'] : []), ...paths.outputPaths, ...(paths.memberOutputs || []).flatMap((output) => [output.root, output.root + '/**']), ...(
         paths.inputRoot ? [paths.inputRoot, paths.inputRoot + '/**'] : []
       )] : [];
     });
@@ -62,6 +62,9 @@ function outputAuthorities(project, manifest) {
     if (!paths) continue;
     for (const output of paths.outputPaths) {
       pairs.push({ output, authorityPath: paths.authorityPath });
+    }
+    for (const output of paths.memberOutputs || []) {
+      pairs.push({ outputRoot: output.root, member: output.member, authorityRoot: paths.authorityRoot, authorityMember: paths.member || paths.semanticEntry });
     }
   }
   return pairs;
@@ -104,12 +107,17 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
 
   const inputSet = new Set(normalizedInputs);
   for (const pair of outputAuthorities(project, manifest)) {
-    if (inputSet.has(pair.output) && !inputSet.has(pair.authorityPath)) {
+    const dynamicInput = pair.outputRoot
+      ? normalizedInputs.find((path) => path.startsWith(pair.outputRoot + '/') && path.endsWith('/' + pair.member))
+      : null;
+    const dynamicActor = dynamicInput?.slice(pair.outputRoot.length + 1).split('/')[0];
+    const dynamicAuthority = dynamicActor ? joinRepositoryPath(pair.authorityRoot, dynamicActor, pair.authorityMember) : null;
+    if ((pair.output && inputSet.has(pair.output) && !inputSet.has(pair.authorityPath)) || (dynamicInput && !inputSet.has(dynamicAuthority))) {
       blockers.push(catalogBlocker(
         catalog,
         'AIH_GENERATED_DRIFT',
-        pair.output,
-        '生成 projection 不能单独修改；请修改权威入口：' + pair.authorityPath,
+        pair.output || dynamicInput,
+        '生成 projection 不能单独修改；请修改权威入口：' + (pair.authorityPath || dynamicAuthority),
       ));
     }
   }

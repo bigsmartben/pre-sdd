@@ -2,8 +2,8 @@
 
 | 输入事实 | 权威位置 | 实例 |
 |---|---|---|
-| 产品目标、Actor、Use Case | 上游 `capabilities` / Use Cases，单一权威、只读 | `UC-001` 的目标不能由 `PSP.md` 摘要或页面布局反推 |
-| Screen、Control、Wireflow 状态和分支 | 上游 `interactions`，只读 | `WF-STATE-001` 映射为 DOM 的 `data-state-id` |
+| 产品目标、Actor、Use Case | 上游 `capabilities` / Use Cases，单一权威、只读 | `UC-001` 的目标不能由 `UC.md` 人类视图或页面布局反推 |
+| Screen、Control、Wireflow 状态和分支 | 上游同 `ACTOR-ID` 的 `interactions` 分区，只读 | `ACTOR-001` 应用只把其 `WF-STATE-001` 映射为 DOM 的 `data-state-id` |
 | 路由、组件局部状态、事件、动作和可执行场景 | `canonical-ui.ts` | `EVENT-001` 触发 `ACTION-001`，组件进入 Loading |
 | 视觉来源、资源、令牌、视口、动画和无障碍 | `canonical-ui.ts`、Area 内设计来源证据与真实资源 | Figma 节点证据覆盖 `SCREEN-001` 的桌面默认态 |
 | Figma Component Set、Main Component、Instance 与 Variant 身份 | Figma `design-context`，只读 | `1:10` Instance 指向 `1:3` Main Component 与 `1:1` Component Set |
