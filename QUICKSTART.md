@@ -32,10 +32,21 @@ pre-sdd init .
 
 评审 `01-product-design/UC.md`：逐个确认主场景、备选/异常场景、用户动作、系统响应、失败/重试/恢复/返回，以及 Low-Fi 页面建议。Low-Fi 只作内部参考，不约束最终 UI HTML 的页面组织或像素布局。
 
-### 1.2 没有 Figma：生成 UI HTML
+### 1.2 建立 Visual Spec（视觉规格）
 
 ```text
-请根据已确认的 Use Cases 和正式 Interaction Flow 开始 Canonical UI Prototype。Low-Fi UI Blueprint 仅作内部建议，可按可用性重组页面。
+请根据已确认的 Use Cases 建立 provider-neutral Visual Spec。
+运行环境：电脑网页；本轮不做其他版本。
+请明确页面、每个视口与正式状态的渲染、布局尺寸与间距、排版、颜色与效果、组件状态与 Variant，以及每个资源的路径、来源版本、用途和 SHA-256。
+本轮不要生成 UI HTML。
+```
+
+评审 `01-product-design/Visual-Spec.md`。无论输入来自 Figma、Design System、资源文件还是文字确认，正式产物都使用相同结构；缺少 Use Cases 或正式状态时必须阻断，不能由视觉规格补写产品行为。
+
+### 1.3 没有 Figma：生成 UI HTML
+
+```text
+请根据已确认的 Use Cases、正式 Interaction Flow 和已就绪 Visual Spec 开始 Canonical UI Prototype。Low-Fi UI Blueprint 仅作内部建议，可按可用性重组页面；视觉细节以 Visual Spec 为准。
 运行环境：电脑网页；本轮不做其他版本。
 ```
 
@@ -141,13 +152,22 @@ Figma 再次写入后，必须重新执行 2.3 和 2.4。
 
 ## 3. 架构设计 SOP
 
-架构设计只需要已经确认并检查通过的 Use Cases，不要求先完成 UI HTML。
+架构设计拥有独立生命周期，不要求先初始化、完成或发布 Product Design，也不要求 UI HTML。默认使用 Architecture 本地输入；如果希望复用 Use Cases，必须在 Architecture Package 中选择 `reference` 模式并固定只读版本。
 
 ```text
-请根据已确认的 Use Cases 开始 Architecture Design。
+请独立开始 Architecture Design，使用我在本轮提供的架构输入。
 依次完成系统边界、概念模型、必要技术验证和架构总览。
-信息不足时列出缺口，不要修改产品设计。
+Architecture Package 使用 productDesignInput.mode: independent。
+信息不足时列出 Architecture gap，不要读取或修改产品设计。
 本轮只完成架构设计，不要开始开发。
+```
+
+需要复用现有 Use Cases 时，可改为：
+
+```text
+请开始 Architecture Design，并只读引用 Product Design capabilities 版本 1.2.3。
+Architecture Package 使用 productDesignInput.mode: reference，记录 artifact、固定版本和 access: read-only。
+不要执行 Product Design readiness、handoff、发布或状态转换；版本不匹配时只报告引用阻断。
 ```
 
 依次评审：`02-architecture-design/系统边界.md` → `概念建模.md` → `技术验证/README.md` → `README.md`。

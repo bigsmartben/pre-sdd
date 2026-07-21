@@ -25,11 +25,12 @@ description: 分析 Figma 选区或设计区域，先确认组件名称、属性
    - Variant 轴必须是有限集合；不得使用 `isHomePage`、`specialCheckoutCase`、页面路径或单屏 CSS 补丁表达实例差异。
    - 优先复用已有变量与组件；需要新变量时列出颜色、排版、间距、圆角、效果和尺寸名称。
 
-3. 写入前确认。
-   - 用户未明确指定时，必须确认组件名、Variant 轴、属性、变量、嵌套边界和复用来源。
-   - 未确认前不创建或实质修改 Figma 组件。
+3. 写入前完成第二次人工确认。
+   - 把组件名、Variant 轴、属性、变量、嵌套边界、复用来源、资源歧义和具体写回影响合并到 High-impact Confirmation（高影响确认）。
+   - 本确认必须引用已冻结的 Scope Confirmation（范围确认）；任何新增目标节点都要先返回第一次范围确认。
+   - 未确认前不创建或实质修改 Figma 组件；Agent 不得代填确认人、确认时间或确认哈希。
 
-4. 创建并验证。
+4. 作为合并写回批次的一部分创建并验证。
    - 先创建确认过的变量和嵌套组件，再创建父组件与组件集。
    - 使用 Auto Layout（自动布局）、约束、最小或最大尺寸和清晰图层名。
    - 同一尺寸下所有状态保持相同 Frame 宽高。
@@ -40,7 +41,7 @@ description: 分析 Figma 选区或设计区域，先确认组件名称、属性
    - 输出 Component Abstraction Proposal（组件抽象提案），逐项包含抽象决定、语义职责、结构签名、Figma 属性、有限 Variant 值、Lit Property / Attribute / Slot / Event 对应关系。
    - 本提案只保存用户确认的抽象意图，不把创建前 Node ID 当作最终来源事实，也不修改规范界面工程。
    - 本技能创建或修改组件、变量、Variant 或节点后，将同一来源已有证据视为失效。
-   - 全部 Figma 写回完成后冻结最终节点，并调用 `$capture-figma-design-source` 重新采集；不得把创建前的截图、上下文或清单继续作为实现依据。
+   - 全部 Figma 写回完成后冻结最终节点，并只调用一次 `$capture-figma-design-source` 执行正式采集；不得把创建前的截图、上下文或清单继续作为实现依据。
    - Product Design 必须把用户确认的提案与重新采集后的最终 Component Set、Main Component、Instance 和 Variant 身份汇合到 Canonical UI 的 `componentInventory`、`componentMappings` 与 `componentVariantCoverage`。Schema 与 Validator 通过前不得交给 `$implement-figma-lit-page`。
 
 | Figma 能力 | Lit 接口 |

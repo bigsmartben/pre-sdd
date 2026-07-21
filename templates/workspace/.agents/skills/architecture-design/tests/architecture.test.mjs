@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
-  completeProductFixture,
   fixtureProject,
   markReady,
   readArtifact,
@@ -24,30 +23,33 @@ async function pathExists(path) {
   }
 }
 
-async function completeUseCasesFixture(root) {
-  await completeProductFixture(root);
+async function snapshotTree(path, relative = '') {
+  const entries = await readdir(resolve(path, relative), { withFileTypes: true });
+  const snapshot = [];
+  for (const entry of entries) {
+    const next = relative ? relative + '/' + entry.name : entry.name;
+    if (entry.isDirectory()) snapshot.push(...await snapshotTree(path, next));
+    else if (entry.isFile()) snapshot.push([next, (await readFile(resolve(path, next))).toString('base64')]);
+  }
+  return snapshot.sort(([left], [right]) => left.localeCompare(right));
 }
 
 async function completeArchitectureFixture(root) {
-  await completeUseCasesFixture(root);
   const initialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
   assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
 
   const project = await fixtureProject(root);
-  const productStage = project.stages['product-design'];
   const stage = project.stages['architecture-design'];
-  const capabilities = await readArtifact(root, productStage, productStage.artifacts.capabilities);
   const architecture = await readArtifact(root, stage, stage.artifacts['architecture-package']);
   const boundary = await readArtifact(root, stage, stage.artifacts['system-boundary']);
   const conceptual = await readArtifact(root, stage, stage.artifacts['conceptual-model']);
   const validation = await readArtifact(root, stage, stage.artifacts['technical-validation']);
 
   markReady(architecture.data);
-  architecture.data.upstream.version = capabilities.data.metadata.version;
   architecture.data.overview = {
     systemName: '规格验证系统',
     architectureGoal: '从用例事实建立可追溯架构输入',
-    constraints: ['架构只依赖已批准 Use Cases'],
+    constraints: ['架构输入与 Product Design 生命周期解耦'],
   };
 
   markReady(boundary.data);
@@ -212,25 +214,40 @@ test('architecture empty scaffold passes structure and blocks readiness', async 
   assert.ok(codes(strict).has('AIH_STAGE_UNINITIALIZED'));
 });
 
-test('architecture initialization depends on Use Cases and creates every fixed input directory', async () => {
-  const root = await temporaryRepository();
-  const blocked = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
-  assert.notEqual(blocked.exitCode, 0);
-  assert.ok(codes(blocked).has('AIH_STAGE_UNINITIALIZED') || codes(blocked).has('AIH_UPSTREAM_NOT_READY'));
-
-  await completeUseCasesFixture(root);
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
-  assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
-  const project = await fixtureProject(root);
-  const stage = project.stages['architecture-design'];
-  for (const binding of Object.values(stage.artifacts)) {
-    assert.equal(await pathExists(resolve(root, stage.root, binding.inputRoot)), true, binding.inputRoot);
+test('architecture initialization ignores Product Design lifecycle state and never writes 01', async () => {
+  const scenarios = [
+    { name: 'uninitialized', initializeProduct: false, status: 'uninitialized' },
+    { name: 'active with draft artifacts', initializeProduct: true, status: 'active' },
+    { name: 'published', initializeProduct: true, status: 'published' },
+    { name: 'reopened as active', initializeProduct: true, status: 'active', reopened: true },
+  ];
+  for (const scenario of scenarios) {
+    const root = await temporaryRepository();
+    if (scenario.initializeProduct) {
+      const productInitialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+      assert.equal(productInitialization.exitCode, 0, scenario.name + ': ' + JSON.stringify(productInitialization.output, null, 2));
+      const projectPath = resolve(root, 'psp.project.yaml');
+      const project = parseYaml(await readFile(projectPath, 'utf8'));
+      if (scenario.reopened) project.stages['product-design'].status = 'published';
+      project.stages['product-design'].status = scenario.status;
+      await writeFile(projectPath, stringifyYaml(project));
+    }
+    const productRoot = resolve(root, '01-product-design');
+    const before = await snapshotTree(productRoot);
+    const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
+    assert.equal(initialized.exitCode, 0, scenario.name + ': ' + JSON.stringify(initialized.output, null, 2));
+    assert.deepEqual(await snapshotTree(productRoot), before, scenario.name);
+    assert.equal(initialized.output.outputs.some((path) => path.startsWith('01-product-design/')), false, scenario.name);
+    const project = await fixtureProject(root);
+    const stage = project.stages['architecture-design'];
+    for (const binding of Object.values(stage.artifacts)) {
+      assert.equal(await pathExists(resolve(root, stage.root, binding.inputRoot)), true, binding.inputRoot);
+    }
   }
 });
 
 test('architecture artifact operation commits its YAML and Markdown as one revision', async () => {
   const root = await temporaryRepository();
-  await completeUseCasesFixture(root);
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
@@ -240,6 +257,8 @@ test('architecture artifact operation commits its YAML and Markdown as one revis
   artifact.data.system.name = '轻量产物写入架构系统';
   const candidate = resolve(root, '.psp/candidate-system-boundary.yaml');
   await writeFile(candidate, stringifyYaml(artifact.data));
+  const productRoot = resolve(root, '01-product-design');
+  const productBefore = await snapshotTree(productRoot);
   const applied = runScript('.agents/skills/architecture-design/scripts/apply-artifact.mjs', root, [
     '--operation', 'apply-architecture-artifact',
     '--artifact', 'system-boundary',
@@ -252,13 +271,55 @@ test('architecture artifact operation commits its YAML and Markdown as one revis
   assert.match(authority, /轻量产物写入架构系统/);
   assert.match(markdown, /轻量产物写入架构系统/);
   assert.doesNotMatch(markdown, /sourceSha256:/);
+  assert.deepEqual(await snapshotTree(productRoot), productBefore);
 });
 
-test('complete Use Case to key capability to selection to real-code conclusion mapping passes strict validation', async () => {
+test('complete Architecture mapping from local Use Case to capability to real-code conclusion passes strict validation', async () => {
   const root = await temporaryRepository();
   await completeArchitectureFixture(root);
   const strict = runScript('.agents/skills/architecture-design/scripts/validate.mjs', root, ['--strict', '--json']);
   assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
+});
+
+test('optional Product Design reference is fixed-version read-only and ignores lifecycle status', async () => {
+  const root = await temporaryRepository();
+  const productInitialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+  assert.equal(productInitialization.exitCode, 0, JSON.stringify(productInitialization.output, null, 2));
+  const architectureInitialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
+  assert.equal(architectureInitialization.exitCode, 0, JSON.stringify(architectureInitialization.output, null, 2));
+
+  const projectPath = resolve(root, 'psp.project.yaml');
+  const project = parseYaml(await readFile(projectPath, 'utf8'));
+  project.stages['product-design'].status = 'published';
+  await writeFile(projectPath, stringifyYaml(project));
+  const stage = project.stages['architecture-design'];
+  const architecture = await readArtifact(root, stage, stage.artifacts['architecture-package']);
+  architecture.data.productDesignInput = {
+    mode: 'reference',
+    reference: {
+      stage: 'product-design',
+      artifact: 'capabilities',
+      version: '0.1.0',
+      access: 'read-only',
+    },
+  };
+  await writeArtifact(architecture);
+  let render = runScript('.agents/skills/architecture-design/scripts/render.mjs', root, ['--json']);
+  assert.equal(render.exitCode, 0, JSON.stringify(render.output, null, 2));
+  const productRoot = resolve(root, '01-product-design');
+  const productBefore = await snapshotTree(productRoot);
+  const valid = runScript('.agents/skills/architecture-design/scripts/validate.mjs', root, ['--json']);
+  assert.equal(valid.exitCode, 0, JSON.stringify(valid.output, null, 2));
+  assert.deepEqual(await snapshotTree(productRoot), productBefore);
+
+  architecture.data.productDesignInput.reference.version = '9.9.9';
+  await writeArtifact(architecture);
+  render = runScript('.agents/skills/architecture-design/scripts/render.mjs', root, ['--json']);
+  assert.equal(render.exitCode, 0, JSON.stringify(render.output, null, 2));
+  const invalid = runScript('.agents/skills/architecture-design/scripts/validate.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_REFERENCE_UNRESOLVED'));
+  assert.equal(codes(invalid).has('AIH_UPSTREAM_NOT_READY'), false);
+  assert.deepEqual(await snapshotTree(productRoot), productBefore);
 });
 
 test('each Architecture artifact passes its independent readiness step', async () => {
@@ -292,14 +353,23 @@ test('all architecture artifacts declare fixed inputs owned by the Architecture 
     assert.match(project.stages['architecture-design'].artifacts[item.id].inputRoot, /^inputs\/[a-z][a-z0-9-]*$/);
   }
   const expectedInputs = {
-    'architecture-package': ['capabilities', 'system-boundary', 'conceptual-model', 'technical-validation'],
-    'system-boundary': ['capabilities'],
-    'conceptual-model': ['capabilities', 'system-boundary'],
-    'technical-validation': ['capabilities', 'system-boundary'],
+    'architecture-package': ['system-boundary', 'conceptual-model', 'technical-validation'],
+    'system-boundary': [],
+    'conceptual-model': ['system-boundary'],
+    'technical-validation': ['system-boundary'],
   };
   for (const item of artifacts) {
     const contract = parseYaml(await readFile(resolve(root, item.contract), 'utf8'));
     assert.deepEqual(contract.spec.inputs.artifacts, expectedInputs[item.id]);
     assert.equal(contract.spec.inputs.directoryRole, 'supporting-input');
   }
+  const packageContract = parseYaml(await readFile(resolve(root, artifacts.find((item) => item.id === 'architecture-package').contract), 'utf8'));
+  assert.deepEqual(packageContract.spec.references, [{
+    stage: 'product-design',
+    artifact: 'capabilities',
+    required: false,
+    access: 'read-only',
+    fixedVersionField: 'productDesignInput.reference.version',
+    lifecycleControl: 'none',
+  }]);
 });

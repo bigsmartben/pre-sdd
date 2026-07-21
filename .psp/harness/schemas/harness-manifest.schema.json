@@ -133,7 +133,7 @@
         "continuousIntegration": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["workflow", "runner", "intent", "job", "triggers", "protectedBranches", "runsOn", "nodeVersion", "checkoutAction", "setupNodeAction", "installCommand"],
+          "required": ["workflow", "runner", "intent", "job", "triggers", "protectedBranches", "runsOn", "nodeVersion", "checkoutAction", "setupNodeAction", "installCommand", "browserInstallCommand", "timeoutMinutes"],
           "properties": {
             "workflow": {"$ref": "#/$defs/path"},
             "runner": {"$ref": "#/$defs/path"},
@@ -145,7 +145,9 @@
             "nodeVersion": {"type": "string", "pattern": "^[0-9]+$"},
             "checkoutAction": {"type": "string", "pattern": "^actions/checkout@v[0-9]+$"},
             "setupNodeAction": {"type": "string", "pattern": "^actions/setup-node@v[0-9]+$"},
-            "installCommand": {"const": "npm ci"}
+            "installCommand": {"const": "npm ci"},
+            "browserInstallCommand": {"const": "npx playwright install --with-deps chromium"},
+            "timeoutMinutes": {"const": 60}
           }
         },
         "releaseValidation": {

@@ -1,7 +1,7 @@
 {
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
-  "version": "13.2.0",
+  "version": "13.3.0",
   "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -60,6 +60,7 @@
       "root": "templates/workspace/.agents/skills",
       "required": [
         "apply-repository-harness",
+        "project-consistency",
         "product-design",
         "architecture-design",
         "capture-figma-design-source",
@@ -97,7 +98,7 @@
       {
         "id": "scaffold-quickstart",
         "path": "QUICKSTART.md",
-        "requiredText": ["使用者视角（User View）", "会改变状态的公共操作只有三项", "npm install --global git+https://github.com/bigsmartben/pre-sdd.git", "pre-sdd init", "git init", "文件存在不等于", "01-product-design", "02-architecture-design", "架构设计只需要已经确认并检查通过的 Use Cases", "本轮只完成"],
+        "requiredText": ["使用者视角（User View）", "会改变状态的公共操作只有三项", "npm install --global git+https://github.com/bigsmartben/pre-sdd.git", "pre-sdd init", "git init", "文件存在不等于", "01-product-design", "02-architecture-design", "架构设计拥有独立生命周期", "本轮只完成"],
         "forbiddenText": ["pre-sdd harness", "npm exec", "npm run", ".psp/harness/scripts/run-ci-validation.mjs"]
       },
       {
@@ -127,6 +128,8 @@
       "test:workspace:harness",
       "test:workspace:product",
       "test:workspace:architecture",
+      "test:package:fast",
+      "test:package:slow",
       "test:package",
       "test",
       "check",
@@ -152,7 +155,9 @@
       "nodeVersion": "22",
       "checkoutAction": "actions/checkout@v4",
       "setupNodeAction": "actions/setup-node@v4",
-      "installCommand": "npm ci"
+      "installCommand": "npm ci",
+      "browserInstallCommand": "npx playwright install --with-deps chromium",
+      "timeoutMinutes": 60
     },
     "releaseValidation": {
       "runner": ".psp/harness/scripts/run-ci-validation.mjs",
@@ -222,6 +227,20 @@
       "npmScript": "test:package",
       "run": "npm run test:package",
       "purpose": "在临时目录验证初始化、生成工作区本地执行与包行为",
+      "blocking": true
+    },
+    {
+      "id": "test-package-fast",
+      "npmScript": "test:package:fast",
+      "run": "npm run test:package:fast",
+      "purpose": "运行不含全局安装、浏览器和完整构建的包级快速测试",
+      "blocking": true
+    },
+    {
+      "id": "test-package-slow",
+      "npmScript": "test:package:slow",
+      "run": "npm run test:package:slow",
+      "purpose": "运行隔离全局安装、浏览器与完整工作区构建包级慢测试",
       "blocking": true
     },
     {

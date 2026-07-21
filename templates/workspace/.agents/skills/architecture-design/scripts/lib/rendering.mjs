@@ -78,14 +78,17 @@ function relativeLink(from, to) {
 
 function renderArchitecturePackage(data, context) {
   const lines = header('Architecture Design Package', data, context);
+  const productReference = data.productDesignInput.reference;
   lines.push(
-    '本文件是架构设计 Package 的正式用户产物；内部结构化模型只服务于生成和校验，产品事实只从上游 Product Design 用户产物读取。',
+    '本文件是架构设计 Package 的正式用户产物；Architecture Design 拥有独立生命周期。Product Design 只能作为显式、固定版本、只读的可选输入，不控制本阶段状态。',
     '',
-    '## Upstream Baseline',
+    '## Optional Product Design Input',
     '',
-    '- 阶段：' + text(data.upstream.stage),
-    '- Artifact：' + text(data.upstream.artifact),
-    '- 版本：' + text(data.upstream.version),
+    '- 模式：' + text(data.productDesignInput.mode),
+    '- 阶段：' + text(productReference?.stage),
+    '- Artifact：' + text(productReference?.artifact),
+    '- 固定版本：' + text(productReference?.version),
+    '- 访问权限：' + text(productReference?.access),
     '',
     '## Architecture Overview',
     '',
@@ -107,11 +110,11 @@ function renderArchitecturePackage(data, context) {
     '',
     '## Reading Protocol',
     '',
-    '1. 先确认 Use Cases readiness Profile 与本 Package 记录的 capabilities 版本；不读取 Canonical UI Prototype。',
+    '1. independent 模式只读取 Architecture Design 本地输入；reference 模式只读取 Package 固定版本对应的 Product Design capabilities。',
     '2. 从系统边界读取 Actor/UC 到子系统、能力输入输出及做/不做范围的映射。',
     '3. 从概念建模读取对象字段、唯一键、约束、归一/继承关系和跨 UC 生命周期。',
     '4. 从技术验证读取关键能力到技术选型结论及真实代码测试通过结论的映射。',
-    '5. 发现产品缺口时记录 gap 并反馈上游，不得在架构产物中改写产品事实。',
+    '5. Product Design 引用不形成 readiness、handoff 或回写权限；发现差异只记录 Architecture gap。',
     '',
     ...gates(data),
     ...gaps(data),
@@ -122,7 +125,7 @@ function renderArchitecturePackage(data, context) {
 function renderSystemBoundary(data, context) {
   const lines = header('系统边界', data, context);
   lines.push(
-    '本产物从已批准 Actor 与 Use Case 抽象长期稳定的系统/子系统边界；它说明做什么、不做什么，但不定义对象字段或选择实现技术。',
+    '本产物从架构输入抽象长期稳定的系统/子系统边界；它说明做什么、不做什么，但不定义对象字段或选择实现技术。',
     '',
     '## 系统级边界',
     '',
@@ -288,7 +291,7 @@ function renderConceptualModel(data, context) {
 function renderTechnicalValidation(data, context) {
   const lines = header('技术验证', data, context);
   lines.push(
-    '本产物只从已批准 Use Case 与系统边界中提取标记为需要技术验证的关键能力，并将技术选型结论映射到当前真实代码的测试结论。代码位于本目录 `cases/`，凭据只通过环境变量注入。',
+    '本产物从系统边界中提取标记为需要技术验证的关键能力，并将技术选型结论映射到当前真实代码的测试结论。代码位于本目录 `cases/`，凭据只通过环境变量注入。',
     '',
     '## 技术选型决策',
     '',

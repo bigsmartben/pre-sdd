@@ -89,7 +89,7 @@
       "properties": {
         "status": {"enum": ["draft", "ready"]},
         "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-        "upstreamArtifacts": {"const": ["capabilities", "system-boundary"]}
+        "upstreamArtifacts": {"const": ["system-boundary"]}
       }
     },
     "decisionId": {"type": "string", "pattern": "^TECH-[0-9]{3}$"},

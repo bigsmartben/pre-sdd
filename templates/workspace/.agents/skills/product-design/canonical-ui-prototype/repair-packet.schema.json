@@ -21,7 +21,7 @@
     "status": {"enum": ["REPAIR_REQUIRED", "BLOCKED"]},
     "workspaceRoot": {"type": "string", "minLength": 1},
     "attempt": {"type": "integer", "minimum": 1, "maximum": 3},
-    "maxAttempts": {"const": 3},
+    "maxAttempts": {"const": 1},
     "repairableBlockerCodes": {
       "type": "array",
       "minItems": 1,
@@ -46,7 +46,7 @@
       "items": {"$ref": "#/$defs/attempt"}
     }
   },
-  "$comment": "Repair Packet provides evidence and path guidance. Code changes are accepted without hash snapshots or a separate action report and are judged by the next runtime validation.",
+  "$comment": "Repair Packet provides evidence and path guidance. Code changes do not require a hash snapshot or Action Report before editing; the next runtime validation decides success and emits a Repair Action Report as process evidence after a repaired run passes.",
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
     "path": {"type": "string", "minLength": 1},

@@ -5,6 +5,7 @@ import {
   repositoryFile,
   repositoryRootFrom,
 } from './lib/repository.mjs';
+import { stageIsReadable } from './lib/stage-state.mjs';
 
 const root = repositoryRootFrom(import.meta.dirname);
 const args = process.argv.slice(2);
@@ -40,7 +41,7 @@ if (matchedStage.status === 'uninitialized') {
   console.error('[AIH_STAGE_UNINITIALIZED] 阶段尚未初始化，不能运行 area 命令：' + areaId);
   process.exit(1);
 }
-if (matchedStage.status !== 'active') {
+if (!stageIsReadable(matchedStage)) {
   console.error('[AIH_PROJECT_BINDING_INVALID] area 所属阶段不可执行：' + matches[0].stageId);
   process.exit(1);
 }

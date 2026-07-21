@@ -13,6 +13,8 @@ import {
   repositoryFile,
   repositoryRootFrom,
 } from './lib/repository.mjs';
+import { dependencyIds } from './lib/project-dag.mjs';
+import { stageIsReadable } from './lib/stage-state.mjs';
 
 const root = repositoryRootFrom(import.meta.dirname);
 const json = process.argv.includes('--json');
@@ -44,14 +46,30 @@ const REQUIRED_CODES = [
   'AIH_USER_CHANGE_COLLISION',
   'AIH_WORKSPACE_NOT_EMPTY',
   'AIH_STAGE_UNINITIALIZED',
+  'AIH_STAGE_LOCKED',
   'AIH_PARTIAL_INITIALIZATION',
   'AIH_STAGE_ALREADY_INITIALIZED',
   'AIH_DOMAIN_BOUNDARY_INVALID',
-  'AIH_HANDOFF_EDGE_INVALID',
+  'AIH_ASSET_CLASSIFICATION_INCOMPLETE',
+  'AIH_ASSET_MISSING',
+  'AIH_ASSET_HASH_MISMATCH',
+  'AIH_ASSET_CLOSURE_FAILED',
+  'AIH_ASSET_CSS_BYPASS',
+  'AIH_ASSET_INGEST_CONFLICT',
+  'AIH_DAG_NODE_UNKNOWN',
+  'AIH_DAG_EDGE_CONFLICT',
+  'AIH_DAG_CYCLE',
+  'AIH_HANDOFF_UNREACHABLE',
 ];
 
 function block(code, message, location) {
   blockers.push({ code, message, ...(location ? { location } : {}) });
+}
+
+function scopeStage(scope) {
+  return ['stage', 'area', 'artifact'].includes(scope?.selector?.type)
+    ? scope.selector.stage
+    : null;
 }
 
 async function requirePath(path, location = path) {
@@ -154,10 +172,23 @@ if (project && manifest) {
             block('AIH_CONTRACT_INVALID', 'Contract inputs 引用未知 Artifact：' + inputArtifact, registry.contract);
           }
         }
+        for (const reference of contract?.spec?.references || []) {
+          const referenced = manifest.artifactRegistry.find((item) =>
+            item.id === reference.artifact && item.stage === reference.stage,
+          );
+          if (!referenced) {
+            block('AIH_CONTRACT_INVALID', 'Contract references 引用未知阶段 Artifact：' + reference.stage + '/' + reference.artifact, registry.contract);
+          }
+          if (reference.stage === registry.stage) {
+            block('AIH_CONTRACT_INVALID', '同阶段 Artifact 必须使用 inputs，不得伪装成只读跨阶段引用。', registry.contract);
+          }
+        }
         const boundOutputs = projectValid
           ? [...(binding?.projections || binding?.outputs || []), ...(binding?.memberOutputs || binding?.memberProjections || [])]
           : [];
-        if (projectValid && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)) {
+        const areaAuthorityIsUserArtifact = ['area', 'area-set'].includes(registry.authorityKind)
+          && contract?.spec?.outputRole === 'user-artifact';
+        if (projectValid && !areaAuthorityIsUserArtifact && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)) {
           block('AIH_CONTRACT_INVALID', 'Contract outputRole 与项目 Artifact binding 不一致。', registry.contract);
         }
         const registeredProjections = new Map((registry.projections || []).map((item) => [item.id, item]));
@@ -278,7 +309,7 @@ if (manifest && manifestValid) {
     }
     if (operation.kind === 'workspace' || operation.kind === 'handoff') continue;
     const stage = project?.stages?.[operation.stage];
-    if (!stage || !['uninitialized', 'active'].includes(stage.status)) {
+    if (!stage || !['uninitialized', 'active', 'published'].includes(stage.status)) {
       block('AIH_PROJECT_BINDING_INVALID', 'Operation 引用不可执行阶段：' + operation.stage, operation.id);
     }
     if (operation.kind === 'artifact') {
@@ -309,19 +340,46 @@ if (manifest && manifestValid) {
       }
       continue;
     }
-    if (operation.upstreamScopes && operation.upstreamHandoff) {
-      block('AIH_CONTRACT_INVALID', '阶段初始化不能同时声明 upstreamScopes 与 upstreamHandoff。', operation.id);
-    }
-    const stageScope = [...scopes.values()].find((scope) =>
-      scope.selector?.type === 'stage' && scope.selector.stage === operation.stage,
-    );
-    for (const scopeId of operation.upstreamScopes || []) {
-      const upstream = scopes.get(scopeId);
-      if (!upstream || upstream.status !== 'active') {
-        block('AIH_SCOPE_INVALID', '阶段初始化引用未知或不可用的上游 Scope：' + scopeId, operation.id);
-      } else if (!stageScope?.dependencies?.includes(scopeId)) {
-        block('AIH_SCOPE_INVALID', '阶段 Scope 未声明初始化所需上游依赖：' + scopeId, operation.id);
+    if (operation.kind === 'ingest') {
+      const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+      if (
+        !registered
+        || registered.stage !== operation.stage
+        || registered.domain !== operation.domain
+        || !['area', 'area-set'].includes(registered.authorityKind)
+        || !stage?.artifacts?.[operation.artifact]
+      ) {
+        block('AIH_CONTRACT_INVALID', 'Ingest operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
       }
+      if (
+        operation.executor?.kind !== 'module'
+        || operation.executor.path !== '.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs'
+      ) {
+        block('AIH_COMMAND_INVALID', 'Figma Asset Ingest 必须绑定专用执行器。', operation.id);
+      }
+      for (const [schemaId, schemaPath] of Object.entries(operation.packetSchemas || {})) {
+        await requirePath(schemaPath, operation.id + '.packetSchemas.' + schemaId);
+      }
+      continue;
+    }
+    if (['review', 'publish', 'reopen'].includes(operation.kind)) {
+      const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+      if (
+        !registered
+        || registered.stage !== operation.stage
+        || registered.domain !== operation.domain
+        || !['area', 'area-set'].includes(registered.authorityKind)
+        || !stage?.artifacts?.[operation.artifact]
+      ) {
+        block('AIH_CONTRACT_INVALID', 'UI HTML 生命周期 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+      }
+      if (operation.profile && !profiles.has(operation.profile)) {
+        block('AIH_PROFILE_INVALID', 'UI HTML 生命周期 operation 引用未知 Profile：' + operation.profile, operation.id);
+      }
+      if (operation.receipt && operation.receipt !== stage?.publication?.receipt) {
+        block('AIH_PROJECT_BINDING_INVALID', '发布凭证路径与项目绑定不一致：' + operation.id, operation.id);
+      }
+      continue;
     }
     for (const [areaId, template] of Object.entries(operation.areaTemplates || {})) {
       if (!stage?.areas?.[areaId]) {
@@ -399,18 +457,88 @@ if (manifest && manifestValid) {
     } else if (!catalog.has(scope.blockerCode)) {
       block('AIH_SCOPE_INVALID', 'Unsupported Scope 引用未知 blocker：' + scope.blockerCode, scope.id);
     }
-    for (const dependency of scope.dependencies || []) {
-      if (!scopes.has(dependency)) block('AIH_SCOPE_INVALID', 'Scope 引用未知依赖：' + dependency, scope.id);
+  }
+
+  const consistencyCommand = commands.get('project-consistency');
+  if (
+    !consistencyCommand
+    || consistencyCommand.executor?.kind !== 'module'
+    || consistencyCommand.executor.path !== '.agents/skills/project-consistency/scripts/check.mjs'
+  ) {
+    block('AIH_COMMAND_INVALID', 'project-consistency 必须绑定只读 Repository Skill 检查器。', 'project-consistency');
+  }
+  for (const profile of profiles.values()) {
+    if (profile.commands.includes('project-consistency')) {
+      block('AIH_PROFILE_INVALID', 'project-consistency 只能由用户显式调用，不得加入 validation Profile。', profile.id);
     }
-    for (const consumerId of scope.handoffConsumers || []) {
-      const consumer = scopes.get(consumerId);
-      if (!consumer) {
-        block('AIH_SCOPE_INVALID', 'Scope 引用未知 handoff consumer：' + consumerId, scope.id);
-      } else if (!consumer.dependencies?.includes(scope.id)) {
-        block('AIH_SCOPE_INVALID', 'Handoff consumer 未声明对应上游依赖：' + consumerId, scope.id);
+  }
+
+  const dagNodes = new Map();
+  for (const node of manifest.projectDag.nodes) {
+    const scope = scopes.get(node.id);
+    if (dagNodes.has(node.id)) {
+      block('AIH_DAG_NODE_UNKNOWN', '项目 DAG 节点 id 重复：' + node.id, 'projectDag.nodes');
+      continue;
+    }
+    dagNodes.set(node.id, node);
+    if (
+      !scope
+      || scope.status !== 'active'
+      || scope.kind !== node.kind
+      || scopeStage(scope) !== node.stage
+      || !project?.stages?.[node.stage]
+    ) {
+      block('AIH_DAG_NODE_UNKNOWN', '项目 DAG 节点未绑定身份一致的可用 Scope：' + node.id, node.id);
+    }
+    for (const validatorId of node.validators || []) {
+      const validator = commands.get(validatorId);
+      if (
+        !scope?.domain
+        || !validator
+        || validator.domain !== scope.domain
+        || validator.executor?.kind !== 'module'
+      ) {
+        block('AIH_COMMAND_INVALID', '项目 DAG 节点引用的领域 Validator 无效：' + validatorId, node.id);
       }
     }
   }
+
+  const adjacency = new Map([...dagNodes.keys()].map((id) => [id, []]));
+  const edgePairs = new Map();
+  for (const edge of manifest.projectDag.edges) {
+    const location = edge.from + '->' + edge.to;
+    const fromNode = dagNodes.get(edge.from);
+    const toNode = dagNodes.get(edge.to);
+    if (!fromNode || !toNode) {
+      block('AIH_DAG_NODE_UNKNOWN', '项目 DAG 边引用未知节点：' + location, location);
+      continue;
+    }
+    const previous = edgePairs.get(location);
+    if (previous) {
+      block('AIH_DAG_EDGE_CONFLICT', '项目 DAG 对同一节点对声明了重复或冲突边：' + location, location);
+      continue;
+    }
+    edgePairs.set(location, edge.type);
+    adjacency.get(edge.from).push(edge.to);
+    if (toNode.stage === 'architecture-design' && fromNode.stage === 'product-design') {
+      block('AIH_HARNESS_COUPLED', 'Architecture Design DAG 节点不得依赖 Product Design 生命周期节点。', location);
+    }
+  }
+
+  const visitState = new Map();
+  let cycleReported = false;
+  function visitDag(nodeId) {
+    if (visitState.get(nodeId) === 'visited') return;
+    if (visitState.get(nodeId) === 'visiting') {
+      if (!cycleReported) block('AIH_DAG_CYCLE', '项目 DAG 存在依赖环：' + nodeId, nodeId);
+      cycleReported = true;
+      return;
+    }
+    visitState.set(nodeId, 'visiting');
+    for (const consumerId of adjacency.get(nodeId) || []) visitDag(consumerId);
+    visitState.set(nodeId, 'visited');
+  }
+  for (const nodeId of dagNodes.keys()) visitDag(nodeId);
 
   const registry = unique(manifest.artifactRegistry, 'artifact', 'AIH_CONTRACT_INVALID');
   const domains = unique(manifest.domainRegistry, 'domain', 'AIH_DOMAIN_BOUNDARY_INVALID');
@@ -428,7 +556,7 @@ if (manifest && manifestValid) {
       }
     }
   }
-  for (const operation of manifest.operations.filter((item) => item.kind === 'artifact' || item.kind === 'repair')) {
+  for (const operation of manifest.operations.filter((item) => ['artifact', 'repair', 'review', 'publish', 'reopen'].includes(item.kind))) {
     const domain = domains.get(operation.domain);
     if (!domain || operation.executor.kind !== 'module' || !operation.executor.path.startsWith(domain.root + '/')) {
       block('AIH_DOMAIN_BOUNDARY_INVALID', '领域 Operation 执行器越出已注册 Domain Skill：' + operation.id, operation.id);
@@ -467,7 +595,7 @@ if (manifest && manifestValid) {
         }
         continue;
       }
-      const requireUserFiles = stage.status === 'active';
+      const requireUserFiles = stageIsReadable(stage);
       await requireDirectory(stage.root, 'stages.' + stageId + '.root');
       const expected = new Set([...registry.values()].filter((item) => item.stage === stageId).map((item) => item.id));
       const actual = new Set(Object.keys(stage.artifacts));
@@ -490,6 +618,12 @@ if (manifest && manifestValid) {
       }
       for (const [areaId, area] of Object.entries(stage.areas || {})) {
         if (requireUserFiles) await requirePath(stage.root + '/' + area.root, stageId + '.areas.' + areaId);
+      }
+      if (stage.publication?.receipt) {
+        const owner = occupied.get(stage.publication.receipt);
+        if (owner) block('AIH_PROJECT_BINDING_INVALID', '发布凭证路径重复：' + stage.publication.receipt, stageId);
+        else occupied.set(stage.publication.receipt, stageId + '.publication');
+        if (stage.status === 'published') await requirePath(stage.publication.receipt, stageId + '.publication.receipt');
       }
     }
   }
@@ -549,11 +683,22 @@ if (manifest && manifestValid) {
       }
     }
     for (const [stageId, stage] of Object.entries(project.stages)) {
-      if (stage.status === 'active') {
+      if (stageIsReadable(stage)) {
         const firstId = Object.keys(stage.artifacts)[0];
-        selfChecks.push([artifactPaths(project, firstId, stageId).authorityPath, 'change', 'READY']);
+        selfChecks.push([
+          artifactPaths(project, firstId, stageId).authorityPath,
+          'change',
+          stage.status === 'published' ? 'BLOCKED' : 'READY',
+          stage.status === 'published' ? 'AIH_STAGE_LOCKED' : undefined,
+        ]);
+        selfChecks.push([artifactPaths(project, firstId, stageId).authorityPath, 'readiness', 'READY']);
         for (const area of Object.values(stage.areas || {})) {
-          selfChecks.push([stage.root + '/' + area.root, 'change', 'READY']);
+          selfChecks.push([
+            stage.root + '/' + area.root,
+            'change',
+            stage.status === 'published' ? 'BLOCKED' : 'READY',
+            stage.status === 'published' ? 'AIH_STAGE_LOCKED' : undefined,
+          ]);
         }
       } else if (stage.status === 'uninitialized') {
         const firstId = Object.keys(stage.artifacts)[0];
@@ -561,12 +706,10 @@ if (manifest && manifestValid) {
         const stageScope = manifest.scopes.find((scope) =>
           scope.selector?.type === 'stage' && scope.selector.stage === stageId,
         );
-        const hasUnreadyUpstream = (stageScope?.dependencies || []).some((dependencyId) => {
+        const hasUnreadyUpstream = dependencyIds(manifest, stageScope?.id).some((dependencyId) => {
           const dependency = manifest.scopes.find((scope) => scope.id === dependencyId);
-          const dependencyStage = ['static', 'workspace', 'domain'].includes(dependency?.selector?.type)
-            ? null
-            : dependency?.selector?.stage;
-          return dependencyStage && dependencyStage !== stageId && project.stages?.[dependencyStage]?.status !== 'active';
+          const dependencyStage = scopeStage(dependency);
+          return dependencyStage && dependencyStage !== stageId && !stageIsReadable(project.stages?.[dependencyStage]);
         });
         selfChecks.push(hasUnreadyUpstream
           ? [firstPath, 'change', 'BLOCKED', 'AIH_UPSTREAM_NOT_READY']

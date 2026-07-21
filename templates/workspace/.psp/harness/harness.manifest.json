@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "13.0.0",
+  "version": "17.0.0",
   "runtime": {
     "protocol": "pre-sdd-harness/v2",
     "authority": "generated-workspace-local",
@@ -30,6 +30,7 @@
     ],
     "repositorySkills": [
       ".agents/skills/apply-repository-harness/SKILL.md",
+      ".agents/skills/project-consistency/SKILL.md",
       ".agents/skills/product-design/SKILL.md",
       ".agents/skills/architecture-design/SKILL.md",
       ".agents/skills/capture-figma-design-source/SKILL.md",
@@ -72,6 +73,22 @@
       "contract": ".agents/skills/product-design/canonical-ui-prototype/contract.yaml",
       "schema": ".agents/skills/product-design/canonical-ui-prototype/schema.json",
       "projector": "render-product"
+    },
+    {
+      "id": "visual-spec",
+      "stage": "product-design",
+      "domain": "product-design",
+      "authorityKind": "internal-model",
+      "format": "yaml",
+      "contract": ".agents/skills/product-design/visual-spec/contract.yaml",
+      "schema": ".agents/skills/product-design/visual-spec/schema.json",
+      "template": ".agents/skills/product-design/visual-spec/template.yaml",
+      "projections": [
+        {
+          "id": "visual-spec-document",
+          "renderer": "visual-spec-markdown"
+        }
+      ]
     },
     {
       "id": "architecture-package",
@@ -118,6 +135,141 @@
       "renderer": "technical-validation-markdown"
     }
   ],
+  "projectDag": {
+    "nodes": [
+      {
+        "id": "product-design",
+        "kind": "stage",
+        "stage": "product-design",
+        "validators": [
+          "product-structure"
+        ]
+      },
+      {
+        "id": "use-cases",
+        "kind": "artifact",
+        "stage": "product-design",
+        "validators": [
+          "use-cases-strict"
+        ]
+      },
+      {
+        "id": "visual-spec",
+        "kind": "artifact",
+        "stage": "product-design",
+        "validators": [
+          "visual-spec-strict"
+        ]
+      },
+      {
+        "id": "canonical-ui-prototype",
+        "kind": "artifact",
+        "stage": "product-design",
+        "validators": [
+          "product-structure",
+          "canonical-ui-input"
+        ]
+      },
+      {
+        "id": "architecture-design",
+        "kind": "stage",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-structure"
+        ]
+      },
+      {
+        "id": "system-boundary",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-system-boundary"
+        ]
+      },
+      {
+        "id": "conceptual-model",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-conceptual-model"
+        ]
+      },
+      {
+        "id": "technical-validation",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-technical-validation"
+        ]
+      },
+      {
+        "id": "architecture-package",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-package-readiness"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "use-cases",
+        "to": "visual-spec",
+        "type": "handoff",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "use-cases",
+        "to": "canonical-ui-prototype",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "visual-spec",
+        "to": "canonical-ui-prototype",
+        "type": "handoff",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "system-boundary",
+        "to": "conceptual-model",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "system-boundary",
+        "to": "technical-validation",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "conceptual-model",
+        "to": "architecture-package",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "technical-validation",
+        "to": "architecture-package",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      }
+    ]
+  },
   "operations": [
     {
       "id": "initialize-workspace",
@@ -173,9 +325,6 @@
       "commands": [
         "render-architecture",
         "architecture-structure"
-      ],
-      "upstreamScopes": [
-        "use-cases"
       ]
     },
     {
@@ -220,6 +369,47 @@
       ]
     },
     {
+      "id": "apply-visual-spec",
+      "kind": "artifact",
+      "npmScript": "apply:visual-spec",
+      "run": "npm run apply:visual-spec",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/scripts/apply-artifact.mjs",
+        "args": [
+          "--operation",
+          "apply-visual-spec"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifacts": [
+        "visual-spec"
+      ]
+    },
+    {
+      "id": "ingest-figma-assets",
+      "kind": "ingest",
+      "npmScript": "ingest:figma-assets",
+      "run": "npm run ingest:figma-assets",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs",
+        "args": [
+          "--json"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "packetSchemas": {
+        "capturePlan": ".agents/skills/capture-figma-design-source/capture-plan.schema.json",
+        "acquisition": ".agents/skills/capture-figma-design-source/acquisition-packet.schema.json",
+        "receipt": ".agents/skills/capture-figma-design-source/ingest-receipt.schema.json",
+        "registration": ".agents/skills/capture-figma-design-source/source-registration.schema.json"
+      }
+    },
+    {
       "id": "canonical-ui-repair",
       "kind": "repair",
       "npmScript": "repair:canonical-ui",
@@ -236,6 +426,73 @@
       "artifact": "canonical-ui-prototype"
     },
     {
+      "id": "canonical-ui-review",
+      "kind": "review",
+      "npmScript": "review:canonical-ui",
+      "run": "npm run review:canonical-ui",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/review.mjs",
+        "args": ["--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "profile": "canonical-ui-review-readiness",
+      "evidenceVersion": "1.0.0"
+    },
+    {
+      "id": "accept-canonical-ui-visual",
+      "kind": "review",
+      "npmScript": "accept:canonical-ui-visual",
+      "run": "npm run accept:canonical-ui-visual",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/visual-acceptance.mjs",
+        "args": ["--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "profile": "canonical-ui-review-readiness",
+      "evidenceVersion": "1.0.0"
+    },
+    {
+      "id": "publish-product-design",
+      "kind": "publish",
+      "npmScript": "publish:product-design",
+      "run": "npm run publish:product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs",
+        "args": ["--operation", "publish-product-design", "--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "profile": "canonical-ui-review-readiness",
+      "fromState": "active",
+      "toState": "published",
+      "receipt": ".psp/publications/product-design.json"
+    },
+    {
+      "id": "reopen-product-design",
+      "kind": "reopen",
+      "npmScript": "reopen:product-design",
+      "run": "npm run reopen:product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs",
+        "args": ["--operation", "reopen-product-design", "--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "fromState": "published",
+      "toState": "active",
+      "receipt": ".psp/publications/product-design.json"
+    },
+    {
       "id": "handoff",
       "kind": "handoff",
       "npmScript": "handoff",
@@ -247,6 +504,17 @@
     }
   ],
   "commands": [
+    {
+      "id": "project-consistency",
+      "npmScript": "check:project-consistency",
+      "run": "npm run check:project-consistency",
+      "purpose": "仅在用户显式调用时按项目 DAG 只读检查节点、边与领域产物一致性",
+      "blocking": true,
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/project-consistency/scripts/check.mjs"
+      }
+    },
     {
       "id": "harness",
       "npmScript": "validate:harness",
@@ -281,7 +549,8 @@
       "executor": {
         "kind": "node-test",
         "paths": [
-          ".psp/harness/tests/harness/*.test.mjs"
+          ".psp/harness/tests/harness/*.test.mjs",
+          ".agents/skills/project-consistency/tests/*.test.mjs"
         ]
       }
     },
@@ -297,6 +566,32 @@
         "paths": [
           ".agents/skills/product-design/tests/*.test.mjs"
         ]
+      }
+    },
+    {
+      "id": "test-product-fast",
+      "npmScript": "test:product:fast",
+      "run": "npm run test:product:fast",
+      "purpose": "运行不启动浏览器或视觉诊断的 Product Design 快速契约测试",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/tests/run-suite.mjs",
+        "args": ["--tier", "fast"]
+      }
+    },
+    {
+      "id": "test-product-slow",
+      "npmScript": "test:product:slow",
+      "run": "npm run test:product:slow",
+      "purpose": "运行隔离浏览器、视觉诊断、修复和增量性能 Product Design 慢测试",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/tests/run-suite.mjs",
+        "args": ["--tier", "slow"]
       }
     },
     {
@@ -346,12 +641,28 @@
       "id": "canonical-ui-input",
       "npmScript": "validate:canonical-ui-input",
       "run": "npm run validate:canonical-ui-input",
-      "purpose": "校验 Canonical UI Prototype 上游输入、设计来源证据清单、内容哈希与覆盖关系",
+      "purpose": "校验 Canonical UI Prototype 上游输入、Capture Plan、Ingest Receipt、Asset Manifest、内容哈希与消费闭包",
       "blocking": true,
       "domain": "product-design",
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs"
+      }
+    },
+    {
+      "id": "visual-spec-strict",
+      "npmScript": "validate:visual-spec",
+      "run": "npm run validate:visual-spec",
+      "purpose": "独立校验 provider-neutral Visual Spec 的 UC 引用、页面与状态覆盖、组件状态 Variant 组合及资源哈希",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/scripts/validate.mjs",
+        "args": [
+          "--step",
+          "visual-spec"
+        ]
       }
     },
     {
@@ -396,6 +707,30 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs"
+      }
+    },
+    {
+      "id": "canonical-ui-contract-tests",
+      "npmScript": "test:canonical-ui-components",
+      "run": "npm run test:canonical-ui-components",
+      "purpose": "从 Component Contract、State Matrix 与 Mock Case 生成隔离 Playwright 组件契约测试",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs"
+      }
+    },
+    {
+      "id": "canonical-ui-incremental",
+      "npmScript": "validate:canonical-ui-incremental",
+      "run": "npm run validate:canonical-ui-incremental",
+      "purpose": "按显式 changed-path 影响分析增量校验受影响 Component、Route、State 与 Viewport，并输出缓存和性能指标",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-incremental.mjs"
       }
     },
     {
@@ -621,7 +956,8 @@
         "harness",
         "workspace-structure",
         "test-harness",
-        "test-product",
+        "test-product-fast",
+        "test-product-slow",
         "product-structure",
         "test-architecture",
         "architecture-structure"
@@ -645,15 +981,22 @@
       "id": "product-framework",
       "commands": [
         "harness",
-        "test-product",
+        "test-product-fast",
         "product-structure"
+      ]
+    },
+    {
+      "id": "visual-spec-readiness",
+      "commands": [
+        "harness",
+        "visual-spec-strict"
       ]
     },
     {
       "id": "product-uninitialized",
       "commands": [
         "harness",
-        "test-product",
+        "test-product-fast",
         "product-structure"
       ]
     },
@@ -668,11 +1011,13 @@
       "id": "product-delivery",
       "commands": [
         "harness",
-        "test-product",
+        "test-product-fast",
+        "test-product-slow",
         "product-structure",
         "canonical-ui-input",
         "canonical-ui-typecheck",
         "canonical-ui-build",
+        "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
       ]
@@ -685,6 +1030,20 @@
         "canonical-ui-input",
         "canonical-ui-typecheck",
         "canonical-ui-build",
+        "canonical-ui-contract-tests",
+        "canonical-ui-runtime",
+        "product-strict"
+      ]
+    },
+    {
+      "id": "canonical-ui-review-readiness",
+      "commands": [
+        "harness",
+        "product-structure",
+        "canonical-ui-input",
+        "canonical-ui-typecheck",
+        "canonical-ui-build",
+        "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
       ]
@@ -874,10 +1233,25 @@
       },
       "defaultProfile": "use-cases-readiness",
       "readinessProfile": "use-cases-readiness",
-      "uninitializedProfile": "product-uninitialized",
-      "handoffConsumers": [
-        "canonical-ui-prototype"
-      ]
+      "uninitializedProfile": "product-uninitialized"
+    },
+    {
+      "id": "visual-spec",
+      "kind": "artifact",
+      "domain": "product-design",
+      "selectionGroup": "product-design",
+      "priority": 350,
+      "status": "active",
+      "selector": {
+        "type": "artifact",
+        "stage": "product-design",
+        "artifacts": [
+          "visual-spec"
+        ]
+      },
+      "defaultProfile": "visual-spec-readiness",
+      "readinessProfile": "visual-spec-readiness",
+      "uninitializedProfile": "product-uninitialized"
     },
     {
       "id": "canonical-ui-prototype",
@@ -898,11 +1272,7 @@
       },
       "defaultProfile": "canonical-ui-prototype",
       "readinessProfile": "product-delivery",
-      "uninitializedProfile": "product-uninitialized",
-      "dependencies": [
-        "use-cases"
-      ],
-      "handoffConsumers": []
+      "uninitializedProfile": "product-uninitialized"
     },
     {
       "id": "architecture-design",
@@ -917,9 +1287,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "architecture-delivery",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "use-cases"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -938,9 +1305,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "system-boundary-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "use-cases"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -959,10 +1323,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "conceptual-model-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "use-cases",
-        "system-boundary"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -984,10 +1344,6 @@
       "defaultProfile": "technical-validation",
       "readinessProfile": "technical-validation-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "use-cases",
-        "system-boundary"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -1006,10 +1362,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "architecture-package-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "conceptual-model",
-        "technical-validation"
-      ],
       "domain": "architecture-design"
     }
   ],
@@ -1052,6 +1404,48 @@
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "规格内容仍是 draft、存在 gap 或未满足严格门禁",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_CLASSIFICATION_INCOMPLETE",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "确认范围内的视觉候选节点缺少唯一 asset、dom-css、dynamic 或 ignored 策略",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_MISSING",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "已分类 asset 缺少 Acquisition Packet 文件、正式文件或来源证据",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_HASH_MISMATCH",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Capture Plan、Acquisition Packet、正式 Asset 或 Asset Manifest 的 SHA-256 不一致",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_CLOSURE_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "视觉候选、来源证据、正式 Asset 与消费目标未形成双向闭包",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_CSS_BYPASS",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "已分类 asset 的消费目标没有加载并使用正式 Asset，疑似以 DOM/CSS 近似旁路",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_INGEST_CONFLICT",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "受控 Ingest 目标已存在不同内容且没有匹配 previousSha256",
       "domain": "product-design"
     },
     {
@@ -1284,10 +1678,28 @@
       "meaning": "领域注册路径缺失、越界或被 Harness 垂直解释"
     },
     {
-      "code": "AIH_HANDOFF_EDGE_INVALID",
+      "code": "AIH_DAG_NODE_UNKNOWN",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "请求的移交边未在 Manifest 中双向一致声明"
+      "meaning": "项目 DAG 节点未绑定已知且身份一致的 Stage 或 Artifact Scope"
+    },
+    {
+      "code": "AIH_DAG_EDGE_CONFLICT",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "项目 DAG 对同一节点对声明了重复或冲突边"
+    },
+    {
+      "code": "AIH_DAG_CYCLE",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "项目 DAG 存在依赖环，无法推导稳定执行顺序"
+    },
+    {
+      "code": "AIH_HANDOFF_UNREACHABLE",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "请求的来源与目标之间没有可执行的显式 handoff 边"
     },
     {
       "code": "AIH_CANONICAL_UI_RUNTIME_FAILED",
@@ -1393,6 +1805,80 @@
       "owner": "product-design",
       "domain": "product-design",
       "meaning": "完全实现经过三次 Agent 实现修复后仍未通过视觉验收"
+    },
+    {
+      "code": "AIH_STAGE_LOCKED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "阶段已经发布并锁定；任何修改必须先执行 Reopen"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_INPUT_DRIFT",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI HTML Draft 固定的 UC 或 Visual Spec 版本与内容哈希不再匹配"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_FLOW_COVERAGE_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "正式 Interaction State、分支或失败恢复路径没有可执行 UI HTML 场景"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_REVIEW_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI HTML Review 未产生与实际冻结版本对应的真实运行地址和过程证据"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_REVIEW_REQUIRED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Publish 前缺少通过的 UI HTML Review Evidence"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_REVIEW_STALE",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Review 对应的 Draft、源码或构建输入不是当前待发布版本"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_FEEDBACK_ROUTE_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Review 反馈未按行为问题、视觉输入问题和实现偏差路由到既有唯一事实来源"
+    },
+    {
+      "code": "AIH_PUBLISH_VALIDATION_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Product Design Publish 原子锁定前的工程门禁未通过"
+    },
+    {
+      "code": "AIH_PUBLISH_RECEIPT_INVALID",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "Product Design 发布凭证缺失或结构无效"
+    },
+    {
+      "code": "AIH_PUBLISH_CREDENTIAL_STALE",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "已锁定输入、资源、UI HTML 源码、构建输入或 Review 身份发生漂移，原发布凭证失效"
+    },
+    {
+      "code": "AIH_PUBLISH_VERSION_NOT_ADVANCED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Reopen 后仍使用原 UI HTML Draft 版本，不能重新发布"
     }
   ],
   "domainRegistry": [

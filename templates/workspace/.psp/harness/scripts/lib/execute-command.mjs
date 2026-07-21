@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { delimiter, dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { stageIsReadable } from './stage-state.mjs';
 
 function blockerCodes(output) {
   const codes = new Set();
@@ -41,10 +42,10 @@ function npmCliInvocation(args) {
   return { executable: process.execPath, args: [resolve(npmCli), ...args] };
 }
 
-function executionArguments(root, command) {
+function executionArguments(root, command, forwarded = []) {
   const executor = command.executor;
   if (executor.kind === 'module') {
-    return { executable: process.execPath, args: [resolve(root, ...executor.path.split('/')), ...(executor.args || [])], cwd: root };
+    return { executable: process.execPath, args: [resolve(root, ...executor.path.split('/')), ...(executor.args || []), ...forwarded], cwd: root };
   }
   if (executor.kind === 'node-test') {
     return { executable: process.execPath, args: ['--test', ...expandTestPaths(root, executor.paths)], cwd: root };
@@ -54,7 +55,7 @@ function executionArguments(root, command) {
     const matches = Object.values(project.stages || {}).flatMap((stage) => stage.areas?.[executor.area]
       ? [{ stage, area: stage.areas[executor.area] }]
       : []);
-    if (matches.length !== 1 || matches[0].stage.status !== 'active') {
+    if (matches.length !== 1 || !stageIsReadable(matches[0].stage)) {
       const error = new Error('Area 未唯一绑定或阶段未 active：' + executor.area);
       error.code = 'AIH_STAGE_UNINITIALIZED';
       throw error;
@@ -72,7 +73,7 @@ export function executeRegisteredCommand(root, command, options = {}) {
   const startedAt = new Date().toISOString();
   let execution;
   try {
-    const prepared = executionArguments(root, command);
+    const prepared = executionArguments(root, command, options.arguments || []);
     const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path') || 'PATH';
     execution = spawnSync(prepared.executable, prepared.args, {
       cwd: prepared.cwd,

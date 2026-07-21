@@ -1,4 +1,6 @@
 import './psp-app';
+import './state-gallery';
+import './mockcase-switcher';
 import './inconsistency-annotator';
 
 async function enableMocking(): Promise<void> {
@@ -12,6 +14,17 @@ async function enableMocking(): Promise<void> {
   });
 }
 
-enableMocking().catch((error: unknown) => {
-  console.error('MSW 启动失败，原型仍将继续渲染。', error);
-});
+async function bootstrapReview(): Promise<void> {
+  try {
+    await enableMocking();
+  } catch (error: unknown) {
+    console.error('MSW 启动失败，原型仍将继续渲染。', error);
+  }
+  if (window.location.pathname === '/__review/components') {
+    document.querySelector('psp-app')?.replaceWith(document.createElement('psp-state-gallery'));
+  } else if (new URLSearchParams(window.location.search).get('mockcase') !== '0') {
+    document.body.append(document.createElement('mockcase-switcher'));
+  }
+}
+
+void bootstrapReview();

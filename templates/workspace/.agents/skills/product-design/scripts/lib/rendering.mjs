@@ -222,7 +222,118 @@ function renderCapabilities(data) {
   return lines.join('\n').trimEnd() + '\n';
 }
 
-const RENDERERS = { 'capabilities-markdown': renderCapabilities };
+function dimensionText(value) {
+  return value?.mode === 'fixed' ? value.valuePx + 'px' : value?.mode || '—';
+}
+
+function renderVisualStyle(style) {
+  if (!style) return '—';
+  return [
+    dimensionText(style.width) + ' × ' + dimensionText(style.height),
+    'layout=' + (style.layoutRef || 'none'),
+    'type=' + (style.typographyRef || 'none'),
+    'fill=' + (style.fillPaintRef || 'none'),
+    'text=' + (style.textPaintRef || 'none'),
+    'border=' + style.border.widthPx + 'px ' + style.border.style + ' ' + (style.border.paintRef || 'none') + ' r' + style.border.radiusPx,
+    'effects=' + (style.effectRefs.join('、') || 'none'),
+    'opacity=' + style.opacity,
+  ].join('；');
+}
+
+function renderVisualSpec(data) {
+  const lines = [
+    '# Visual Spec',
+    '',
+    '> Provider-neutral Visual Spec Intake（提供方中立视觉规格输入）。业务行为与正式状态来自 Use Cases；本文只定义确定渲染，不反向修改产品事实。',
+    '',
+    '## Runtime（运行环境）',
+    '',
+    table(['平台', '渲染器', '颜色方案', '语言环境', '根字号'], [[
+      data.runtime.platform, data.runtime.renderer, data.runtime.colorScheme, data.runtime.locale, data.runtime.rootFontSizePx + 'px',
+    ]]),
+    '',
+    '## Viewports（视口）',
+    '',
+    table(['ID', '名称', '宽', '高', 'DPR'], data.viewports.map((item) => [item.id, item.name, item.widthPx, item.heightPx, item.deviceScaleFactor])),
+    '',
+    '## Sources（来源）',
+    '',
+    table(['ID', '类型', '定位', '版本', '内容哈希'], data.sources.map((item) => [item.id, item.kind, item.locator, item.version, item.contentHash])),
+    '',
+    '## Foundations（视觉基础）',
+    '',
+    '### Spacing（间距）',
+    '',
+    table(['Token', '像素值'], data.foundations.spacing.map((item) => [item.id, item.valuePx])),
+    '',
+    '### Typography（排版）',
+    '',
+    table(['Token', '字体族', '字号', '字重', '行高', '字距', '转换'], data.foundations.typography.map((item) => [item.id, item.fontFamilies.join('、'), item.fontSizePx, item.fontWeight, item.lineHeightPx, item.letterSpacingPx, item.textTransform])),
+    '',
+    '### Paints 与 Effects（颜色与效果）',
+    '',
+    table(['Paint', '类型', '值', '不透明度'], data.foundations.paints.map((item) => [item.id, item.kind, item.value, item.opacity])),
+    '',
+    table(['Effect', '类型', '偏移', 'Blur', 'Spread', 'Paint'], data.foundations.effects.map((item) => [item.id, item.kind, item.offsetXPx + ',' + item.offsetYPx, item.blurPx, item.spreadPx, item.paintRef || 'none'])),
+    '',
+    '## Layouts（布局）',
+    '',
+    table(['ID', '名称', '方向', '尺寸', '间距', '内边距', '对齐', '溢出', 'Children'], data.layouts.map((item) => [
+      item.id, item.name, item.direction, dimensionText(item.width) + ' × ' + dimensionText(item.height), item.gapRef,
+      [item.padding.top, item.padding.right, item.padding.bottom, item.padding.left].join(' / '),
+      item.alignItems + ' / ' + item.justifyContent, item.overflow,
+      item.children.map((child) => child.order + ':' + child.componentRef).join('、') || '无',
+    ])),
+    '',
+    '## Pages 与 Renderings（页面与确定渲染）',
+    '',
+    table(['Page', '名称', 'Route', 'Use Cases'], data.pages.map((item) => [item.id, item.name, item.route, item.useCaseRefs.join('、')])),
+    '',
+    table(['Rendering', 'Page', 'Viewport', 'Interaction States', 'Layout', 'Components', '背景'], data.renderings.map((item) => [
+      item.id, item.pageRef, item.viewportRef, item.interactionStateRefs.join('、'), item.layoutRef, item.componentRefs.join('、'), item.backgroundPaintRef,
+    ])),
+    '',
+    '## Components（组件状态与 Variant）',
+    '',
+  ];
+  for (const component of data.components) {
+    lines.push(
+      '### ' + component.id + '｜' + component.name,
+      '',
+      '- Role：' + component.role,
+      '- Use Cases：' + component.useCaseRefs.join('、'),
+      '- Interaction States：' + component.interactionStateRefs.join('、'),
+      '- Variant Axes：' + (component.variantAxes.map((axis) => axis.name + '=' + axis.values.join('/')).join('；') || '无'),
+      '',
+      table(['Visual Case', '状态', 'Variants', '完整视觉'], component.visualCases.map((item) => [
+        item.id + '｜' + item.name,
+        item.interactionStateRef,
+        item.variants.map((variant) => variant.name + '=' + variant.value).join('、') || '无',
+        renderVisualStyle(item.visual),
+      ])),
+      '',
+    );
+  }
+  lines.push(
+    '## Assets（资源）',
+    '',
+    table(['ID', '文件', '来源', 'Role', '内容哈希', '使用位置'], data.assets.map((item) => [
+      item.id, item.file, item.sourceRef, item.role, item.contentHash,
+      item.usage.map((usage) => [usage.renderingRef, usage.componentRef, usage.visualCaseRef].filter(Boolean).join('/')).join('、'),
+    ])),
+    '',
+    '## 待确认问题',
+    '',
+    ...((data.gaps || []).length ? data.gaps.map((gap) => '- ' + gap.field + '：' + gap.reason) : ['- 无']),
+    '',
+  );
+  return lines.join('\n').trimEnd() + '\n';
+}
+
+const RENDERERS = {
+  'capabilities-markdown': renderCapabilities,
+  'visual-spec-markdown': renderVisualSpec,
+};
 
 function outputsForArtifact(registry, paths, data) {
   return paths.outputs.map((output) => {

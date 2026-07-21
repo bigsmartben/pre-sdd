@@ -9,7 +9,7 @@ description: 在 Canonical UI Prototype（规范界面原型）的 exact（完�
 
 本技能只执行 Agent-owned implementation repair（由 Agent 执行的实现修复）。开始前必须加载 `$product-design` 与 `$apply-repository-harness`，并先运行 Manifest 登记的 `canonical-ui-repair` operation（修复操作）取得符合 Schema 的 Repair Packet。
 
-Validator（校验器）只判定、截图、计算差异和生成证据；Repair Packet 中的 `allowedImplementationPaths` 用于提示最小实现范围，不是代码写入许可。代码修改不需要文件 hash 快照或额外 Action Report；修改是否有效只由下一次真实运行验证判断。Figma 证据、截图基线等外部输入仍受内容 hash 校验，若确需更新应重新采集并登记，而不是在修复循环中静默替换。
+Validator（校验器）只判定、截图、计算差异和生成证据；Repair Packet 中的 `allowedImplementationPaths` 用于提示最小实现范围，不是代码写入许可。代码修改前不需要文件 hash 快照或预先创建 Action Report；修改是否有效只由下一次真实运行验证判断，验证通过后由 operation 生成 Repair Action Report 作为临时过程证据。Figma 证据、截图基线等外部输入仍受内容 hash 校验，若确需更新应重新采集并登记，而不是在修复循环中静默替换。
 
 Repair Packet 是本轮修复的证据输入。它必须直接提供来源标识、设计上下文、来源证据项、检查类型、目标位置和截图；`screenshot-match` 失败还必须提供 `differenceRatio`、`differenceScreenshot` 与结构化 `differenceRegions`，`computed-style` 失败必须提供 `targetId`。状态不是 `REPAIR_REQUIRED`、失败含不可修复 blocker code（阻断码）或证据不可读取时停止，不尝试主观修复。
 

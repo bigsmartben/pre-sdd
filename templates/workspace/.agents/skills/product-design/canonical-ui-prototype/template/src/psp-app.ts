@@ -7,19 +7,93 @@ type PreviewState =
   | 'COMPONENT-STATE-SUCCESS'
   | 'COMPONENT-STATE-ERROR';
 
+type MockCase = {
+  id: string;
+  routeId: string;
+  mockBehaviorIds: readonly string[];
+  stateMatrixEntryIds: readonly string[];
+  visibleStateIds: readonly string[];
+  holdLoading: boolean;
+};
+
 export class PspApp extends LitElement {
   static properties = {
+    mode: { type: String, reflect: true },
     previewState: { state: true },
     feedback: { state: true },
   };
 
+  declare mode: string;
   declare private previewState: PreviewState;
   declare private feedback: string;
 
   constructor() {
     super();
+    this.mode = 'default';
     this.previewState = 'COMPONENT-STATE-DEFAULT';
     this.feedback = '选择一种 Mock 行为，验证 Loading、Success 与 Error 状态。';
+    const matrixEntryId = new URLSearchParams(window.location.search).get('__pspStateMatrix');
+    const model = canonicalUi as unknown as {
+      stateAxes: ReadonlyArray<{ id: string; kind: string; values: ReadonlyArray<{ id: string; stateId?: string }> }>;
+      stateMatrix: ReadonlyArray<{ id: string; values: Readonly<Record<string, string>> }>;
+    };
+    const entry = model.stateMatrix.find((item) => item.id === matrixEntryId);
+    const runtimeAxis = model.stateAxes.find((axis) => axis.kind === 'runtime-state' && entry?.values[axis.id]);
+    const runtimeState = runtimeAxis?.values.find((value) => value.id === entry?.values[runtimeAxis.id])?.stateId;
+    if (runtimeState && ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'].includes(runtimeState)) {
+      this.previewState = runtimeState as PreviewState;
+      this.feedback = `State Gallery 预览：${matrixEntryId}`;
+    }
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    window.addEventListener('psp:mockcase-request', this.handleMockCaseRequest as EventListener);
+  }
+
+  disconnectedCallback(): void {
+    window.removeEventListener('psp:mockcase-request', this.handleMockCaseRequest as EventListener);
+    super.disconnectedCallback();
+  }
+
+  private readonly handleMockCaseRequest = (event: CustomEvent<{ caseId: string }>): void => {
+    void this.applyMockCase(event.detail.caseId);
+  };
+
+  private async applyMockCase(caseId: string): Promise<void> {
+    const model = canonicalUi as unknown as {
+      routes: ReadonlyArray<{ id: string; path: string }>;
+      mockCases: readonly MockCase[];
+      mockBehaviors: ReadonlyArray<{ id: string; request: string }>;
+      stateAxes: ReadonlyArray<{ id: string; kind: string; values: ReadonlyArray<{ id: string; stateId?: string }> }>;
+      stateMatrix: ReadonlyArray<{ id: string; values: Readonly<Record<string, string>> }>;
+    };
+    const route = model.routes.find((item) => item.path === window.location.pathname);
+    const mockCase = model.mockCases.find((item) => item.id === caseId && item.routeId === route?.id);
+    if (!mockCase) {
+      window.dispatchEvent(new CustomEvent('psp:mockcase-error', { detail: { caseId, message: '未知或跨路由的 Mock Case' } }));
+      return;
+    }
+    try {
+      const entry = model.stateMatrix.find((item) => item.id === mockCase.stateMatrixEntryIds[0]);
+      const runtimeAxis = model.stateAxes.find((axis) => axis.kind === 'runtime-state' && entry?.values[axis.id]);
+      const runtimeState = runtimeAxis?.values.find((value) => value.id === entry?.values[runtimeAxis.id])?.stateId as PreviewState | undefined;
+      if (mockCase.holdLoading || mockCase.mockBehaviorIds.length === 0) {
+        if (runtimeState) this.previewState = runtimeState;
+        this.feedback = mockCase.holdLoading ? 'Loading Case 已稳定保持，等待评审者切换。' : `Mock Case 已恢复：${caseId}`;
+      } else {
+        const behavior = model.mockBehaviors.find((item) => item.id === mockCase.mockBehaviorIds[0]);
+        const requestUrl = behavior?.request.replace(/^[A-Z]+\s+/, '');
+        const mode = requestUrl ? new URL(requestUrl, window.location.origin).searchParams.get('mode') : null;
+        if (mode !== 'success' && mode !== 'error') throw new Error('模板应用无法解析 Mock Behavior mode');
+        await this.runMock(mode);
+      }
+      await this.updateComplete;
+      this.setAttribute('data-mockcase-id', mockCase.id);
+      window.dispatchEvent(new CustomEvent('psp:mockcase-ready', { detail: { caseId: mockCase.id, visibleStateIds: mockCase.visibleStateIds } }));
+    } catch (error: unknown) {
+      window.dispatchEvent(new CustomEvent('psp:mockcase-error', { detail: { caseId, message: error instanceof Error ? error.message : '未知错误' } }));
+    }
   }
 
   private async runMock(mode: 'success' | 'error'): Promise<void> {
@@ -40,6 +114,11 @@ export class PspApp extends LitElement {
       this.previewState = 'COMPONENT-STATE-ERROR';
       this.feedback = error instanceof Error ? error.message : '发生未知错误。';
     }
+  }
+
+  private returnToEntry(): void {
+    this.previewState = 'COMPONENT-STATE-DEFAULT';
+    this.feedback = '已返回入口，可以修复后重新提交。';
   }
 
   protected render() {
@@ -119,6 +198,15 @@ export class PspApp extends LitElement {
                 @click=${() => this.runMock('error')}
               >
                 模拟错误
+              </button>
+              <button
+                data-control-id="CONTROL-003"
+                data-event-id="EVENT-003"
+                data-event="return-retry"
+                data-action-id="ACTION-003"
+                @click=${this.returnToEntry}
+              >
+                返回重试
               </button>
             </div>
           </article>

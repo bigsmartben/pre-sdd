@@ -51,6 +51,9 @@ function validateContinuousIntegration(workflow, policy, issues) {
   if (job['runs-on'] !== policy.runsOn) {
     issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成运行环境与 Manifest 不一致。', policy.workflow);
   }
+  if (job['timeout-minutes'] !== policy.timeoutMinutes) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成超时时间与 Manifest 不一致。', policy.workflow);
+  }
   const steps = job.steps || [];
   const checkout = steps.find((step) => step.uses === policy.checkoutAction);
   if (!checkout || checkout.with?.['fetch-depth'] !== 0) {
@@ -61,9 +64,9 @@ function validateContinuousIntegration(workflow, policy, issues) {
     issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成 Node.js 环境与 Manifest 不一致。', policy.workflow);
   }
   const runSteps = steps.filter((step) => typeof step.run === 'string').map((step) => step.run.trim());
-  const expectedRuns = [policy.installCommand, 'node ' + policy.runner];
+  const expectedRuns = [policy.installCommand, policy.browserInstallCommand, 'node ' + policy.runner];
   if (JSON.stringify(runSteps) !== JSON.stringify(expectedRuns)) {
-    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成只能安装依赖并调用 Manifest 登记的 Resolver 驱动执行器。', policy.workflow);
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成必须按 Manifest 安装依赖与浏览器，再调用 Resolver 驱动执行器。', policy.workflow);
   }
 }
 

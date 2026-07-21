@@ -44,11 +44,38 @@ test('resolver maps Canonical UI authority and projections to one artifact scope
   const result = resolveHarness(manifest, active, [path], 'change', repositoryRoot);
   assert.equal(result.status, 'READY', JSON.stringify(result.blockers));
   assert.deepEqual(result.scopes, ['canonical-ui-prototype']);
-  assert.deepEqual(result.upstreamScopes, ['use-cases']);
+  assert.deepEqual(result.upstreamScopes, ['use-cases', 'visual-spec']);
   assert.deepEqual(result.downstreamConsumers, []);
 });
 
-test('Use Cases has Canonical UI Prototype as its only product handoff consumer', () => {
+test('Harness registers one dedicated Figma Asset Ingest operation and rejects executor drift', async () => {
+  const operation = manifest.operations.find((item) => item.id === 'ingest-figma-assets');
+  assert.equal(operation.kind, 'ingest');
+  assert.equal(operation.artifact, 'canonical-ui-prototype');
+  assert.equal(operation.executor.path, '.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs');
+  assert.deepEqual(Object.keys(operation.packetSchemas).sort(), ['acquisition', 'capturePlan', 'receipt', 'registration']);
+
+  const root = await temporaryRepository();
+  await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+    value.operations.find((item) => item.id === 'ingest-figma-assets').executor.path = '.psp/harness/scripts/init-workspace.mjs';
+  });
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_COMMAND_INVALID'), JSON.stringify(invalid.output, null, 2));
+});
+
+test('resolver makes published stages readable but requires Reopen before change', () => {
+  const published = structuredClone(project);
+  published.stages['product-design'].status = 'published';
+  const stage = published.stages['product-design'];
+  const path = stage.root + '/' + stage.areas['canonical-ui-prototypes'].root + '/ACTOR-001/src/spec/canonical-ui.ts';
+  const change = resolveHarness(manifest, published, [path], 'change', repositoryRoot);
+  assert.equal(change.status, 'BLOCKED');
+  assert.ok(change.blockers.some((item) => item.code === 'AIH_STAGE_LOCKED'));
+  const readiness = resolveHarness(manifest, published, [path], 'readiness', repositoryRoot);
+  assert.equal(readiness.status, 'READY', JSON.stringify(readiness.blockers));
+});
+
+test('Use Cases hands off to Visual Spec and Visual Spec hands off to Canonical UI Prototype', () => {
   const active = structuredClone(project);
   active.stages['product-design'].status = 'active';
   const stage = active.stages['product-design'];
@@ -57,49 +84,100 @@ test('Use Cases has Canonical UI Prototype as its only product handoff consumer'
   assert.equal(authority.status, 'READY', JSON.stringify(authority.blockers));
   assert.deepEqual(authority.scopes, ['use-cases']);
   assert.deepEqual(authority.upstreamScopes, []);
-  assert.deepEqual(authority.downstreamConsumers, ['canonical-ui-prototype']);
+  assert.deepEqual(authority.downstreamConsumers, ['visual-spec']);
   for (const output of binding.outputs) {
     const projection = resolveHarness(manifest, active, [stage.root + '/' + output.path], 'change', repositoryRoot);
     assert.equal(projection.status, 'BLOCKED');
     assert.deepEqual(projection.scopes, ['use-cases']);
     assert.ok(projection.blockers.some((blocker) => blocker.code === 'AIH_GENERATED_DRIFT'));
   }
+
+  const visualBinding = stage.artifacts['visual-spec'];
+  const visualAuthority = resolveHarness(manifest, active, [stage.root + '/' + visualBinding.internalModel], 'change', repositoryRoot);
+  assert.equal(visualAuthority.status, 'READY', JSON.stringify(visualAuthority.blockers));
+  assert.deepEqual(visualAuthority.scopes, ['visual-spec']);
+  assert.deepEqual(visualAuthority.upstreamScopes, ['use-cases']);
+  assert.deepEqual(visualAuthority.downstreamConsumers, ['canonical-ui-prototype']);
+  for (const output of visualBinding.outputs) {
+    const projection = resolveHarness(manifest, active, [stage.root + '/' + output.path], 'change', repositoryRoot);
+    assert.equal(projection.status, 'BLOCKED');
+    assert.deepEqual(projection.scopes, ['visual-spec']);
+    assert.ok(projection.blockers.some((blocker) => blocker.code === 'AIH_GENERATED_DRIFT'));
+  }
 });
 
-test('User Harness declares only internal handoff consumers', () => {
-  for (const scope of manifest.scopes) assert.deepEqual(scope.externalConsumers || [], [], scope.id);
-  const architecture = manifest.scopes.find((item) => item.id === 'architecture-design');
-  assert.deepEqual(architecture.dependencies, ['use-cases']);
-  assert.deepEqual(architecture.handoffConsumers || [], []);
+test('project DAG is the only source of dependency and handoff relationships', () => {
+  assert.ok(manifest.projectDag.nodes.some((node) => node.id === 'architecture-design' && node.kind === 'stage'));
+  assert.ok(manifest.projectDag.nodes.some((node) => node.id === 'use-cases' && node.kind === 'artifact'));
+  assert.ok(manifest.projectDag.edges.some((edge) => edge.from === 'use-cases' && edge.to === 'visual-spec' && edge.type === 'handoff'));
+  for (const edge of manifest.projectDag.edges) assert.equal(edge.conditions.sourceReadiness, 'required');
+  for (const scope of manifest.scopes) {
+    assert.equal('dependencies' in scope, false, scope.id);
+    assert.equal('handoffConsumers' in scope, false, scope.id);
+    assert.equal('externalConsumers' in scope, false, scope.id);
+  }
+  for (const operation of manifest.operations) {
+    assert.equal('upstreamScopes' in operation, false, operation.id);
+    assert.equal('upstreamHandoff' in operation, false, operation.id);
+  }
 });
 
 test('resolver uses artifact-level Architecture Design dependencies and readiness profiles', () => {
   const active = structuredClone(project);
-  active.stages['product-design'].status = 'active';
   active.stages['architecture-design'].status = 'active';
   const stage = active.stages['architecture-design'];
   const pathFor = (artifactId) => stage.root + '/' + stage.artifacts[artifactId].internalModel;
 
   const systemBoundary = resolveHarness(manifest, active, [pathFor('system-boundary')], 'readiness', repositoryRoot);
   assert.deepEqual(systemBoundary.scopes, ['system-boundary']);
-  assert.deepEqual(systemBoundary.upstreamScopes, ['use-cases']);
+  assert.deepEqual(systemBoundary.upstreamScopes, []);
   assert.ok(systemBoundary.commandIds.includes('architecture-system-boundary'));
 
   const conceptualModel = resolveHarness(manifest, active, [pathFor('conceptual-model')], 'readiness', repositoryRoot);
   assert.deepEqual(conceptualModel.scopes, ['conceptual-model']);
-  assert.deepEqual(conceptualModel.upstreamScopes, ['use-cases', 'system-boundary']);
+  assert.deepEqual(conceptualModel.upstreamScopes, ['system-boundary']);
   assert.ok(conceptualModel.commandIds.includes('architecture-conceptual-model'));
 
   const technicalArea = stage.root + '/' + stage.areas['technical-validation'].root + '/cases/EXP-001.case.mjs';
   const technicalValidation = resolveHarness(manifest, active, [technicalArea], 'change', repositoryRoot);
   assert.deepEqual(technicalValidation.scopes, ['technical-validation']);
-  assert.deepEqual(technicalValidation.upstreamScopes, ['use-cases', 'system-boundary']);
+  assert.deepEqual(technicalValidation.upstreamScopes, ['system-boundary']);
   assert.ok(!technicalValidation.commandIds.includes('architecture-strict'));
 
   const architecturePackage = resolveHarness(manifest, active, [pathFor('architecture-package')], 'readiness', repositoryRoot);
   assert.deepEqual(architecturePackage.scopes, ['architecture-package']);
-  assert.deepEqual(architecturePackage.upstreamScopes, ['use-cases', 'system-boundary', 'conceptual-model', 'technical-validation']);
+  assert.deepEqual(architecturePackage.upstreamScopes, ['system-boundary', 'conceptual-model', 'technical-validation']);
   assert.ok(architecturePackage.commandIds.includes('architecture-package-readiness'));
+});
+
+test('Harness rejects reintroduced Product Design lifecycle coupling from Architecture Design', async () => {
+  const root = await temporaryRepository();
+  await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+    value.projectDag.edges.push({
+      from: 'use-cases',
+      to: 'architecture-design',
+      type: 'dependency',
+      conditions: { sourceReadiness: 'required' },
+    });
+  });
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_HARNESS_COUPLED'));
+});
+
+test('Harness reports stable DAG blockers for unknown nodes, conflicting edges, and cycles', async () => {
+  const root = await temporaryRepository();
+  await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+    value.projectDag.edges.push(
+      { from: 'unknown-source', to: 'visual-spec', type: 'dependency', conditions: { sourceReadiness: 'required' } },
+      { from: 'use-cases', to: 'visual-spec', type: 'dependency', conditions: { sourceReadiness: 'required' } },
+      { from: 'visual-spec', to: 'use-cases', type: 'dependency', conditions: { sourceReadiness: 'required' } },
+    );
+  });
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  const blockerCodes = codes(invalid);
+  assert.ok(blockerCodes.has('AIH_DAG_NODE_UNKNOWN'));
+  assert.ok(blockerCodes.has('AIH_DAG_EDGE_CONFLICT'));
+  assert.ok(blockerCodes.has('AIH_DAG_CYCLE'));
 });
 
 test('Harness validator accepts registered domains and rejects a vertical path outside its domain', async () => {
@@ -146,11 +224,13 @@ test('unknown Profile command is rejected by Harness governance', async () => {
   assert.ok(codes(invalid).has('AIH_PROFILE_INVALID'));
 });
 
-test('handoff rejects unknown edges and reports uninitialized source without persistence', async () => {
+test('handoff rejects unknown nodes and unreachable edges, then reports uninitialized source without persistence', async () => {
   const root = await temporaryRepository();
+  const unknown = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'unknown-source', '--to', 'visual-spec', '--json']);
+  assert.ok(codes(unknown).has('AIH_DAG_NODE_UNKNOWN'));
   const invalid = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'canonical-ui-prototype', '--to', 'architecture-design', '--json']);
-  assert.ok(codes(invalid).has('AIH_HANDOFF_EDGE_INVALID'));
-  const uninitialized = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'canonical-ui-prototype', '--json']);
+  assert.ok(codes(invalid).has('AIH_HANDOFF_UNREACHABLE'));
+  const uninitialized = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'visual-spec', '--json']);
   assert.ok(codes(uninitialized).has('AIH_STAGE_UNINITIALIZED'));
   const bound = parseYaml(await readFile(resolve(root, 'psp.project.yaml'), 'utf8'));
   assert.equal(bound.stages['architecture-design'].status, 'uninitialized');
@@ -161,7 +241,7 @@ test('handoff returns a transient PASS receipt without initializing downstream',
   await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
     value.commands.push({ id: 'fixture-pass', npmScript: 'fixture:pass', run: 'npm run fixture:pass', purpose: 'fixture', blocking: true, executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' } });
     value.validationProfiles.find((item) => item.id === 'product-delivery').commands = ['fixture-pass'];
-    for (const scopeId of ['use-cases', 'canonical-ui-prototype']) {
+    for (const scopeId of ['use-cases', 'visual-spec']) {
       value.scopes.find((item) => item.id === scopeId).readinessProfile = 'product-delivery';
     }
   });
@@ -169,17 +249,20 @@ test('handoff returns a transient PASS receipt without initializing downstream',
   const bound = parseYaml(await readFile(projectPath, 'utf8'));
   bound.stages['product-design'].status = 'active';
   await writeFile(projectPath, stringifyYaml(bound));
+  const before = await readFile(projectPath, 'utf8');
 
-  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'canonical-ui-prototype', '--json']);
+  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'visual-spec', '--json']);
   assert.equal(result.exitCode, 0, JSON.stringify(result.output));
   assert.equal(result.output.status, 'PASS');
   assert.equal(result.output.from, 'use-cases');
-  assert.equal(result.output.to, 'canonical-ui-prototype');
+  assert.equal(result.output.to, 'visual-spec');
   assert.equal(result.output.profile, 'product-delivery');
   assert.deepEqual(result.output.validation.map((item) => item.status), ['PASS']);
   assert.equal(result.output.downstreamAction, 'NOT_RUN');
 
-  const unchanged = parseYaml(await readFile(projectPath, 'utf8'));
+  const after = await readFile(projectPath, 'utf8');
+  assert.equal(after, before);
+  const unchanged = parseYaml(after);
   assert.equal(unchanged.stages['architecture-design'].status, 'uninitialized');
 });
 
@@ -197,7 +280,7 @@ test('handoff executes commands in manifest order and marks commands after failu
       { id: 'fixture-notrun', npmScript: 'fixture:notrun', run: 'npm run fixture:notrun', purpose: 'fixture', blocking: true, executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' } },
     );
     value.validationProfiles.find((item) => item.id === 'product-delivery').commands = ['fixture-pass', 'fixture-fail', 'fixture-notrun'];
-    for (const scopeId of ['use-cases', 'canonical-ui-prototype']) {
+    for (const scopeId of ['use-cases', 'visual-spec']) {
       value.scopes.find((item) => item.id === scopeId).readinessProfile = 'product-delivery';
     }
   });
@@ -205,7 +288,7 @@ test('handoff executes commands in manifest order and marks commands after failu
   const bound = parseYaml(await readFile(projectPath, 'utf8'));
   bound.stages['product-design'].status = 'active';
   await writeFile(projectPath, stringifyYaml(bound));
-  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'canonical-ui-prototype', '--json']);
+  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'visual-spec', '--json']);
   assert.equal(result.output.status, 'FAIL');
   assert.deepEqual(result.output.validation.map((item) => item.status), ['PASS', 'FAIL', 'NOT_RUN']);
   assert.equal(result.output.downstreamAction, 'NOT_RUN');

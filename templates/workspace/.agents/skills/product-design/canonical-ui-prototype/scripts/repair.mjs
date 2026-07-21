@@ -143,6 +143,11 @@ async function main() {
   const { project, manifest } = await loadProjectAndManifest(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const stage = project.stages?.['product-design'];
+  if (stage?.status === 'published') {
+    const error = new Error('产品设计阶段已经发布并锁定；Repair 前必须先执行 Reopen。');
+    error.code = 'AIH_STAGE_LOCKED';
+    throw error;
+  }
   if (stage?.status !== 'active' || !paths?.area) {
     const error = new Error('产品设计阶段或 Canonical UI Prototype Area 尚未激活。');
     error.code = 'AIH_STAGE_UNINITIALIZED';
@@ -164,6 +169,7 @@ async function main() {
   const sessionRoot = resolve(tmpdir(), 'psp-canonical-ui-repair-' + sessionId);
   const statePath = resolve(sessionRoot, 'state.json');
   const packetPath = resolve(sessionRoot, 'repair-packet.json');
+  const reportPath = resolve(sessionRoot, 'repair-action-report.json');
   await mkdir(sessionRoot, { recursive: true });
 
   let state = await readState(statePath);
@@ -184,8 +190,27 @@ async function main() {
           failures: state.lastFailures,
         }]
       : [];
-    await rm(sessionRoot, { recursive: true, force: true });
-    emit({ status: 'PASS', attempts: attemptHistory.length, attemptHistory });
+    let repairActionReport = null;
+    if (attemptHistory.length > 0) {
+      const report = {
+        version: '1.0.0',
+        status: 'PASS',
+        actor,
+        completedAt: new Date().toISOString(),
+        attempts: attemptHistory.length,
+        resolvedFailures: attemptHistory.flatMap((item) => item.failures || []),
+        validationEvidence: runtime.evidence || [],
+      };
+      const reportSchema = JSON.parse(await readFile(repositoryFile(root, '.agents/skills/product-design/canonical-ui-prototype/repair-action-report.schema.json'), 'utf8'));
+      const validateReport = new Ajv2020({ allErrors: true, strict: false, formats: { 'date-time': true } }).compile(reportSchema);
+      if (!validateReport(report)) throw Object.assign(new Error('Repair Action Report 不符合 Schema：' + JSON.stringify(validateReport.errors)), { code: 'AIH_VISUAL_REPAIR_PACKET_FAILED' });
+      await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+      await Promise.all([rm(statePath, { force: true }), rm(packetPath, { force: true })]);
+      repairActionReport = reportPath;
+    } else {
+      await rm(sessionRoot, { recursive: true, force: true });
+    }
+    emit({ status: 'PASS', attempts: attemptHistory.length, attemptHistory, ...(repairActionReport ? { repairActionReport } : {}) });
     return 0;
   }
 
@@ -248,7 +273,7 @@ async function main() {
   if (exhausted) {
     emit({
       status: 'BLOCKED',
-      message: 'Canonical UI Prototype 连续 3 次实现修复后仍未通过视觉验收。',
+      message: 'Canonical UI Prototype 单次手动实现修复后仍未通过机器诊断。',
       repairPacket: packetPath,
       attempts: state.attempts,
     }, 'AIH_VISUAL_REPAIR_EXHAUSTED');

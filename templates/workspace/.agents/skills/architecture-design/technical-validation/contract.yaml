@@ -2,15 +2,14 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: technical-validation
-  version: 3.0.0
+  version: 4.0.0
 spec:
   stage: architecture-design
   internalModelFormat: yaml
   outputRole: user-artifact
-  purpose: 从已批准 Use Case 与系统边界中提取需要验证的关键能力，为每个关键能力建立技术选型结论与真实代码测试通过结论的映射。
+  purpose: 从系统边界中提取需要验证的关键能力，为每个关键能力建立技术选型结论与真实代码测试通过结论的映射。
   inputs:
     artifacts:
-      - capabilities
       - system-boundary
     directoryRole: supporting-input
   owns:

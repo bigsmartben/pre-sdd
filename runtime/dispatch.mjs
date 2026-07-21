@@ -72,7 +72,7 @@ async function expandTestPaths(patterns, workspaceRoot) {
 async function runAreaScript(executor, workspaceRoot, forwarded) {
   const { project } = await loadWorkspace(workspaceRoot);
   const binding = boundArea(project, executor.area);
-  if (binding.stage.status !== 'active') {
+  if (!['active', 'published'].includes(binding.stage.status)) {
     console.error('[AIH_STAGE_UNINITIALIZED] 阶段尚未初始化，不能运行 area 命令：' + executor.area);
     return 1;
   }

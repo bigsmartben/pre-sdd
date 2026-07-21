@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "source": "Issue #19 pre-optimization fixture observations captured by the Maintainer Harness",
+  "samples": {
+    "machineGatesMs": [14978],
+    "browserRuntimeMs": [49102],
+    "visualDiagnosticsMs": [],
+    "fullReadinessMs": [373500]
+  }
+}

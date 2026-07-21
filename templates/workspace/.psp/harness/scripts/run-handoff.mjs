@@ -1,5 +1,7 @@
 import { loadProjectAndManifest, repositoryRootFrom } from './lib/repository.mjs';
 import { executeRegisteredCommand } from './lib/execute-command.mjs';
+import { collectDependencyIds, dagNodes, handoffEdge } from './lib/project-dag.mjs';
+import { stageIsReadable } from './lib/stage-state.mjs';
 import { pathToFileURL } from 'node:url';
 
 const root = repositoryRootFrom(import.meta.dirname);
@@ -30,33 +32,37 @@ function receiptFailure(from, to, profile, code, message) {
 export async function executeHandoff(rootDirectory, from, to, options = {}) {
   const { project, manifest } = await loadProjectAndManifest(rootDirectory);
   const scopes = new Map(manifest.scopes.map((scope) => [scope.id, scope]));
+  const nodes = dagNodes(manifest);
   const profiles = new Map(manifest.validationProfiles.map((profile) => [profile.id, profile]));
   const source = scopes.get(from);
   const consumer = scopes.get(to);
   const profile = source?.readinessProfile || null;
 
-  if (!source || !consumer || !source.handoffConsumers?.includes(to) || !consumer.dependencies?.includes(from)) {
-    return receiptFailure(from, to, profile, 'AIH_HANDOFF_EDGE_INVALID', 'Manifest 未声明双向一致的移交边。');
+  if (!nodes.has(from) || !nodes.has(to) || !source || !consumer) {
+    return receiptFailure(from, to, profile, 'AIH_DAG_NODE_UNKNOWN', 'handoff 来源或目标不是项目 DAG 中的已知节点。');
+  }
+  if (!handoffEdge(manifest, from, to)) {
+    return receiptFailure(from, to, profile, 'AIH_HANDOFF_UNREACHABLE', '项目 DAG 未声明从来源到目标的显式 handoff 边。');
   }
 
-  const visited = new Set();
+  const scopeIds = [...collectDependencyIds(manifest, from), from];
   const profileIds = [];
-  function collect(scope) {
-    if (!scope || visited.has(scope.id)) return;
-    visited.add(scope.id);
-    for (const dependencyId of scope.dependencies || []) collect(scopes.get(dependencyId));
+  for (const scopeId of scopeIds) {
+    const scope = scopes.get(scopeId);
+    if (!scope) {
+      return receiptFailure(from, to, profile, 'AIH_DAG_NODE_UNKNOWN', '项目 DAG 依赖节点未绑定 Scope：' + scopeId);
+    }
     if (!profileIds.includes(scope.readinessProfile)) profileIds.push(scope.readinessProfile);
   }
-  collect(source);
 
-  for (const scopeId of visited) {
+  for (const scopeId of scopeIds) {
     const scope = scopes.get(scopeId);
     const stageId = scopeStage(scope);
     if (scope.status !== 'active') {
       return receiptFailure(from, to, profile, scope.blockerCode || 'AIH_UPSTREAM_NOT_READY', 'Scope 不可消费：' + scopeId);
     }
-    if (stageId && project.stages?.[stageId]?.status !== 'active') {
-      return receiptFailure(from, to, profile, 'AIH_STAGE_UNINITIALIZED', '移交来源或上游阶段尚未 active：' + stageId);
+    if (stageId && !stageIsReadable(project.stages?.[stageId])) {
+      return receiptFailure(from, to, profile, 'AIH_STAGE_UNINITIALIZED', '移交来源或上游阶段尚未 active 或 published：' + stageId);
     }
   }
 

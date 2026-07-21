@@ -3,7 +3,6 @@ kind: SystemBoundarySpecification
 metadata:
   status: draft
   version: 0.1.0
-  upstreamArtifact: capabilities
 system:
   name: null
   mission: null
@@ -15,8 +14,8 @@ subsystems: []
 externalSystems: []
 constraints: []
 gates:
-  - id: upstream-use-cases-covered
-    label: 每个上游 Use Case 都被系统边界精确覆盖
+  - id: architecture-use-cases-covered
+    label: 每个架构 Use Case 都被系统边界精确覆盖
     checked: false
   - id: subsystem-boundaries-explicit
     label: 每个子系统都明确做什么、不做什么及其 Actor/UC 边界
@@ -27,4 +26,4 @@ gates:
 gaps:
   - id: GAP-001
     field: system
-    reason: 尚未从已批准 Actor 与 Use Case 建立系统及子系统边界
+    reason: 尚未从架构输入建立系统及子系统边界
