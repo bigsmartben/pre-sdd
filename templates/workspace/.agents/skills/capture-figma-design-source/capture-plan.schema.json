@@ -4,19 +4,81 @@
   "title": "Figma Deterministic Asset Capture Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "sourceId", "rootNodeId", "sourceVersion", "scopeConfirmation", "frozenAt", "candidateVisualNodes"],
+  "required": ["version", "sourceId", "rootNodeId", "sourceVersion", "scopeConfirmation", "highImpactConfirmation", "writebackBoundary", "frozenAt", "candidateVisualNodes"],
   "properties": {
-    "version": {"const": "1.0.0"},
+    "version": {"const": "2.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
     "rootNodeId": {"$ref": "#/$defs/nodeId"},
     "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
     "scopeConfirmation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "sha256"],
+      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "rootNodeId", "includedNodes", "excludedNodes", "viewportIds", "scenarioIds", "stateIds", "counts"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "sha256": {"$ref": "#/$defs/sha256"}
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
+        "confirmedAt": {"$ref": "#/$defs/timestamp"},
+        "rootNodeId": {"$ref": "#/$defs/nodeId"},
+        "includedNodes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/scopeNode"}},
+        "excludedNodes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/excludedScopeNode"}},
+        "viewportIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "scenarioIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "stateIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pages", "components", "visualNodes", "viewports", "scenarios", "states"],
+          "properties": {
+            "pages": {"type": "integer", "minimum": 0},
+            "components": {"type": "integer", "minimum": 0},
+            "visualNodes": {"type": "integer", "minimum": 0},
+            "viewports": {"type": "integer", "minimum": 1},
+            "scenarios": {"type": "integer", "minimum": 1},
+            "states": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    },
+    "highImpactConfirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "scopeConfirmationId", "componentProposals", "stateAxes", "resourceAmbiguities", "writebackOperations", "detachApprovals"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
+        "confirmedAt": {"$ref": "#/$defs/timestamp"},
+        "scopeConfirmationId": {"$ref": "#/$defs/id"},
+        "componentProposals": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/componentProposal"}},
+        "stateAxes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/stateAxis"}},
+        "resourceAmbiguities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/resourceAmbiguity"}},
+        "writebackOperations": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/writebackOperation"}},
+        "detachApprovals": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/detachApproval"}}
+      }
+    },
+    "writebackBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopeConfirmationId", "highImpactConfirmationId", "operationIds", "completedAt", "formalCaptureOrdinal", "recaptureTriggers"],
+      "properties": {
+        "scopeConfirmationId": {"$ref": "#/$defs/id"},
+        "highImpactConfirmationId": {"$ref": "#/$defs/id"},
+        "operationIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "completedAt": {"$ref": "#/$defs/timestamp"},
+        "formalCaptureOrdinal": {"const": 1},
+        "recaptureTriggers": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"enum": ["scope-change", "source-version-change", "post-freeze-writeback"]},
+          "allOf": [
+            {"contains": {"const": "scope-change"}},
+            {"contains": {"const": "source-version-change"}},
+            {"contains": {"const": "post-freeze-writeback"}}
+          ]
+        }
       }
     },
     "frozenAt": {"$ref": "#/$defs/timestamp"},
@@ -29,6 +91,7 @@
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
     "nodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
+    "humanIdentity": {"type": "string", "pattern": "^user:[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
     "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
@@ -38,6 +101,78 @@
         {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "remote-last-modified"}, "value": {"$ref": "#/$defs/timestamp"}}},
         {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "node-fingerprint"}, "value": {"$ref": "#/$defs/sha256"}}}
       ]
+    },
+    "scopeNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nodeId", "name"],
+      "properties": {
+        "kind": {"enum": ["page", "component", "visual"]},
+        "nodeId": {"$ref": "#/$defs/nodeId"},
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "excludedScopeNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nodeId", "name", "reason"],
+      "properties": {
+        "kind": {"enum": ["page", "component", "visual"]},
+        "nodeId": {"$ref": "#/$defs/nodeId"},
+        "name": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "componentProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "decision", "reason"],
+      "properties": {
+        "nodeId": {"$ref": "#/$defs/nodeId"},
+        "decision": {"enum": ["shared-component", "primitive-only", "local-structure"]},
+        "componentName": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "stateAxis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "values"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "resourceAmbiguity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "decision", "reason"],
+      "properties": {
+        "nodeId": {"$ref": "#/$defs/nodeId"},
+        "decision": {"enum": ["asset", "dom-css", "dynamic", "ignored"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "writebackOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "targetNodeIds", "reason"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["rename", "group", "reorder", "replace-component", "create-component", "create-component-set", "create-variant", "create-variable", "detach-instance"]},
+        "targetNodeIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "detachApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instanceNodeId", "blockingReason"],
+      "properties": {
+        "instanceNodeId": {"$ref": "#/$defs/nodeId"},
+        "blockingReason": {"type": "string", "minLength": 1}
+      }
     },
     "bounds": {
       "type": "object",

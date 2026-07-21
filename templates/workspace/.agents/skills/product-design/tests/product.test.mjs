@@ -10,6 +10,7 @@ import { cleanupTemporaryRepositories, codes, runScript, temporaryRepository } f
 import { completeProductFixture, fixtureProject, readArtifact, writeArtifact } from './helpers/product-fixture.mjs';
 import { migrateLegacyWireflowDirectory } from '../scripts/lib/migrate-legacy-wireflow.mjs';
 import { canonicalLocks, reviewEvidenceDirectory } from '../canonical-ui-prototype/scripts/integrity.mjs';
+import { verifyVisualAcceptance, visualAcceptanceRecordPath } from '../canonical-ui-prototype/scripts/visual-acceptance.mjs';
 
 test.after(cleanupTemporaryRepositories);
 
@@ -85,6 +86,7 @@ async function prepareExactFixture(root) {
   exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
   exact.scenarios = [];
+  exact.mockCases.forEach((item) => { delete item.scenarioId; });
   exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.sourceParityAssertions = [{
     id: 'PARITY-EXACT-DESKTOP',
@@ -565,6 +567,34 @@ test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form
   assert.ok(codes(sameVersion).has('AIH_PUBLISH_VERSION_NOT_ADVANCED'));
 });
 
+test('exact Human Visual Acceptance requires explicit user confirmation and becomes stale after scope drift', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const exact = await prepareExactFixture(root);
+  let project = await fixtureProject(root);
+  await writeReviewEvidence(root, await canonicalLocks(root, project));
+
+  const implicit = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/visual-acceptance.mjs', root, ['--json']);
+  assert.ok(codes(implicit).has('AIH_HUMAN_VISUAL_ACCEPTANCE_REQUIRED'));
+
+  const accepted = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/visual-acceptance.mjs', root, [
+    '--accepted-by', 'user:fixture-reviewer', '--confirm', 'HUMAN_VISUAL_ACCEPTED', '--json',
+  ]);
+  assert.equal(accepted.exitCode, 0, JSON.stringify(accepted.output, null, 2));
+  assert.equal(accepted.output.acceptance, 'accepted');
+
+  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
+  assert.deepEqual(await verifyVisualAcceptance(root, project, manifest), []);
+
+  exact.model.componentContracts[0].properties[0].defaultValue = 'scope-drift';
+  await writeCanonical(exact.path, exact.model);
+  project = await fixtureProject(root);
+  const stale = await verifyVisualAcceptance(root, project, manifest, { markStale: true });
+  assert.equal(stale[0].code, 'AIH_HUMAN_VISUAL_ACCEPTANCE_STALE');
+  const record = JSON.parse(await readFile(visualAcceptanceRecordPath(root), 'utf8'));
+  assert.equal(record.status, 'stale');
+});
+
 test('Figma source registration packet validates adapter output without owning Canonical UI identifiers', async () => {
   const root = await temporaryRepository();
   const schema = JSON.parse(await readFile(
@@ -670,9 +700,52 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
   assert.ok(codes(ambiguous).has('AIH_ASSET_CLASSIFICATION_INCOMPLETE'), JSON.stringify(ambiguous.output, null, 2));
+
+  const expandedPlan = structuredClone(plan);
+  expandedPlan.candidateVisualNodes.push({
+    nodeId: '1:99',
+    name: 'Agent-expanded visual node',
+    strategy: 'dom-css',
+  });
+  const expandedPlanContent = Buffer.from(JSON.stringify(expandedPlan, null, 2) + '\n');
+  await writeFile(planPath, expandedPlanContent);
+  acquisition.capturePlanSha256 = sha256(expandedPlanContent);
+  await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
+  const expanded = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+    '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
+  ]);
+  assert.ok(codes(expanded).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(expanded.output, null, 2));
+
+  const unapprovedDetachPlan = structuredClone(plan);
+  unapprovedDetachPlan.highImpactConfirmation.writebackOperations = [{
+    id: 'WRITEBACK-001',
+    kind: 'detach-instance',
+    targetNodeIds: ['1:2'],
+    reason: 'Fixture detach request.',
+  }];
+  unapprovedDetachPlan.writebackBoundary.operationIds = ['WRITEBACK-001'];
+  const unapprovedDetachContent = Buffer.from(JSON.stringify(unapprovedDetachPlan, null, 2) + '\n');
+  await writeFile(planPath, unapprovedDetachContent);
+  acquisition.capturePlanSha256 = sha256(unapprovedDetachContent);
+  await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
+  const unapprovedDetach = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+    '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
+  ]);
+  assert.ok(codes(unapprovedDetach).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(unapprovedDetach.output, null, 2));
+
+  const missingSecondConfirmation = structuredClone(plan);
+  delete missingSecondConfirmation.highImpactConfirmation;
+  const missingSecondConfirmationContent = Buffer.from(JSON.stringify(missingSecondConfirmation, null, 2) + '\n');
+  await writeFile(planPath, missingSecondConfirmationContent);
+  acquisition.capturePlanSha256 = sha256(missingSecondConfirmationContent);
+  await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
+  const missingConfirmation = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+    '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
+  ]);
+  assert.ok(codes(missingConfirmation).has('AIH_ASSET_CLASSIFICATION_INCOMPLETE'), JSON.stringify(missingConfirmation.output, null, 2));
 });
 
-test('Canonical UI 8.0 rejects every removed legacy structure', async () => {
+test('Canonical UI 9.0 rejects every removed legacy structure', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { path, model } = await canonicalFixture(root);
@@ -730,6 +803,70 @@ test('component abstraction gates require unique inventory, resolvable mappings,
   await writeCanonical(path, missingVariant);
   const incomplete = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
   assert.ok(codes(incomplete).has('AIH_COMPONENT_VARIANT_COVERAGE_FAILED'), JSON.stringify(incomplete.output, null, 2));
+});
+
+test('Component Contract and State Matrix classify every finite combination exactly once', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+
+  const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
+
+  const missingContract = structuredClone(model);
+  missingContract.componentContracts = [];
+  await writeCanonical(path, missingContract);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_COMPONENT_CONTRACT_INVALID'));
+
+  const bypassedInterface = structuredClone(model);
+  bypassedInterface.componentContracts[0].litTagName = 'copied-state-card';
+  await writeCanonical(path, bypassedInterface);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_COMPONENT_CONTRACT_INVALID'));
+
+  const missingCombination = structuredClone(model);
+  missingCombination.stateMatrix.pop();
+  await writeCanonical(path, missingCombination);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_STATE_MATRIX_INVALID'));
+
+  const duplicateCombination = structuredClone(model);
+  duplicateCombination.stateMatrix.push({ ...duplicateCombination.stateMatrix[0], id: 'STATE-MATRIX-DUPLICATE' });
+  await writeCanonical(path, duplicateCombination);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_STATE_MATRIX_INVALID'));
+
+  const confusedKinds = structuredClone(model);
+  confusedKinds.stateAxes.find((axis) => axis.kind === 'content-override').values[0].stateId = 'COMPONENT-STATE-DEFAULT';
+  await writeCanonical(path, confusedKinds);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_STATE_MATRIX_INVALID'));
+});
+
+test('Mock Case contract has one route default and complete visible-state and matrix coverage', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+
+  const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
+
+  const noDefault = structuredClone(model);
+  noDefault.mockCases[0].isDefault = false;
+  await writeCanonical(path, noDefault);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_COVERAGE_FAILED'));
+
+  const missingLoading = structuredClone(model);
+  missingLoading.mockCases = missingLoading.mockCases.filter((item) => item.id !== 'MOCK-CASE-LOADING');
+  await writeCanonical(path, missingLoading);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_COVERAGE_FAILED'));
+
+  const mismatchedState = structuredClone(model);
+  mismatchedState.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').visibleStateIds = ['INT-STATE-001', 'COMPONENT-STATE-ERROR'];
+  await writeCanonical(path, mismatchedState);
+  const mismatchCodes = codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']));
+  assert.ok(mismatchCodes.has('AIH_MOCKCASE_STATE_MISMATCH') || mismatchCodes.has('AIH_MOCKCASE_CONTRACT_INVALID'));
+
+  const unstableLoading = structuredClone(model);
+  unstableLoading.mockCases.find((item) => item.id === 'MOCK-CASE-LOADING').mockBehaviorIds = ['MOCK-001'];
+  await writeCanonical(path, unstableLoading);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_CONTRACT_INVALID'));
 });
 
 test('guided partial sources are valid while blocked and incomplete exact sources stay blocked', async () => {
@@ -935,6 +1072,11 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   autonomous.componentInventory = [];
   autonomous.componentMappings = [];
   autonomous.componentVariantCoverage = [];
+  for (const contract of autonomous.componentContracts) {
+    delete contract.mappingId;
+    contract.figmaInstanceNodeIds = [];
+    for (const instance of contract.pageInstances) delete instance.figmaInstanceNodeId;
+  }
   autonomous.sourceParityAssertions = [];
   await writeCanonical(path, autonomous);
   const autonomousResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
@@ -977,6 +1119,7 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
   exact.scenarios = [];
+  for (const mockCase of exact.mockCases) delete mockCase.scenarioId;
   exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.sourceParityAssertions = [{
     id: 'PARITY-EXACT-DESKTOP',
@@ -995,7 +1138,8 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
 
   await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
   const exactMismatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
-  assert.ok(codes(exactMismatch).has('AIH_VISUAL_SOURCE_PARITY_FAILED'), JSON.stringify(exactMismatch.output, null, 2));
+  assert.equal(exactMismatch.exitCode, 0, JSON.stringify(exactMismatch.output, null, 2));
+  assert.ok(exactMismatch.output.evidence.some((item) => item.kind === 'source-parity-diagnostic' && item.diagnosticCode === 'AIH_VISUAL_PIXEL_DIAGNOSTIC'));
 
   const localManifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
   const defaultProfile = localManifest.validationProfiles.find((item) => item.id === 'canonical-ui-prototype');
@@ -1014,7 +1158,7 @@ test('exact visual repair emits a complete packet and passes after an allowed im
   const packet = JSON.parse(await readFile(requested.output.repairPacket, 'utf8'));
   assert.equal(packet.version, '4.0.0');
   assert.equal(packet.status, 'REPAIR_REQUIRED');
-  assert.equal(packet.maxAttempts, 3);
+  assert.equal(packet.maxAttempts, 1);
   assert.deepEqual(packet.implementationPolicy, {
     evidenceBeforeEdit: true,
     requireSourceResolution: true,
@@ -1025,24 +1169,6 @@ test('exact visual repair emits a complete packet and passes after an allowed im
     stableComparisonEnvironment: true,
     fixOrder: ['source-resolution', 'structure', 'geometry', 'typography', 'paint', 'effects', 'assets'],
   });
-  assert.equal(packet.failures[0].blockerCode, 'AIH_VISUAL_SOURCE_PARITY_FAILED');
-  assert.equal(packet.failures[0].sourceId, 'DESIGN-SOURCE-001');
-  assert.equal(packet.failures[0].sourceKind, 'figma');
-  assert.equal(packet.failures[0].checkKind, 'screenshot-match');
-  assert.equal(packet.failures[0].designContextEvidenceItemId, 'EVIDENCE-CONTEXT-001');
-  assert.ok((await stat(packet.failures[0].designContext)).isFile());
-  assert.ok((await stat(packet.failures[0].sourceBaseline)).isFile());
-  assert.ok((await stat(packet.failures[0].actualScreenshot)).isFile());
-  assert.ok((await stat(packet.failures[0].differenceScreenshot)).isFile());
-  assert.ok(packet.failures[0].differenceRegions.length > 0);
-  assert.ok(packet.failures[0].differenceRegions.every((region) => (
-    Number.isInteger(region.x)
-    && Number.isInteger(region.y)
-    && Number.isInteger(region.width)
-    && Number.isInteger(region.height)
-    && region.width > 0
-    && region.height > 0
-  )));
   const styleFailure = packet.failures.find((failure) => failure.checkKind === 'computed-style');
   assert.equal(styleFailure.targetId, 'CONTROL-001');
   assert.equal(styleFailure.styleProperty, 'background-color');
@@ -1082,7 +1208,7 @@ test('exact visual repair keeps external evidence hashes but does not hash-gate 
   assert.ok(codes(missingSource).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(missingSource.output, null, 2));
 });
 
-test('exact visual repair blocks non-visual failures and exhausts after three implementation attempts', async () => {
+test('exact visual repair blocks non-visual failures and permits only one manual implementation attempt', async () => {
   const nonVisualRoot = await temporaryRepository();
   await completeProductFixture(nonVisualRoot);
   const nonVisual = await prepareExactFixture(nonVisualRoot);
@@ -1101,22 +1227,12 @@ test('exact visual repair blocks non-visual failures and exhausts after three im
   await writeFile(exhausted.appPath, exhausted.app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
   const first = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--json']);
   assert.equal(first.output.attempt, 1, JSON.stringify(first.output, null, 2));
-  let result = first;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await appendFile(exhausted.appPath, '\n// repair attempt ' + attempt + '\n');
-    result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--json']);
-  }
+  await appendFile(exhausted.appPath, '\n// single manual repair attempt\n');
+  const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--json']);
   assert.equal(result.output.status, 'BLOCKED', JSON.stringify(result.output, null, 2));
   assert.match(result.stderr, /AIH_VISUAL_REPAIR_EXHAUSTED/);
-  assert.equal(result.output.attempts.length, 3);
-  assert.ok(result.output.attempts.every((item) => item.failures.every((failure) => (
-    failure.actualScreenshot
-    && failure.differenceScreenshot
-  ))));
-  assert.ok(result.output.attempts.every((item) => item.failures.some((failure) => (
-    failure.checkKind === 'screenshot-match'
-    && typeof failure.differenceRatio === 'number'
-  ))));
+  assert.equal(result.output.attempts.length, 1);
+  assert.ok(result.output.attempts[0].failures.some((failure) => failure.checkKind === 'computed-style'));
 });
 
 test('browser validator uses the browser accessible-name algorithm for aria-labelledby', async () => {
@@ -1131,6 +1247,40 @@ test('browser validator uses the browser accessible-name algorithm for aria-labe
     .replace('              >\n                模拟成功\n              </button>', '              >\n              </button>'));
   const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.equal(result.exitCode, 0, JSON.stringify(result.output, null, 2));
+});
+
+test('Component Contract runner generates isolated Playwright checks from the shared State Matrix', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
+  assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
+
+  const { path, model } = await canonicalFixture(root);
+  model.componentContracts[0].properties[0].defaultValue = 'unexpected';
+  await writeCanonical(path, model);
+  const failed = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
+  assert.ok(codes(failed).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(failed.output, null, 2));
+});
+
+test('incremental validation selects impacted component routes and viewports, then reuses OS-temporary cache', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const args = ['--actor', 'ACTOR-001', '--changed-path', 'src/psp-app.ts', '--json'];
+  const first = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-incremental.mjs', root, args);
+  assert.equal(first.exitCode, 0, JSON.stringify(first.output, null, 2));
+  assert.equal(first.output.formalReadiness, 'NOT_RUN');
+  assert.deepEqual(first.output.impact.components, ['COMPONENT-001']);
+  assert.deepEqual(first.output.impact.routes, ['ROUTE-001']);
+  assert.deepEqual(first.output.impact.viewports.sort(), ['VIEWPORT-DESKTOP', 'VIEWPORT-MOBILE']);
+  assert.ok(first.output.layers.every((item) => ['PASS', 'NOT_RUN'].includes(item.status)));
+  assert.equal(first.output.performance.before.browserRuntimeMs.p50Ms, 49102);
+
+  const second = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-incremental.mjs', root, args);
+  assert.equal(second.exitCode, 0, JSON.stringify(second.output, null, 2));
+  assert.equal(second.output.cache.hits, 4);
+  assert.equal(second.output.cache.misses, 0);
+  assert.ok(second.output.layers.every((item) => item.cacheHit));
+  assert.ok(second.output.performance.after.machineGatesMs.p50Ms !== null);
 });
 
 test('browser validator skips accessibility checks when the user did not select them', async () => {

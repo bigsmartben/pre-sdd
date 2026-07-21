@@ -14,6 +14,24 @@ const require = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || process.en
 const json = process.argv.includes('--json');
 const actorIndex = process.argv.indexOf('--actor');
 const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
+const startedAt = performance.now();
+const valuesFor = (name) => process.argv.flatMap((value, index) => value === '--' + name && process.argv[index + 1] ? [process.argv[index + 1]] : []);
+const routeFilter = new Set(valuesFor('route'));
+const viewportFilter = new Set(valuesFor('viewport'));
+const scenarioFilter = new Set(valuesFor('scenario'));
+const componentFilter = new Set(valuesFor('component'));
+const skipVisualDiagnostics = process.argv.includes('--skip-visual-diagnostics');
+const skipStateGallery = process.argv.includes('--skip-state-gallery');
+const skipMockCases = process.argv.includes('--skip-mockcases');
+const forwardedFilters = [
+  ...[...routeFilter].flatMap((value) => ['--route', value]),
+  ...[...viewportFilter].flatMap((value) => ['--viewport', value]),
+  ...[...scenarioFilter].flatMap((value) => ['--scenario', value]),
+  ...[...componentFilter].flatMap((value) => ['--component', value]),
+  ...(skipVisualDiagnostics ? ['--skip-visual-diagnostics'] : []),
+  ...(skipStateGallery ? ['--skip-state-gallery'] : []),
+  ...(skipMockCases ? ['--skip-mockcases'] : []),
+];
 
 if (!requestedActor) {
   const { project } = await loadProjectAndManifest(root);
@@ -23,20 +41,22 @@ if (!requestedActor) {
   const aggregateEvidence = [];
   const evidenceRoots = [];
   const reviewAddresses = [];
+  const metrics = [];
   for (const member of members) {
-    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json'], { cwd: root, encoding: 'utf8', env: process.env, windowsHide: true });
+    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json', ...forwardedFilters], { cwd: root, encoding: 'utf8', env: process.env, windowsHide: true });
     try {
       const result = JSON.parse(child.stdout || '{}');
       aggregateBlockers.push(...(result.blockers || []));
       aggregateEvidence.push(...(result.evidence || []).map((item) => ({ actor: member.actor, ...item })));
       if (result.evidenceRoot) evidenceRoots.push({ actor: member.actor, path: result.evidenceRoot });
       if (result.reviewAddress) reviewAddresses.push({ actor: member.actor, address: result.reviewAddress });
+      if (result.metrics) metrics.push({ actor: member.actor, ...result.metrics });
     } catch {
       aggregateBlockers.push({ code: 'AIH_VALIDATION_FAILED', message: child.stderr || '参与者运行时校验没有返回 JSON。', location: member.actor });
     }
   }
   if (members.length === 0) aggregateBlockers.push({ code: 'AIH_ARTIFACT_INCOMPLETE', message: '尚未创建参与者 Canonical UI 应用。', location: paths.authorityRoot });
-  const aggregate = { status: aggregateBlockers.length === 0 ? 'PASS' : 'BLOCKED', actors: members.map((member) => member.actor), blockers: aggregateBlockers, evidence: aggregateEvidence, evidenceRoots, reviewAddresses };
+  const aggregate = { status: aggregateBlockers.length === 0 ? 'PASS' : 'BLOCKED', actors: members.map((member) => member.actor), blockers: aggregateBlockers, evidence: aggregateEvidence, evidenceRoots, reviewAddresses, metrics };
   if (json) console.log(JSON.stringify(aggregate, null, 2));
   else if (aggregate.status === 'PASS') console.log('[PASS] 全部参与者 Canonical UI 浏览器验收通过。');
   else for (const item of aggregateBlockers) console.error('[' + item.code + '] ' + item.message);
@@ -51,6 +71,7 @@ let server;
 let browser;
 let evidenceRoot;
 let reviewAddress;
+let visualDiagnosticDurationMs = 0;
 
 function block(code, message, location) {
   const key = [code, message, location || ''].join('|');
@@ -658,12 +679,15 @@ async function runSourceParityAssertions(page, model, routeId, viewport, parityE
           });
         }
       } else if (check.kind === 'screenshot-match') {
+        if (skipVisualDiagnostics) continue;
         const baseline = parityEvidence.baselines.get(assertion.id);
         if (!baseline) {
           block('AIH_VISUAL_SOURCE_INCOMPLETE', '无法读取截图一致性基线。', assertion.id);
           continue;
         }
+        const diagnosticStartedAt = performance.now();
         const difference = await imageDifference(page, baseline.dataUrl, thresholds.channelTolerance);
+        visualDiagnosticDurationMs += performance.now() - diagnosticStartedAt;
         if (difference.ratio > thresholds.maxDifferentPixelRatio) {
           const prefix = safeEvidenceName('parity', viewport.id, routeId, scenarioId, assertion.id, checkIndex);
           const actualScreenshot = join(evidenceRoot, prefix + '-actual.png');
@@ -671,14 +695,9 @@ async function runSourceParityAssertions(page, model, routeId, viewport, parityE
           await writeFile(actualScreenshot, difference.actualScreenshot);
           await writeDataUrl(differenceScreenshot, difference.differenceDataUrl);
           const message = '实现与视觉来源截图差异超限：' + (difference.ratio * 100).toFixed(3) + '%，允许 ' + (thresholds.maxDifferentPixelRatio * 100).toFixed(3) + '%；实际 ' + difference.actual.join('×') + '，基线 ' + difference.expected.join('×');
-          block(
-            'AIH_VISUAL_SOURCE_PARITY_FAILED',
-            message,
-            assertion.id,
-          );
           evidence.push({
-            kind: 'source-parity-failure',
-            blockerCode: 'AIH_VISUAL_SOURCE_PARITY_FAILED',
+            kind: 'source-parity-diagnostic',
+            diagnosticCode: 'AIH_VISUAL_PIXEL_DIAGNOSTIC',
             assertionId: assertion.id,
             ...sourceDetails,
             routeId,
@@ -934,6 +953,130 @@ async function verifyReviewToolWorkflow(viewport, base, routePath) {
   }
 }
 
+async function verifyStateGallery(viewport, base, model) {
+  const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
+  const page = await context.newPage();
+  const location = '/__review/components';
+  try {
+    await page.goto(new URL(location, base).href, { waitUntil: 'networkidle' });
+    if (await page.locator('psp-state-gallery').count() !== 1) {
+      block('AIH_STATE_GALLERY_FAILED', '缺少唯一的 /__review/components State Gallery。', location);
+      return;
+    }
+    const selectedContractIds = new Set(model.componentContracts.filter((item) => componentFilter.size === 0 || componentFilter.has(item.componentId)).map((item) => item.id));
+    const legalEntries = model.stateMatrix.filter((entry) => entry.classification === 'legal' && entry.renderInGallery && selectedContractIds.has(entry.componentContractId));
+    const renderedIds = await page.locator('[data-state-gallery] [data-state-matrix-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-state-matrix-id')));
+    if (JSON.stringify([...renderedIds].sort()) !== JSON.stringify(legalEntries.map((entry) => entry.id).sort())) {
+      block('AIH_STATE_GALLERY_FAILED', 'State Gallery 必须精确渲染全部合法 Matrix Entry，且不得渲染互斥或不可达组合。', location);
+    }
+    for (const entry of legalEntries) {
+      const card = page.locator('[data-state-matrix-id="' + entry.id + '"]');
+      const axes = model.stateAxes.filter((axis) => axis.componentContractId === entry.componentContractId);
+      if (await card.count() !== 1 || await card.locator('[data-state-axis-kind]').count() !== axes.length) {
+        block('AIH_STATE_GALLERY_FAILED', 'State Gallery 条目未展示完整四类状态轴元数据：' + entry.id, location);
+      }
+      const frame = page.frames().find((item) => {
+        try { return new URL(item.url()).searchParams.get('__pspStateMatrix') === entry.id; }
+        catch { return false; }
+      });
+      if (!frame) {
+        block('AIH_STATE_GALLERY_FAILED', 'State Gallery 条目缺少可运行预览：' + entry.id, location);
+        continue;
+      }
+      const runtimeAxis = axes.find((axis) => axis.kind === 'runtime-state');
+      const runtimeValue = runtimeAxis?.values.find((value) => value.id === entry.values[runtimeAxis.id]);
+      if (runtimeValue?.stateId) {
+        const target = frame.locator('[data-component-state="' + runtimeValue.stateId + '"]').first();
+        if (await target.count() === 0 || !await target.isVisible()) {
+          block('AIH_STATE_GALLERY_FAILED', 'State Gallery 预览未呈现 Matrix 声明的 Runtime State：' + entry.id + ' / ' + runtimeValue.stateId, location);
+        }
+      }
+    }
+  } finally {
+    await context.close();
+  }
+}
+
+async function verifyMockCases(viewport, base, model) {
+  const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    globalThis.__pspMockcaseReadyIds = [];
+    window.addEventListener('psp:mockcase-ready', (event) => globalThis.__pspMockcaseReadyIds.push(event.detail.caseId));
+  });
+  try {
+    for (const route of model.routes.filter((item) => routeFilter.size === 0 || routeFilter.has(item.id))) {
+      const routeCases = model.mockCases.filter((item) => item.routeId === route.id);
+      await page.goto(new URL(route.path, base).href, { waitUntil: 'networkidle' });
+      if (await page.locator('mockcase-switcher[data-review-tool="mockcase-switcher"]').count() !== 1) {
+        block('AIH_MOCKCASE_TOOL_MISSING', '普通 Review 地址缺少唯一 Mock Case 切换器。', route.path);
+      }
+      const defaultCase = routeCases.find((item) => item.isDefault);
+      if (defaultCase) {
+        try {
+          await page.waitForFunction((caseId) => globalThis.__pspMockcaseReadyIds?.includes(caseId), defaultCase.id, { timeout: 4000 });
+        } catch {
+          block('AIH_MOCKCASE_TIMEOUT', '默认 Mock Case 未完成 request/ready 握手：' + defaultCase.id, route.path);
+        }
+      }
+
+      const annotateOff = new URL(route.path, base);
+      annotateOff.searchParams.set('annotate', '0');
+      await page.goto(annotateOff.href, { waitUntil: 'networkidle' });
+      if (await page.locator('inconsistency-annotator').count() !== 0 || await page.locator('mockcase-switcher').count() !== 1) {
+        block('AIH_MOCKCASE_TOOL_MISSING', 'annotate=0 必须只关闭不一致标记工具，保留 Mock Case 切换器。', route.path);
+      }
+
+      const mockcaseOff = new URL(route.path, base);
+      mockcaseOff.searchParams.set('mockcase', '0');
+      await page.goto(mockcaseOff.href, { waitUntil: 'networkidle' });
+      if (await page.locator('mockcase-switcher').count() !== 0 || await page.locator('inconsistency-annotator').count() !== 1) {
+        block('AIH_MOCKCASE_TOOL_MISSING', 'mockcase=0 必须只关闭 Mock Case 切换器，保留不一致标记工具。', route.path);
+      }
+
+      for (const mockCase of routeCases) {
+        const deepLink = new URL(route.path, base);
+        deepLink.searchParams.set('psp-case', mockCase.id);
+        deepLink.searchParams.set('annotate', '0');
+        await page.goto(deepLink.href, { waitUntil: 'networkidle' });
+        try {
+          await page.waitForFunction((caseId) => (
+            globalThis.__pspMockcaseReadyIds?.includes(caseId)
+            && document.querySelector('[data-mockcase-id]')?.getAttribute('data-mockcase-id') === caseId
+          ), mockCase.id, { timeout: 4000 });
+        } catch {
+          block('AIH_MOCKCASE_TIMEOUT', 'Mock Case 深链未完成 request/ready 握手：' + mockCase.id, route.path);
+          continue;
+        }
+        if (new URL(page.url()).searchParams.get('psp-case') !== mockCase.id) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 深链在加载后未保留：' + mockCase.id, route.path);
+        }
+        for (const stateId of mockCase.visibleStateIds) {
+          const target = page.locator(stateSelector(model, stateId)).first();
+          if (await target.count() === 0 || !await target.isVisible()) {
+            block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 未呈现声明的可见 State：' + mockCase.id + ' / ' + stateId, route.path);
+          }
+        }
+        const screen = model.screens.find((item) => item.id === mockCase.screenId);
+        for (const component of model.components.filter((item) => screen?.componentIds.includes(item.id))) {
+          const visible = [];
+          for (const stateId of component.stateIds) {
+            const targets = page.locator('[data-component-state="' + stateId + '"]');
+            for (let index = 0; index < await targets.count(); index += 1) {
+              if (await targets.nth(index).isVisible()) { visible.push(stateId); break; }
+            }
+          }
+          if (visible.length !== 1 || !mockCase.visibleStateIds.includes(visible[0])) {
+            block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 的实际组件互斥状态与声明不一致：' + mockCase.id + ' / ' + (visible.join(', ') || '无'), route.path);
+          }
+        }
+      }
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 async function capture(page, evidenceRoot, item) {
   const parts = [item.kind, item.viewportId, item.routeId, item.scenarioId].filter(Boolean);
   const screenshot = join(evidenceRoot, parts.join('-') + '.png');
@@ -948,6 +1091,25 @@ try {
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const authorityPath = artifactMemberPath(paths, requestedActor);
   const model = await extractCanonicalUi(root, authorityPath);
+  const selectedRoutes = model.routes.filter((item) => routeFilter.size === 0 || routeFilter.has(item.id));
+  const selectedViewports = model.viewports.filter((item) => viewportFilter.size === 0 || viewportFilter.has(item.id));
+  const selectedScenarios = model.scenarios.filter((item) => (
+    (scenarioFilter.size === 0 || scenarioFilter.has(item.id))
+    && (routeFilter.size === 0 || routeFilter.has(item.routeId))
+  ));
+  const selectedScreenIds = new Set(selectedRoutes.map((item) => item.screenId));
+  const selectedComponentIds = new Set(model.screens.filter((item) => selectedScreenIds.has(item.id)).flatMap((item) => item.componentIds));
+  const selectedTargetIds = new Set([
+    ...selectedScreenIds,
+    ...selectedComponentIds,
+    ...model.controls.filter((item) => selectedComponentIds.has(item.componentId)).map((item) => item.id),
+    ...model.states.filter((item) => selectedScreenIds.has(item.ownerId) || selectedComponentIds.has(item.ownerId)).map((item) => item.id),
+  ]);
+  const selectedAssets = model.assets.filter((item) => routeFilter.size === 0 || item.consumerTargets.some((targetId) => selectedTargetIds.has(targetId)));
+  if (routeFilter.size > 0 && selectedRoutes.length !== routeFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Route。', [...routeFilter].join(', '));
+  if (viewportFilter.size > 0 && selectedViewports.length !== viewportFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Viewport。', [...viewportFilter].join(', '));
+  if (scenarioFilter.size > 0 && selectedScenarios.length !== scenarioFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Scenario 或跨 Route Scenario。', [...scenarioFilter].join(', '));
+  if (componentFilter.size > 0 && model.components.filter((item) => componentFilter.has(item.id)).length !== componentFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Component。', [...componentFilter].join(', '));
   if (model.actor !== requestedActor) block('AIH_REFERENCE_UNRESOLVED', '应用 actor 与目录参与者不一致。', authorityPath);
   const areaPath = repositoryFile(root, paths.authorityRoot + '/' + requestedActor);
   const registry = manifest.artifactRegistry.find((item) => item.id === 'canonical-ui-prototype');
@@ -974,16 +1136,29 @@ try {
   reviewAddress = base + '/';
   browser = await chromium.launch({ headless: true });
 
-  if (model.viewports[0] && model.routes[0]) {
+  if (selectedViewports[0]) {
     try {
-      await verifyReviewToolWorkflow(model.viewports[0], base, model.routes[0].path);
+      if (!skipStateGallery) await verifyStateGallery(selectedViewports[0], base, model);
+    } catch (error) {
+      block(error.code || 'AIH_STATE_GALLERY_FAILED', 'State Gallery 回归失败：' + error.message, '/__review/components');
+    }
+    try {
+      if (!skipMockCases) await verifyMockCases(selectedViewports[0], base, model);
+    } catch (error) {
+      block(error.code || 'AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 浏览器回归失败：' + error.message, 'mockCases');
+    }
+  }
+
+  if (selectedViewports[0] && selectedRoutes[0]) {
+    try {
+      await verifyReviewToolWorkflow(selectedViewports[0], base, selectedRoutes[0].path);
     } catch (error) {
       block(error.code || 'AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具复制回归失败：' + error.message, model.routes[0].path);
     }
   }
 
-  for (const viewport of model.viewports) {
-    for (const route of model.routes) {
+  for (const viewport of selectedViewports) {
+    for (const route of selectedRoutes) {
       const { context, page } = await guardedPage(viewport, base);
       let screen = null;
       try {
@@ -1016,9 +1191,9 @@ try {
     }
   }
 
-  for (const scenario of model.scenarios) {
+  for (const scenario of selectedScenarios) {
     const route = model.routes.find((item) => item.id === scenario.routeId);
-    for (const viewportId of scenario.viewportIds) {
+    for (const viewportId of scenario.viewportIds.filter((item) => viewportFilter.size === 0 || viewportFilter.has(item))) {
       const viewport = model.viewports.find((item) => item.id === viewportId);
       if (!route || !viewport) continue;
       const { context, page } = await guardedPage(viewport, base);
@@ -1120,7 +1295,7 @@ try {
     }
   }
 
-  for (const asset of model.assets) {
+  for (const asset of selectedAssets) {
     if (!loadedAssets.has(asset.id)) block('AIH_ASSET_MISSING', '资源未成功加载：' + asset.path, asset.id);
     for (const targetId of asset.consumerTargets) {
       if (!usedAssetTargets.get(asset.id)?.has(targetId)) {
@@ -1135,7 +1310,25 @@ try {
   if (server) await server.close();
 }
 
-const result = { status: blockers.length === 0 ? 'PASS' : 'BLOCKED', blockers, evidence, ...(evidenceRoot ? { evidenceRoot } : {}), ...(reviewAddress ? { reviewAddress } : {}) };
+const totalDurationMs = performance.now() - startedAt;
+const result = {
+  status: blockers.length === 0 ? 'PASS' : 'BLOCKED',
+  blockers,
+  evidence,
+  metrics: {
+    totalDurationMs: Math.round(totalDurationMs),
+    browserGateDurationMs: Math.round(Math.max(0, totalDurationMs - visualDiagnosticDurationMs)),
+    visualDiagnosticDurationMs: Math.round(visualDiagnosticDurationMs),
+    selected: {
+      routes: [...routeFilter],
+      viewports: [...viewportFilter],
+      scenarios: [...scenarioFilter],
+      components: [...componentFilter],
+    },
+  },
+  ...(evidenceRoot ? { evidenceRoot } : {}),
+  ...(reviewAddress ? { reviewAddress } : {}),
+};
 if (json) console.log(JSON.stringify(result, null, 2));
 else if (result.status === 'PASS') console.log('[PASS] Canonical UI Prototype 浏览器验收通过；证据位于操作系统临时目录。');
 else for (const item of blockers) console.error('[' + item.code + '] ' + item.message);

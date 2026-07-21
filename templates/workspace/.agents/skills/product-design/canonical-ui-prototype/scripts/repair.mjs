@@ -273,7 +273,7 @@ async function main() {
   if (exhausted) {
     emit({
       status: 'BLOCKED',
-      message: 'Canonical UI Prototype 连续 3 次实现修复后仍未通过视觉验收。',
+      message: 'Canonical UI Prototype 单次手动实现修复后仍未通过机器诊断。',
       repairPacket: packetPath,
       attempts: state.attempts,
     }, 'AIH_VISUAL_REPAIR_EXHAUSTED');

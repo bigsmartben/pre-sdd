@@ -480,7 +480,7 @@ class InconsistencyAnnotator extends HTMLElement {
         allowTaint: false,
         backgroundColor: '#ffffff',
         height: window.innerHeight,
-        ignoreElements: (element) => element.tagName.toLowerCase() === 'inconsistency-annotator',
+        ignoreElements: (element) => element.hasAttribute('data-review-tool'),
         logging: false,
         scale,
         scrollX: window.scrollX,
@@ -579,6 +579,7 @@ class InconsistencyAnnotator extends HTMLElement {
     const heading = [
       '不一致标记工具',
       `页面：${window.location.href}`,
+      `Mock Case：${document.querySelector('[data-mockcase-id]')?.getAttribute('data-mockcase-id') ?? '未声明'}`,
       `视口：${window.innerWidth} × ${window.innerHeight}`,
     ];
     const details = markers.map((marker) => [

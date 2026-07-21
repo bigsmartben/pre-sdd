@@ -184,7 +184,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   assert.ok(workspaceManifest.operations.some((item) => item.id === 'apply-visual-spec' && item.artifacts.includes('visual-spec')));
   assert.ok(workspaceManifest.commands.some((item) => item.id === 'visual-spec-strict'));
   assert.ok(workspaceManifest.validationProfiles.some((item) => item.id === 'visual-spec-readiness'));
-  assert.deepEqual(workspaceManifest.scopes.find((item) => item.id === 'visual-spec').dependencies, ['use-cases']);
+  assert.ok(workspaceManifest.projectDag.edges.some((edge) => edge.from === 'use-cases' && edge.to === 'visual-spec' && edge.type === 'handoff'));
   assert.equal(workspacePackage.scripts['apply:visual-spec'].includes('apply:visual-spec'), true);
   assert.equal(workspacePackage.scripts['validate:visual-spec'].includes('validate:visual-spec'), true);
   assert.equal(await exists(resolve(target, workspaceManifest.runtime.entrypoint)), true);
@@ -544,7 +544,7 @@ test('Area Script execution uses a trusted npm CLI without a shell', async () =>
 test('package allowlist includes runtime and template but excludes root workspace state', async () => {
   const packageJson = JSON.parse(await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'));
   assert.equal(packageJson.name, 'pre-sdd');
-  assert.equal(packageJson.version, '0.2.0');
+  assert.equal(packageJson.version, '0.3.0');
   assert.equal(packageJson.scripts.build, undefined);
   assert.equal(packageJson.bin['pre-sdd'], './bin/pre-sdd.mjs');
   assert.equal(packageJson.dependencies['axe-core'], '^4.12.1');

@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["version", "stage", "current", "history"],
   "properties": {
-    "version": {"const": "1.0.0"},
+    "version": {"const": "2.0.0"},
     "stage": {"const": "product-design"},
     "current": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/publication"}]},
     "history": {"type": "array", "items": {"$ref": "#/$defs/publication"}}
@@ -46,9 +46,21 @@
         }
       }
     },
+    "visualAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "evidenceHash", "scopeHash", "acceptedBy", "acceptedAt"],
+      "properties": {
+        "path": {"const": ".psp/reviews/product-design-visual-acceptance.json"},
+        "evidenceHash": {"$ref": "#/$defs/hash"},
+        "scopeHash": {"$ref": "#/$defs/hash"},
+        "acceptedBy": {"type": "string", "pattern": "^user:.+"},
+        "acceptedAt": {"type": "string", "format": "date-time"}
+      }
+    },
     "publication": {
       "type": "object", "additionalProperties": false,
-      "required": ["publicationId", "publishedAt", "inputLocks", "actors", "reviewVersion", "stageIdentityHash", "credential"],
+      "required": ["publicationId", "publishedAt", "inputLocks", "actors", "reviewVersion", "visualAcceptance", "stageIdentityHash", "credential"],
       "properties": {
         "publicationId": {"type": "string", "pattern": "^publish-[a-f0-9]{64}$"},
         "publishedAt": {"type": "string", "format": "date-time"},
@@ -59,6 +71,7 @@
         },
         "actors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/actor"}},
         "reviewVersion": {"const": "1.0.0"},
+        "visualAcceptance": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/visualAcceptance"}]},
         "stageIdentityHash": {"$ref": "#/$defs/hash"},
         "credential": {"$ref": "#/$defs/hash"}
       }

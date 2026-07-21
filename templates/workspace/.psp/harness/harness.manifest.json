@@ -442,6 +442,22 @@
       "evidenceVersion": "1.0.0"
     },
     {
+      "id": "accept-canonical-ui-visual",
+      "kind": "review",
+      "npmScript": "accept:canonical-ui-visual",
+      "run": "npm run accept:canonical-ui-visual",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/visual-acceptance.mjs",
+        "args": ["--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "profile": "canonical-ui-review-readiness",
+      "evidenceVersion": "1.0.0"
+    },
+    {
       "id": "publish-product-design",
       "kind": "publish",
       "npmScript": "publish:product-design",
@@ -550,6 +566,32 @@
         "paths": [
           ".agents/skills/product-design/tests/*.test.mjs"
         ]
+      }
+    },
+    {
+      "id": "test-product-fast",
+      "npmScript": "test:product:fast",
+      "run": "npm run test:product:fast",
+      "purpose": "运行不启动浏览器或视觉诊断的 Product Design 快速契约测试",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/tests/run-suite.mjs",
+        "args": ["--tier", "fast"]
+      }
+    },
+    {
+      "id": "test-product-slow",
+      "npmScript": "test:product:slow",
+      "run": "npm run test:product:slow",
+      "purpose": "运行隔离浏览器、视觉诊断、修复和增量性能 Product Design 慢测试",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/tests/run-suite.mjs",
+        "args": ["--tier", "slow"]
       }
     },
     {
@@ -665,6 +707,30 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs"
+      }
+    },
+    {
+      "id": "canonical-ui-contract-tests",
+      "npmScript": "test:canonical-ui-components",
+      "run": "npm run test:canonical-ui-components",
+      "purpose": "从 Component Contract、State Matrix 与 Mock Case 生成隔离 Playwright 组件契约测试",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs"
+      }
+    },
+    {
+      "id": "canonical-ui-incremental",
+      "npmScript": "validate:canonical-ui-incremental",
+      "run": "npm run validate:canonical-ui-incremental",
+      "purpose": "按显式 changed-path 影响分析增量校验受影响 Component、Route、State 与 Viewport，并输出缓存和性能指标",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-incremental.mjs"
       }
     },
     {
@@ -890,7 +956,8 @@
         "harness",
         "workspace-structure",
         "test-harness",
-        "test-product",
+        "test-product-fast",
+        "test-product-slow",
         "product-structure",
         "test-architecture",
         "architecture-structure"
@@ -914,7 +981,7 @@
       "id": "product-framework",
       "commands": [
         "harness",
-        "test-product",
+        "test-product-fast",
         "product-structure"
       ]
     },
@@ -929,7 +996,7 @@
       "id": "product-uninitialized",
       "commands": [
         "harness",
-        "test-product",
+        "test-product-fast",
         "product-structure"
       ]
     },
@@ -944,11 +1011,13 @@
       "id": "product-delivery",
       "commands": [
         "harness",
-        "test-product",
+        "test-product-fast",
+        "test-product-slow",
         "product-structure",
         "canonical-ui-input",
         "canonical-ui-typecheck",
         "canonical-ui-build",
+        "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
       ]
@@ -961,6 +1030,7 @@
         "canonical-ui-input",
         "canonical-ui-typecheck",
         "canonical-ui-build",
+        "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
       ]
@@ -973,6 +1043,7 @@
         "canonical-ui-input",
         "canonical-ui-typecheck",
         "canonical-ui-build",
+        "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
       ]

@@ -6,12 +6,12 @@
   "additionalProperties": false,
   "required": [
     "version", "actor", "draft", "visualPolicy", "repairPolicy", "designSources", "assets", "tokens", "routes", "screens", "components",
-    "componentInventory", "componentMappings", "componentVariantCoverage",
-    "controls", "states", "events", "actions", "scenarios", "mockBehaviors", "viewports",
+    "componentInventory", "componentMappings", "componentVariantCoverage", "componentContracts", "stateAxes", "stateMatrix",
+    "controls", "states", "events", "actions", "scenarios", "mockBehaviors", "mockCases", "viewports",
     "renderAssertions", "sourceParityAssertions", "motions", "traceability", "gaps"
   ],
   "properties": {
-    "version": {"const": "8.0.0"},
+    "version": {"const": "9.0.0"},
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "draft": {"$ref": "#/$defs/draft"},
     "visualPolicy": {"$ref": "#/$defs/visualPolicy"},
@@ -25,12 +25,16 @@
     "componentInventory": {"type": "array", "items": {"$ref": "#/$defs/componentInventoryItem"}},
     "componentMappings": {"type": "array", "items": {"$ref": "#/$defs/componentMapping"}},
     "componentVariantCoverage": {"type": "array", "items": {"$ref": "#/$defs/componentVariantCoverage"}},
+    "componentContracts": {"type": "array", "items": {"$ref": "#/$defs/componentContract"}},
+    "stateAxes": {"type": "array", "items": {"$ref": "#/$defs/stateAxis"}},
+    "stateMatrix": {"type": "array", "items": {"$ref": "#/$defs/stateMatrixEntry"}},
     "controls": {"type": "array", "items": {"$ref": "#/$defs/control"}},
     "states": {"type": "array", "items": {"$ref": "#/$defs/state"}},
     "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
     "actions": {"type": "array", "items": {"$ref": "#/$defs/action"}},
     "scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
     "mockBehaviors": {"type": "array", "items": {"$ref": "#/$defs/mockBehavior"}},
+    "mockCases": {"type": "array", "items": {"$ref": "#/$defs/mockCase"}},
     "viewports": {"type": "array", "items": {"$ref": "#/$defs/viewport"}},
     "renderAssertions": {"type": "array", "items": {"$ref": "#/$defs/renderAssertion"}},
     "sourceParityAssertions": {"type": "array", "items": {"$ref": "#/$defs/sourceParityAssertion"}},
@@ -157,7 +161,7 @@
       "required": ["enabled", "maxAttempts", "repairableBlockerCodes", "allowedImplementationPaths"],
       "properties": {
         "enabled": {"type": "boolean", "default": false},
-        "maxAttempts": {"const": 3, "default": 3},
+        "maxAttempts": {"const": 1, "default": 1},
         "repairableBlockerCodes": {
           "type": "array",
           "minItems": 2,
@@ -438,6 +442,122 @@
         "screenIds": {"$ref": "#/$defs/nonEmptyIds"}
       }
     },
+    "componentContractProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "required"],
+      "properties": {
+        "name": {"$ref": "#/$defs/litName"},
+        "type": {"enum": ["string", "boolean", "number", "object"]},
+        "required": {"type": "boolean"},
+        "defaultValue": {}
+      }
+    },
+    "componentContractAttribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "propertyName"],
+      "properties": {
+        "name": {"$ref": "#/$defs/litName"},
+        "propertyName": {"$ref": "#/$defs/litName"}
+      }
+    },
+    "componentPageInstance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "screenId"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "screenId": {"$ref": "#/$defs/id"},
+        "figmaInstanceNodeId": {"$ref": "#/$defs/nodeId"}
+      }
+    },
+    "componentContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "componentId", "figmaInstanceNodeIds", "litTagName", "slots",
+        "properties", "attributes", "eventIds", "defaultStateMatrixEntryId", "pageInstances", "implementationPaths", "testAssertions"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "componentId": {"$ref": "#/$defs/id"},
+        "mappingId": {"$ref": "#/$defs/id"},
+        "figmaInstanceNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "litTagName": {"$ref": "#/$defs/litTagName"},
+        "slots": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/litName"}},
+        "properties": {"type": "array", "items": {"$ref": "#/$defs/componentContractProperty"}},
+        "attributes": {"type": "array", "items": {"$ref": "#/$defs/componentContractAttribute"}},
+        "eventIds": {"$ref": "#/$defs/ids"},
+        "defaultStateMatrixEntryId": {"$ref": "#/$defs/id"},
+        "pageInstances": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/componentPageInstance"}},
+        "implementationPaths": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^src/(?:[a-z0-9-]+|components/[a-z0-9-]+)\\.(?:ts|css)$"}
+        },
+        "testAssertions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/componentContractAssertion"}}
+      }
+    },
+    "componentContractAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "targetId"],
+      "properties": {
+        "kind": {"enum": ["accessible-name", "focusable", "disabled", "aria"]},
+        "targetId": {"$ref": "#/$defs/id"},
+        "stateMatrixEntryId": {"$ref": "#/$defs/id"},
+        "attribute": {"type": "string", "pattern": "^aria-[a-z-]+$"},
+        "expected": {"type": ["string", "boolean"]}
+      }
+    },
+    "stateAxisValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "value"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "value": {"type": "string", "minLength": 1},
+        "stateId": {"$ref": "#/$defs/id"}
+      }
+    },
+    "stateAxis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "componentContractId", "kind", "name", "values"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "componentContractId": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["variant", "runtime-state", "interaction-state", "content-override"]},
+        "name": {"type": "string", "minLength": 1},
+        "values": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stateAxisValue"}}
+      }
+    },
+    "stateMatrixValues": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {"$ref": "#/$defs/id"}
+    },
+    "stateMatrixEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "componentContractId", "values", "classification", "renderInGallery"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "componentContractId": {"$ref": "#/$defs/id"},
+        "values": {"$ref": "#/$defs/stateMatrixValues"},
+        "classification": {"enum": ["legal", "mutually-exclusive", "unreachable"]},
+        "renderInGallery": {"type": "boolean"},
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"classification": {"const": "legal"}}, "required": ["classification"]},
+          "then": {"properties": {"renderInGallery": {"const": true}}},
+          "else": {"properties": {"renderInGallery": {"const": false}, "reason": {"type": "string", "minLength": 1}}, "required": ["reason"]}
+        }
+      ]
+    },
     "control": {"type": "object", "additionalProperties": false, "required": ["id", "componentId", "label"], "properties": {"id": {"$ref": "#/$defs/id"}, "componentId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}}},
     "state": {"type": "object", "additionalProperties": false, "required": ["id", "scope", "ownerId", "label"], "properties": {"id": {"$ref": "#/$defs/id"}, "scope": {"enum": ["workflow", "component"]}, "ownerId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}}},
     "event": {"type": "object", "additionalProperties": false, "required": ["id", "name", "controlId"], "properties": {"id": {"$ref": "#/$defs/id"}, "name": {"type": "string", "minLength": 1}, "controlId": {"$ref": "#/$defs/id"}}},
@@ -457,6 +577,26 @@
         "eventIds": {"$ref": "#/$defs/nonEmptyIds"},
         "expectedStateIds": {"$ref": "#/$defs/nonEmptyIds"},
         "viewportIds": {"$ref": "#/$defs/ids"}
+      }
+    },
+    "mockCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "label", "routeId", "screenId", "mockBehaviorIds", "stateMatrixEntryIds",
+        "visibleStateIds", "isDefault", "holdLoading"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "label": {"type": "string", "minLength": 1},
+        "routeId": {"$ref": "#/$defs/id"},
+        "screenId": {"$ref": "#/$defs/id"},
+        "scenarioId": {"$ref": "#/$defs/id"},
+        "mockBehaviorIds": {"$ref": "#/$defs/ids"},
+        "stateMatrixEntryIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "visibleStateIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "isDefault": {"type": "boolean"},
+        "holdLoading": {"type": "boolean"}
       }
     },
     "mockBehavior": {"type": "object", "additionalProperties": false, "required": ["id", "request", "responseStateIds"], "properties": {"id": {"$ref": "#/$defs/id"}, "request": {"type": "string", "minLength": 1}, "responseStateIds": {"$ref": "#/$defs/nonEmptyIds"}}},
@@ -553,7 +693,7 @@
         "properties": {
           "repairPolicy": {
             "type": "object",
-            "properties": {"enabled": {"const": true, "default": true}},
+            "properties": {"enabled": {"type": "boolean", "default": false}},
             "required": ["enabled"]
           }
         }

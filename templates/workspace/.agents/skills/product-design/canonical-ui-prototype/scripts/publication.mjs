@@ -5,8 +5,10 @@ import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { stringify as stringifyYaml } from 'yaml';
 import { executeRegisteredCommand } from '../../../../../.psp/harness/scripts/lib/execute-command.mjs';
-import { loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 import { canonicalLocks, inputLocks, reviewEvidenceDirectory, sha256 } from './integrity.mjs';
+import { extractCanonicalUi } from './extract.mjs';
+import { verifyVisualAcceptance, visualAcceptanceRecordPath } from './visual-acceptance.mjs';
 
 const defaultRoot = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 
@@ -21,11 +23,11 @@ async function exists(path) {
 
 async function readLedger(path) {
   try { return JSON.parse(await readFile(path, 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return { version: '1.0.0', stage: 'product-design', current: null, history: [] }; throw error; }
+  catch (error) { if (error.code === 'ENOENT') return { version: '2.0.0', stage: 'product-design', current: null, history: [] }; throw error; }
 }
 
-function publicationCore(inputLocksValue, actors, reviewVersion) {
-  return { inputLocks: inputLocksValue, actors, reviewVersion };
+function publicationCore(inputLocksValue, actors, reviewVersion, visualAcceptance) {
+  return { inputLocks: inputLocksValue, actors, reviewVersion, visualAcceptance };
 }
 
 function publicationCredential(publication) {
@@ -33,8 +35,8 @@ function publicationCredential(publication) {
   return sha256(JSON.stringify(core));
 }
 
-function stageIdentity(inputLocksValue, actors, reviewVersion) {
-  return sha256(JSON.stringify(publicationCore(inputLocksValue, actors, reviewVersion)));
+function stageIdentity(inputLocksValue, actors, reviewVersion, visualAcceptance) {
+  return sha256(JSON.stringify(publicationCore(inputLocksValue, actors, reviewVersion, visualAcceptance)));
 }
 
 function versionIsGreater(next, previous) {
@@ -118,7 +120,8 @@ export async function verifyPublishedProduct(root, project, manifest) {
       if (!current) throw Object.assign(new Error('已锁定 UI HTML Actor 缺失：' + locked.actor), { code: 'AIH_PUBLISH_CREDENTIAL_STALE' });
       return { ...current, review: locked.review };
     });
-    const identity = stageIdentity(currentInputs, lockedActors, ledger.current.reviewVersion);
+    for (const item of await verifyVisualAcceptance(root, project, manifest, { markStale: true })) blockers.push(item);
+    const identity = stageIdentity(currentInputs, lockedActors, ledger.current.reviewVersion, ledger.current.visualAcceptance);
     if (identity !== ledger.current.stageIdentityHash || publicationCredential(ledger.current) !== ledger.current.credential) {
       throw Object.assign(new Error('已锁定 UC、Visual Spec、Asset、UI HTML 或 Review 身份发生漂移。'), { code: 'AIH_PUBLISH_CREDENTIAL_STALE' });
     }
@@ -132,6 +135,8 @@ async function publish(root, project, manifest, operation) {
   const stage = project.stages?.[operation.stage];
   if (stage?.status !== operation.fromState) throw Object.assign(new Error('当前状态不允许 Publish：' + stage?.status), { code: stage?.status === 'published' ? 'AIH_STAGE_LOCKED' : 'AIH_STAGE_UNINITIALIZED' });
   const validation = runProfile(root, manifest, operation.profile);
+  const acceptanceBlockers = await verifyVisualAcceptance(root, project, manifest, { markStale: true });
+  if (acceptanceBlockers.length > 0) throw Object.assign(new Error(acceptanceBlockers[0].message), { code: acceptanceBlockers[0].code, validation });
   const reviewPath = resolve(reviewEvidenceDirectory(root), 'review-evidence.json');
   const reviewRaw = await readFile(reviewPath);
   const review = JSON.parse(reviewRaw.toString('utf8'));
@@ -162,13 +167,31 @@ async function publish(root, project, manifest, operation) {
     if (old && !versionIsGreater(actor.draftVersion, old.draftVersion)) throw Object.assign(new Error('Reopen 后必须提升 UI HTML Draft 版本：' + actor.actor), { code: 'AIH_PUBLISH_VERSION_NOT_ADVANCED' });
   }
   const publishedAt = new Date().toISOString();
-  const identity = stageIdentity(inputs, lockedActors, review.version);
+  const exactRequired = (await Promise.all(actors.map(async (actor) => {
+    const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
+    return extractCanonicalUi(root, paths.authorityRoot + '/' + actor.actor + '/src/spec/canonical-ui.ts');
+  }))).some((model) => model.visualPolicy.mode === 'exact');
+  let visualAcceptance = null;
+  if (exactRequired) {
+    const acceptancePath = visualAcceptanceRecordPath(root);
+    const acceptanceRaw = await readFile(acceptancePath);
+    const acceptance = JSON.parse(acceptanceRaw.toString('utf8'));
+    visualAcceptance = {
+      path: '.psp/reviews/product-design-visual-acceptance.json',
+      evidenceHash: sha256(acceptanceRaw),
+      scopeHash: acceptance.scopeHash,
+      acceptedBy: acceptance.acceptedBy,
+      acceptedAt: acceptance.acceptedAt,
+    };
+  }
+  const identity = stageIdentity(inputs, lockedActors, review.version, visualAcceptance);
   const publication = {
     publicationId: 'publish-' + identity.slice('sha256:'.length),
     publishedAt,
     inputLocks: inputs,
     actors: lockedActors,
     reviewVersion: review.version,
+    visualAcceptance,
     stageIdentityHash: identity,
     credential: '',
   };

@@ -65,17 +65,42 @@
           "required": ["channelTolerance", "maxDifferentPixelRatio"],
           "properties": {
             "channelTolerance": {"type": "integer", "minimum": 0, "maximum": 255},
-            "maxDifferentPixelRatio": {"type": "number", "minimum": 0, "maximum": 1}
+            "maxDifferentPixelRatio": {"type": "number", "minimum": 0, "maximum": 1},
+            "screenshotMatchRole": {"const": "non-blocking-diagnostic"}
+          }
+        },
+        "validationLayers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["incrementalOperation", "cacheLocation", "layers", "fullReadinessProfiles", "performanceBaseline"],
+          "properties": {
+            "incrementalOperation": {"const": "canonical-ui-incremental"},
+            "cacheLocation": {"const": "os-temporary-directory"},
+            "layers": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"enum": ["static-input", "assets", "components", "routes", "visual-diagnostics"]},
+              "allOf": [
+                {"contains": {"const": "static-input"}},
+                {"contains": {"const": "assets"}},
+                {"contains": {"const": "components"}},
+                {"contains": {"const": "routes"}},
+                {"contains": {"const": "visual-diagnostics"}}
+              ]
+            },
+            "fullReadinessProfiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+            "performanceBaseline": {"type": "string", "minLength": 1}
           }
         },
         "repair": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["orchestrator", "validatorRole", "maxAttempts", "packetSchema", "implementationPolicy"],
+          "required": ["orchestrator", "validatorRole", "maxAttempts", "mode", "packetSchema", "actionReportSchema", "implementationPolicy"],
           "properties": {
             "orchestrator": {"const": "agent"},
             "validatorRole": {"const": "decision-and-evidence-only"},
-            "maxAttempts": {"const": 3},
+            "maxAttempts": {"const": 1},
+            "mode": {"const": "manual-single-attempt"},
             "packetSchema": {"type": "string", "minLength": 1},
             "actionReportSchema": {"type": "string", "minLength": 1},
             "implementationPolicy": {"$ref": "#/$defs/visualRepairImplementationPolicy"}
@@ -87,6 +112,11 @@
           "required": ["evidenceSchema", "feedbackRoutes"],
           "properties": {
             "evidenceSchema": {"type": "string", "minLength": 1},
+            "visualAcceptanceSchema": {"type": "string", "minLength": 1},
+            "visualAcceptanceRecord": {"type": "string", "minLength": 1},
+            "visualAcceptanceOperation": {"const": "accept-canonical-ui-visual"},
+            "exactRequiresHumanAcceptance": {"const": true},
+            "pixelComparisonRole": {"const": "non-blocking-diagnostic"},
             "feedbackRoutes": {
               "type": "object",
               "additionalProperties": false,

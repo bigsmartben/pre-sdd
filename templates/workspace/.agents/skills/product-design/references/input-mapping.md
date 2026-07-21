@@ -8,7 +8,9 @@
 | 路由、组件局部状态、事件、动作和可执行场景 | `canonical-ui.ts` | `EVENT-001` 触发 `ACTION-001`，组件进入 Loading |
 | 视觉来源、资源、令牌、视口、动画和无障碍 | `canonical-ui.ts`、Area 内设计来源证据与真实资源 | Figma 节点证据覆盖 `SCREEN-001` 的桌面默认态 |
 | Figma Component Set、Main Component、Instance 与 Variant 身份 | Figma `design-context`，只读 | `1:10` Instance 指向 `1:3` Main Component 与 `1:1` Component Set |
-| 组件语义职责、复用决定与 Lit 接口 | `canonical-ui.ts.componentInventory`、`componentMappings`、`componentVariantCoverage` | Figma `Mode=Default` 映射为 `<status-card mode="default">` |
+| 组件语义职责、复用决定与 Lit 接口 | `canonical-ui.ts.componentInventory`、`componentMappings`、`componentContracts` | Figma `Mode=Default` 唯一映射为 `<status-card mode="default">`，并声明 Slot、Property、Attribute 与 Event |
+| Variant、运行态、交互态和内容覆盖的有限组合 | `canonical-ui.ts.stateAxes`、`stateMatrix` | `Mode=Default × status=loading × workflow=ready × message=default` 被标为合法并进入 State Gallery |
+| 页面级可复现 Review 状态 | `canonical-ui.ts.mockCases` | `MOCK-CASE-ERROR` 引用 Error Matrix Entry、失败 Scenario 与对应 MSW Behavior，并可由 `?psp-case=MOCK-CASE-ERROR` 恢复 |
 | Use Case → Interaction Flow → Screen / Control / State | `canonical-ui.ts.traceability` | `UC-001 → IF-001 → SCREEN-001` |
 
 具体路径只从 `psp.project.yaml` 的 `authority`、`projections` 和 `areas` 读取。
@@ -28,7 +30,7 @@
 
 `visualPolicy.mode` 必须先选择：无视觉输入为 `autonomous`，风格或局部参考为 `guided`，完整视觉参照或明确视觉还原为 `exact`。`unresolved` 只允许保留结构，不允许开始界面实现或通过 readiness。
 
-`repairPolicy` 固定声明 `maxAttempts: 3`、两个可修复视觉阻断码和允许修改的实现路径。`exact` 必须启用；`autonomous`、`guided` 与 `unresolved` 必须禁用，避免把局部参考误套用为整页像素修复。
+`repairPolicy` 固定声明 `maxAttempts: 1`、两个可修复视觉阻断码和允许修改的实现路径，默认 `enabled: false`。只有用户明确要求一次手动修复时，`exact` 才可临时启用；`autonomous`、`guided` 与 `unresolved` 必须禁用，避免把局部参考误套用为整页视觉修复。
 
 `designSources[].coverage` 与 `visualPolicy.coverage` 使用 Screen、State、Viewport 和证据项标识表达可验证覆盖，不接受自由文本。`guided` 和 `exact` 中，`assets[].sourceIds`、`tokens[].sourceIds` 与 `sourceParityAssertions[].sourceId` 必须引用已采集来源；`autonomous` 可以使用空 `sourceIds` 表示自主设计事实。
 
@@ -37,6 +39,9 @@
 - `componentInventory` 必须逐一归类 Figma `design-context.components` 中的节点，不能用 Screen 级视觉覆盖代替组件抽象决定。
 - `componentMappings` 只登记确认后的共享组件，要求 Figma 属性与 Lit Property / Attribute / Slot 有显式对应。
 - `componentVariantCoverage` 逐行登记使用中的 Figma Variant、Lit Attribute、Instance 与 Screen；每个共享组件 Instance 必须且只能出现一次。
+- `componentContracts` 把每个组件收敛为唯一 Lit 接口；存在 Figma 来源时必须把共享组件映射与 Figma Instance 双向绑定到页面实例，`autonomous` 组件则保持无 Figma 身份的提供方中立契约。页面不得复制内部结构绕过该接口。
+- `stateAxes` 为四类状态分别枚举有限值；`stateMatrix` 必须完整分类全部组合。Mock Case 与组件契约测试只能消费这份矩阵，不得维护平行状态清单。
+- `mockCases` 必须让每个 Route 恰好有一个 Default Case，并覆盖该页全部正式可见 State 和合法 Matrix Entry；Loading 使用 `holdLoading` 保持，不得等待一个会自动完成的响应。
 - `primitive-only` 与 `local-structure` 不得创建 Lit 共享组件映射，避免仅凭视觉相似进行过度抽象。
 
 `renderAssertions` 只检查页面自身健康，例如溢出、裁切和目标可见；`sourceParityAssertions` 检查实现是否遵循指定视觉来源。例如，`guided` 只声明 `typography` 和 `color` 时允许重新组织未覆盖布局，但字体或颜色不匹配必须阻断；`exact` 必须包含整页 `screenshot-match`。

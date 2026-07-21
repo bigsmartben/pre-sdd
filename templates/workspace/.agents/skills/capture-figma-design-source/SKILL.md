@@ -18,18 +18,23 @@ description: 将带 node-id 的 Figma 节点采集为 Canonical UI Prototype（�
 - 只接受 `https://www.figma.com/design/...?...node-id=...` 节点链接。
 - 将链接中的 `node-id=123-456` 规范化为证据中的 `123:456`。
 - `sourceId`、目标 Screen、State、Viewport（视口）和证据覆盖由 Product Design 提供；本技能不自行扩大设备、页面或状态范围。
-- 必须取得已确认范围的 `scopeConfirmation.id` 与 `scopeConfirmation.sha256`。缺少确认范围时停止并返回上游范围确认；本技能不得补做或伪造 Scope Confirmation（范围确认）。
+- 必须取得第一次人工确认形成的完整 `scopeConfirmation`：确认人和时间、根节点、包含和排除的 Page / Component / Visual Node、Viewport、Scenario、State 及逐类数量。缺少任何范围事实时停止并返回上游范围确认；本技能不得补做或伪造 Scope Confirmation（范围确认）。
+- 必须取得第二次人工确认形成的完整 `highImpactConfirmation`：组件抽象提案、有限 State / Variant 轴、资源分类歧义的最终选择、合并后的 Figma 写回清单，以及逐个阻断 Instance 的 Detach 批准。空写回与空 Detach 也必须显式记录；Agent 不得代替用户确认。
+- `writebackBoundary` 必须引用两次确认，且操作 ID 与第二次确认一一对应。全部写回完成后才允许冻结节点并执行 `formalCaptureOrdinal: 1` 的唯一一次正式采集。
 - 写入路径只从 `psp.project.yaml` 与 Manifest 解析，不根据示例目录猜测。
 - 开始采集前必须确认 `$organize-figma-assets`、`$figma-component-from-design` 或其他 Figma 写入已经完成，并冻结本轮节点范围。采集后发生的任何 Figma 节点、变量、组件或图层修改都会使本轮证据失效，必须从同一节点重新采集。
 - 临时下载、转换结果和候选清单只能写入本次采集会话创建并记录的操作系统临时目录。清理时只允许删除该会话拥有的目录；不得删除来源不明、其他会话或 Canonical UI Area 内的文件。
 
 ## 采集工作流
 
-1. 冻结来源节点并生成 Capture Plan（采集计划）。
-   - 记录最终节点链接、规范化 `nodeId`、本轮 `sourceId` 和确认的覆盖范围。
+1. 校验两次人工确认与有限写回边界，再冻结来源节点并生成 Capture Plan（采集计划）。
+   - 记录最终节点链接、规范化 `nodeId`、本轮 `sourceId` 和完整确认范围；候选视觉节点不得越出 `scopeConfirmation.includedNodes`。
+   - 校验 Scope Confirmation 的逐类数量与清单一致，High-impact Confirmation（高影响确认）引用同一范围，全部写回目标都在确认范围内。
+   - 不默认 Detach Instance。只有 `kind: detach-instance` 的具体目标同时出现在 `detachApprovals` 且具有阻断原因时才允许执行；禁止“确认整个 Frame 后全量分离”。
+   - 把获批操作合并为一次有限写回批次。操作 ID、完成时间和两次确认身份写入 `writebackBoundary`；没有写回时也登记空操作清单。
    - 读取连接器可验证的来源版本，按 `figma-file-version`、`remote-last-modified` 或 `node-fingerprint` 之一登记 `sourceVersion`。无法取得任何可重复比较的版本值时停止并报告 `AIH_SOURCE_CAPTURE_BLOCKED`。
    - 不在采集过程中整理图层、创建组件、修改变量或执行其他 Figma 写回。
-   - 若发现仍需写回，停止采集并先路由到对应 Figma 写入技能；写回完成后重新开始本工作流。
+   - 若发现仍需写回，停止采集并返回第二次人工确认；写回清单重新确认并合并执行后，才从头开始唯一一次正式采集。
    - 枚举确认范围内的全部候选视觉节点，不只枚举已有 `Export/*` 标记；每个 `nodeId` 必须且只能选择 `asset`、`dom-css`、`dynamic` 或 `ignored` 一种 strategy（策略）。
    - `asset` 必须预先冻结格式、比例、裁切范围、透明边距、预期尺寸、正式目标路径、专用下载操作和消费目标；`ignored` 必须记录原因。
    - 在本次会话拥有的操作系统临时目录生成符合 `capture-plan.schema.json` 的 Capture Plan。重复节点、未分类节点或缺少 asset 导出参数时以 `AIH_ASSET_CLASSIFICATION_INCOMPLETE` 停止。
@@ -93,7 +98,7 @@ description: 将带 node-id 的 Figma 节点采集为 Canonical UI Prototype（�
 - Schema 要求明确登记 geometry、typography、paint、effects、components 和 assets 六类参数检查结果；只保存一张截图不构成完整 Figma 证据。
 - `components` 中的 Component Set、Main Component 与 Instance 关系必须闭合；同一 `nodeId` 不得重复，Instance 引用的 Main Component 必须存在于本次 `design-context`。
    - 所有文件落盘后重新计算每个证据项哈希，再计算最终 `evidence.json` 哈希；未完成最终清单哈希前，证据状态不得标记为 `available`。
-   - 完成哈希后再次读取或计算同一种 `sourceVersion`；若与步骤 1 不一致，丢弃本次会话拥有的候选结果并从冻结节点步骤重新采集，不得登记混合版本证据。
+   - 完成哈希后再次读取或计算同一种 `sourceVersion`；若与步骤 1 不一致，丢弃本次会话拥有的候选结果并重新扫描、重新完成两次人工确认后采集，不得登记混合版本证据。
 
 8. 生成登记包并交回 Product Design。
    - 使用 Canonical UI Artifact Contract（产物契约）登记的 `design-source-evidence.schema.json` 校验证据清单。
@@ -117,5 +122,6 @@ description: 将带 node-id 的 Figma 节点采集为 Canonical UI Prototype（�
 - Registration Packet 已通过 Schema 校验，资源候选均引用同一证据清单中的 `role: asset` 项。
 - 所有下载和候选验证只发生在操作系统临时目录，正式写入只由 `ingest-figma-assets` operation 完成。
 - 最终证据采集时间晚于本轮全部 Figma 写入；后续发生 Figma 写入时不继续复用旧证据。
+- 两次人工确认、有限写回和正式采集顺序可由 Capture Plan 机器校验；范围变化、来源版本变化或冻结后的写回都必须废弃本轮计划并重新确认、重新采集。
 - 来源不可访问或参数缺失时保留明确 gap 和原始 blocker code（阻断码）。
 - 没有新增 Python 或其他运行依赖。

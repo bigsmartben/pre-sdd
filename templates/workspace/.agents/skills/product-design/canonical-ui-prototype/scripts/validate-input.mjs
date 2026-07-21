@@ -562,6 +562,287 @@ try {
     }
   }
 
+  const contracts = new Map(model.componentContracts.map((item) => [item.id, item]));
+  const contractsByMapping = new Map();
+  const implementationOwners = new Map();
+  for (const contract of model.componentContracts) {
+    const location = 'componentContracts.' + contract.id;
+    const mapping = contract.mappingId ? mappings.get(contract.mappingId) : null;
+    if (contract.mappingId) {
+      if (!mapping || mapping.componentId !== contract.componentId || mapping.litTagName !== contract.litTagName) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', 'Component Contract 与 Figma ↔ Lit 映射不一致：' + contract.id, location);
+        continue;
+      }
+      if (contractsByMapping.has(contract.mappingId)) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', '一个组件映射只能对应一个 Component Contract：' + contract.mappingId, location);
+      }
+      contractsByMapping.set(contract.mappingId, contract.id);
+    } else if (contract.figmaInstanceNodeIds.length > 0 || contract.pageInstances.some((item) => item.figmaInstanceNodeId)) {
+      block('AIH_COMPONENT_CONTRACT_INVALID', '无 Figma 映射的 Component Contract 不得声明 Figma Instance 身份：' + contract.id, location);
+    }
+    for (const implementationPath of contract.implementationPaths) {
+      if (implementationOwners.has(implementationPath)) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', 'Component implementationPath 必须有唯一 Contract Owner：' + implementationPath, location);
+      }
+      implementationOwners.set(implementationPath, contract.id);
+      try { await readFile(areaFile(areaDirectory, implementationPath)); }
+      catch { block('AIH_COMPONENT_CONTRACT_INVALID', 'Component implementationPath 不存在：' + contract.id + ' / ' + implementationPath, location); }
+    }
+    if (mapping) {
+      const mappedSlots = mapping.slotMappings.map((item) => item.litSlot).sort();
+      if (JSON.stringify(mappedSlots) !== JSON.stringify([...contract.slots].sort())) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', 'Component Contract Slot 与组件映射不一致：' + contract.id, location);
+      }
+    }
+    const propertyNames = new Set();
+    for (const property of contract.properties) {
+      if (propertyNames.has(property.name)) block('AIH_COMPONENT_CONTRACT_INVALID', 'Component Contract Property 重复：' + contract.id + ' / ' + property.name, location);
+      propertyNames.add(property.name);
+    }
+    const attributeNames = new Set();
+    for (const attribute of contract.attributes) {
+      if (attributeNames.has(attribute.name) || !propertyNames.has(attribute.propertyName)) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', 'Component Contract Attribute 必须唯一并引用已声明 Property：' + contract.id + ' / ' + attribute.name, location);
+      }
+      attributeNames.add(attribute.name);
+    }
+    if (mapping) {
+      for (const property of mapping.propertyMappings) {
+        if (!propertyNames.has(property.litProperty) || (property.litAttribute && !attributeNames.has(property.litAttribute))) {
+          block('AIH_COMPONENT_CONTRACT_INVALID', '组件映射使用了 Contract 未声明的 Property 或 Attribute：' + contract.id + ' / ' + property.litProperty, location);
+        }
+      }
+      if (JSON.stringify([...mapping.eventIds].sort()) !== JSON.stringify([...contract.eventIds].sort())) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', 'Component Contract Event 与组件映射不一致：' + contract.id, location);
+      }
+    }
+    for (const eventId of contract.eventIds) {
+      const event = model.events.find((item) => item.id === eventId);
+      const actions = model.actions.filter((item) => item.eventId === eventId);
+      const control = event && model.controls.find((item) => item.id === event.controlId);
+      if (!event || !control || control.componentId !== contract.componentId || actions.length !== 1) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', 'Component Contract Event 必须解析到本组件 Control 与唯一 Action：' + contract.id + ' / ' + eventId, location);
+      }
+    }
+    const expectedInstances = mapping
+      ? model.componentVariantCoverage.filter((item) => item.mappingId === mapping.id).flatMap((item) => item.instanceNodeIds).sort()
+      : [];
+    if (JSON.stringify([...contract.figmaInstanceNodeIds].sort()) !== JSON.stringify(expectedInstances)) {
+      block('AIH_COMPONENT_CONTRACT_INVALID', 'Component Contract 必须精确声明映射覆盖的 Figma Instance：' + contract.id, location);
+    }
+    const pageInstances = new Set();
+    for (const instance of contract.pageInstances) {
+      const key = instance.screenId + '/' + (instance.figmaInstanceNodeId || instance.id);
+      if (pageInstances.has(key) || (mapping && !contract.figmaInstanceNodeIds.includes(instance.figmaInstanceNodeId))) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', '页面实例必须唯一并引用 Contract 中的 Figma Instance：' + contract.id + ' / ' + key, location);
+      }
+      const screen = model.screens.find((item) => item.id === instance.screenId);
+      if (!screen?.componentIds.includes(contract.componentId)) {
+        block('AIH_COMPONENT_CONTRACT_INVALID', '页面实例所属 Screen 未声明该 Component：' + contract.id + ' / ' + instance.screenId, location);
+      }
+      pageInstances.add(key);
+    }
+    const knownTargets = new Set([
+      contract.componentId,
+      ...model.controls.filter((item) => item.componentId === contract.componentId).map((item) => item.id),
+      ...model.states.filter((item) => item.ownerId === contract.componentId).map((item) => item.id),
+    ]);
+    for (const assertion of contract.testAssertions) {
+      const matrixEntry = assertion.stateMatrixEntryId && model.stateMatrix.find((item) => item.id === assertion.stateMatrixEntryId && item.componentContractId === contract.id);
+      if (!knownTargets.has(assertion.targetId)) {
+        block('AIH_COMPONENT_CONTRACT_TEST_INVALID', 'Component Contract Test Assertion 引用组件外目标：' + contract.id + ' / ' + assertion.targetId, location);
+      }
+      if (['disabled', 'aria'].includes(assertion.kind) && !matrixEntry) {
+        block('AIH_COMPONENT_CONTRACT_TEST_INVALID', 'Disabled/ARIA 断言必须引用本组件合法 State Matrix Entry：' + contract.id, location);
+      }
+      if (assertion.kind === 'disabled' && typeof assertion.expected !== 'boolean') {
+        block('AIH_COMPONENT_CONTRACT_TEST_INVALID', 'Disabled 断言 expected 必须是 boolean：' + contract.id, location);
+      }
+      if (assertion.kind === 'aria' && (typeof assertion.expected !== 'string' || !assertion.attribute?.startsWith('aria-'))) {
+        block('AIH_COMPONENT_CONTRACT_TEST_INVALID', 'ARIA 断言必须声明 aria-* Attribute 与字符串 expected：' + contract.id, location);
+      }
+    }
+  }
+  for (const mapping of model.componentMappings) {
+    if (!contractsByMapping.has(mapping.id)) {
+      block('AIH_COMPONENT_CONTRACT_INVALID', '每个 Figma ↔ Lit 映射必须有且仅有一个 Component Contract：' + mapping.id, 'componentContracts');
+    }
+  }
+
+  const axesByContract = new Map();
+  for (const axis of model.stateAxes) {
+    const location = 'stateAxes.' + axis.id;
+    const contract = contracts.get(axis.componentContractId);
+    if (!contract) {
+      block('AIH_STATE_MATRIX_INVALID', 'State Axis 引用未知 Component Contract：' + axis.id, location);
+      continue;
+    }
+    if (!axesByContract.has(contract.id)) axesByContract.set(contract.id, []);
+    axesByContract.get(contract.id).push(axis);
+    const valueIds = new Set();
+    for (const value of axis.values) {
+      if (valueIds.has(value.id)) block('AIH_STATE_MATRIX_INVALID', 'State Axis Value 重复：' + axis.id + ' / ' + value.id, location);
+      valueIds.add(value.id);
+      const state = value.stateId && model.states.find((item) => item.id === value.stateId);
+      if (['runtime-state', 'interaction-state'].includes(axis.kind)) {
+        const expectedScope = axis.kind === 'runtime-state' ? 'component' : 'workflow';
+        if (!state || state.scope !== expectedScope || (expectedScope === 'component' && state.ownerId !== contract.componentId)) {
+          block('AIH_STATE_MATRIX_INVALID', 'Runtime/Interaction State 轴值必须引用匹配作用域的 State：' + axis.id + ' / ' + value.id, location);
+        }
+      } else if (value.stateId) {
+        block('AIH_STATE_MATRIX_INVALID', 'Variant 与 Content Override 轴值不得伪装成 Runtime/Interaction State：' + axis.id + ' / ' + value.id, location);
+      }
+    }
+    if (axis.kind === 'variant') {
+      const mapping = contract.mappingId ? mappings.get(contract.mappingId) : null;
+      if (mapping) {
+        const property = mapping.propertyMappings.find((item) => item.kind === 'variant' && item.figmaProperty === axis.name);
+        const expected = property?.values.map((item) => item.figmaValue).sort() || [];
+        const actual = axis.values.map((item) => item.value).sort();
+        if (!property || JSON.stringify(expected) !== JSON.stringify(actual)) {
+          block('AIH_STATE_MATRIX_INVALID', 'Variant State Axis 必须精确复用 Figma Variant 的有限值：' + axis.id, location);
+        }
+      }
+    }
+  }
+
+  for (const contract of model.componentContracts) {
+    const location = 'stateMatrix.' + contract.id;
+    const axes = axesByContract.get(contract.id) || [];
+    if (axes.length === 0) {
+      block('AIH_STATE_MATRIX_INVALID', 'Component Contract 至少需要一个有限 State Axis：' + contract.id, location);
+      continue;
+    }
+    const axisIds = new Set();
+    for (const axis of axes) {
+      if (axisIds.has(axis.id)) block('AIH_STATE_MATRIX_INVALID', 'Component Contract 的 State Axis 重复：' + axis.id, location);
+      axisIds.add(axis.id);
+    }
+    const expectedKeys = [];
+    const visit = (index, values) => {
+      if (index === axes.length) {
+        expectedKeys.push(Object.entries(values).sort(([left], [right]) => left.localeCompare(right)).map(([axisId, valueId]) => axisId + '=' + valueId).join('|'));
+        return;
+      }
+      for (const value of axes[index].values) visit(index + 1, { ...values, [axes[index].id]: value.id });
+    };
+    visit(0, {});
+    if (expectedKeys.length > 512) {
+      block('AIH_STATE_MATRIX_INVALID', 'State Matrix 的有限组合超过 512，必须收窄组件轴：' + contract.id, location);
+      continue;
+    }
+    const entries = model.stateMatrix.filter((item) => item.componentContractId === contract.id);
+    const observed = new Map();
+    for (const entry of entries) {
+      const key = Object.entries(entry.values).sort(([left], [right]) => left.localeCompare(right)).map(([axisId, valueId]) => axisId + '=' + valueId).join('|');
+      if (observed.has(key)) block('AIH_STATE_MATRIX_INVALID', 'State Matrix 组合重复：' + contract.id + ' / ' + key, 'stateMatrix.' + entry.id);
+      observed.set(key, entry);
+      for (const [axisId, valueId] of Object.entries(entry.values)) {
+        const axis = axes.find((item) => item.id === axisId);
+        if (!axis || !axis.values.some((item) => item.id === valueId)) {
+          block('AIH_STATE_MATRIX_INVALID', 'State Matrix 引用未知 Axis 或 Value：' + entry.id + ' / ' + axisId + '=' + valueId, 'stateMatrix.' + entry.id);
+        }
+      }
+    }
+    for (const key of expectedKeys) {
+      if (!observed.has(key)) block('AIH_STATE_MATRIX_INVALID', 'State Matrix 未分类有限组合：' + contract.id + ' / ' + key, location);
+    }
+    for (const key of observed.keys()) {
+      if (!expectedKeys.includes(key)) block('AIH_STATE_MATRIX_INVALID', 'State Matrix 包含轴集合不完整或额外组合：' + contract.id + ' / ' + key, location);
+    }
+    const defaultEntry = entries.find((item) => item.id === contract.defaultStateMatrixEntryId);
+    if (!defaultEntry || defaultEntry.classification !== 'legal') {
+      block('AIH_STATE_MATRIX_INVALID', 'Component Contract 默认状态必须引用合法 Matrix Entry：' + contract.id, location);
+    }
+  }
+  for (const entry of model.stateMatrix) {
+    if (!contracts.has(entry.componentContractId)) {
+      block('AIH_STATE_MATRIX_INVALID', 'State Matrix Entry 引用未知 Component Contract：' + entry.id, 'stateMatrix.' + entry.id);
+    }
+  }
+
+  const mockBehaviors = new Map(model.mockBehaviors.map((item) => [item.id, item]));
+  const matrixEntries = new Map(model.stateMatrix.map((item) => [item.id, item]));
+  const casesByRoute = new Map();
+  for (const mockCase of model.mockCases) {
+    const location = 'mockCases.' + mockCase.id;
+    const route = model.routes.find((item) => item.id === mockCase.routeId);
+    const screen = model.screens.find((item) => item.id === mockCase.screenId);
+    if (!route || !screen || route.screenId !== screen.id) {
+      block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 的 Route 与 Screen 无法形成同一页面：' + mockCase.id, location);
+      continue;
+    }
+    if (!casesByRoute.has(route.id)) casesByRoute.set(route.id, []);
+    casesByRoute.get(route.id).push(mockCase);
+    const routeStateIds = new Set([
+      ...screen.stateIds,
+      ...model.components.filter((item) => screen.componentIds.includes(item.id)).flatMap((item) => item.stateIds),
+    ]);
+    for (const stateId of mockCase.visibleStateIds) {
+      if (!routeStateIds.has(stateId)) block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 引用不属于该页面的可见 State：' + mockCase.id + ' / ' + stateId, location);
+    }
+    if (mockCase.scenarioId) {
+      const scenario = model.scenarios.find((item) => item.id === mockCase.scenarioId);
+      if (!scenario || scenario.routeId !== route.id || scenario.expectedStateIds.some((stateId) => !mockCase.visibleStateIds.includes(stateId))) {
+        block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 的 Scenario 必须属于同一路由且最终状态可见：' + mockCase.id, location);
+      }
+    }
+    for (const behaviorId of mockCase.mockBehaviorIds) {
+      const behavior = mockBehaviors.get(behaviorId);
+      if (!behavior || behavior.responseStateIds.some((stateId) => !mockCase.visibleStateIds.includes(stateId))) {
+        block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 的 Mock Behavior 必须存在且响应状态可见：' + mockCase.id + ' / ' + behaviorId, location);
+      }
+    }
+    if (mockCase.holdLoading && mockCase.mockBehaviorIds.length > 0) {
+      block('AIH_MOCKCASE_CONTRACT_INVALID', '稳定 Loading Case 不得发起会完成的 Mock Behavior：' + mockCase.id, location);
+    }
+    for (const matrixEntryId of mockCase.stateMatrixEntryIds) {
+      const entry = matrixEntries.get(matrixEntryId);
+      const contract = entry && contracts.get(entry.componentContractId);
+      if (!entry || entry.classification !== 'legal' || !entry.renderInGallery || !contract || !screen.componentIds.includes(contract.componentId)) {
+        block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 只能引用本页面 Component 的合法 State Matrix Entry：' + mockCase.id + ' / ' + matrixEntryId, location);
+        continue;
+      }
+      const axes = axesByContract.get(contract.id) || [];
+      for (const axis of axes.filter((item) => ['runtime-state', 'interaction-state'].includes(item.kind))) {
+        const stateId = axis.values.find((value) => value.id === entry.values[axis.id])?.stateId;
+        if (stateId && !mockCase.visibleStateIds.includes(stateId)) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 的可见 State 与 State Matrix 不一致：' + mockCase.id + ' / ' + stateId, location);
+        }
+      }
+    }
+    for (const component of model.components.filter((item) => screen.componentIds.includes(item.id))) {
+      const visible = component.stateIds.filter((stateId) => mockCase.visibleStateIds.includes(stateId));
+      if (visible.length > 1) block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 同时声明了组件互斥状态：' + mockCase.id + ' / ' + visible.join(', '), location);
+    }
+  }
+  if (model.gaps.length === 0) {
+    for (const route of model.routes) {
+      const screen = model.screens.find((item) => item.id === route.screenId);
+      const routeCases = casesByRoute.get(route.id) || [];
+      if (routeCases.filter((item) => item.isDefault).length !== 1) {
+        block('AIH_MOCKCASE_COVERAGE_FAILED', '每个 Route 必须且只能有一个默认 Mock Case：' + route.id, 'mockCases');
+      }
+      if (!screen) continue;
+      const requiredStateIds = new Set([
+        ...screen.stateIds,
+        ...model.components.filter((item) => screen.componentIds.includes(item.id)).flatMap((item) => item.stateIds),
+      ]);
+      const coveredStateIds = new Set(routeCases.flatMap((item) => item.visibleStateIds));
+      for (const stateId of requiredStateIds) {
+        if (!coveredStateIds.has(stateId)) block('AIH_MOCKCASE_COVERAGE_FAILED', '正式可见 State 缺少 Mock Case 覆盖：' + route.id + ' / ' + stateId, 'mockCases');
+      }
+      const requiredMatrixIds = model.stateMatrix.filter((entry) => {
+        const contract = contracts.get(entry.componentContractId);
+        return entry.classification === 'legal' && entry.renderInGallery && contract && screen.componentIds.includes(contract.componentId);
+      }).map((entry) => entry.id);
+      const coveredMatrixIds = new Set(routeCases.flatMap((item) => item.stateMatrixEntryIds));
+      for (const entryId of requiredMatrixIds) {
+        if (!coveredMatrixIds.has(entryId)) block('AIH_MOCKCASE_COVERAGE_FAILED', '合法 State Matrix Entry 缺少 Mock Case 覆盖：' + route.id + ' / ' + entryId, 'mockCases');
+      }
+    }
+  }
+
   const sourceIds = new Set(model.designSources.map((source) => source.id));
   const policyAspects = new Set(policy.aspects || []);
   for (const coverage of policy.coverage || []) {

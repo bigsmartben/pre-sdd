@@ -1,5 +1,5 @@
 export const canonicalUi = {
-  version: '8.0.0',
+  version: '9.0.0',
   actor: 'ACTOR-001',
   draft: {
     version: '0.1.0',
@@ -16,7 +16,7 @@ export const canonicalUi = {
   },
   repairPolicy: {
     enabled: false,
-    maxAttempts: 3,
+    maxAttempts: 1,
     repairableBlockerCodes: ['AIH_VISUAL_SOURCE_PARITY_FAILED', 'AIH_VISUAL_STYLE_BINDING_FAILED'],
     allowedImplementationPaths: [
       'index.html',
@@ -55,6 +55,9 @@ export const canonicalUi = {
   componentInventory: [],
   componentMappings: [],
   componentVariantCoverage: [],
+  componentContracts: [],
+  stateAxes: [],
+  stateMatrix: [],
   controls: [
     { id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' },
     { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' },
@@ -85,6 +88,7 @@ export const canonicalUi = {
     { id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] },
     { id: 'MOCK-002', request: 'GET /api/spec-preview?mode=error', responseStateIds: ['COMPONENT-STATE-ERROR'] },
   ],
+  mockCases: [],
   viewports: [],
   renderAssertions: [],
   sourceParityAssertions: [],

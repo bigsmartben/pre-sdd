@@ -128,6 +128,8 @@
       "test:workspace:harness",
       "test:workspace:product",
       "test:workspace:architecture",
+      "test:package:fast",
+      "test:package:slow",
       "test:package",
       "test",
       "check",
@@ -223,6 +225,20 @@
       "npmScript": "test:package",
       "run": "npm run test:package",
       "purpose": "在临时目录验证初始化、生成工作区本地执行与包行为",
+      "blocking": true
+    },
+    {
+      "id": "test-package-fast",
+      "npmScript": "test:package:fast",
+      "run": "npm run test:package:fast",
+      "purpose": "运行不含全局安装、浏览器和完整构建的包级快速测试",
+      "blocking": true
+    },
+    {
+      "id": "test-package-slow",
+      "npmScript": "test:package:slow",
+      "run": "npm run test:package:slow",
+      "purpose": "运行隔离全局安装、浏览器与完整工作区构建包级慢测试",
       "blocking": true
     },
     {

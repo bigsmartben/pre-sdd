@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/domains/product-design/visual-acceptance.schema.json",
+  "title": "Canonical UI Human Visual Acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version", "method", "status", "sourceVersion", "implementationHash", "scopeHash",
+    "reviewEvidenceHash", "coverage", "acceptedBy", "acceptedAt"
+  ],
+  "properties": {
+    "version": {"const": "1.0.0"},
+    "method": {"const": "human-visual-review"},
+    "status": {"enum": ["pending", "accepted", "stale"]},
+    "sourceVersion": {"$ref": "#/$defs/hash"},
+    "implementationHash": {"$ref": "#/$defs/hash"},
+    "scopeHash": {"$ref": "#/$defs/hash"},
+    "reviewEvidenceHash": {"$ref": "#/$defs/hash"},
+    "coverage": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/coverage"}},
+    "acceptedBy": {"oneOf": [{"type": "string", "pattern": "^user:.+"}, {"type": "null"}]},
+    "acceptedAt": {"oneOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "reviewAddress", "screenIds", "stateGalleryPath", "mockCaseIds", "validation"],
+      "properties": {
+        "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+        "reviewAddress": {"type": "string", "pattern": "^http://127\\.0\\.0\\.1:[0-9]+/"},
+        "screenIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "stateGalleryPath": {"const": "/__review/components"},
+        "mockCaseIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "validation": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/validation"}}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "status": {"const": "PASS"}
+      }
+    }
+  }
+}

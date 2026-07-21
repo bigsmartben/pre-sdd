@@ -102,6 +102,99 @@ async function validatePacket(schemaPath, value, label) {
   return false;
 }
 
+function sameStringSet(left, right) {
+  return left.length === right.length && [...new Set(left)].every((item) => right.includes(item));
+}
+
+function validateConfirmedWorkflow(capturePlan) {
+  const scope = capturePlan.scopeConfirmation;
+  const impact = capturePlan.highImpactConfirmation;
+  const boundary = capturePlan.writebackBoundary;
+  const includedNodeIds = new Set(scope.includedNodes.map((item) => item.nodeId));
+  const includedVisualNodeIds = new Set(scope.includedNodes.filter((item) => item.kind === 'visual').map((item) => item.nodeId));
+  const includedComponentNodeIds = new Set(scope.includedNodes.filter((item) => item.kind === 'component').map((item) => item.nodeId));
+  const includedKeys = new Set(scope.includedNodes.map((item) => item.kind + ':' + item.nodeId));
+
+  if (scope.rootNodeId !== capturePlan.rootNodeId || !includedNodeIds.has(capturePlan.rootNodeId)) {
+    block('AIH_SOURCE_CAPTURE_BLOCKED', 'Scope Confirmation 的根节点必须与 Capture Plan 一致并位于包含范围。', 'scopeConfirmation.rootNodeId');
+  }
+  for (const item of scope.excludedNodes) {
+    if (includedKeys.has(item.kind + ':' + item.nodeId)) {
+      block('AIH_SOURCE_CAPTURE_BLOCKED', '同一节点不能同时被范围确认包含和排除：' + item.nodeId, 'scopeConfirmation');
+    }
+  }
+  const expectedCounts = {
+    pages: scope.includedNodes.filter((item) => item.kind === 'page').length,
+    components: scope.includedNodes.filter((item) => item.kind === 'component').length,
+    visualNodes: scope.includedNodes.filter((item) => item.kind === 'visual').length,
+    viewports: scope.viewportIds.length,
+    scenarios: scope.scenarioIds.length,
+    states: scope.stateIds.length,
+  };
+  if (!same(scope.counts, expectedCounts)) {
+    block('AIH_SOURCE_CAPTURE_BLOCKED', 'Scope Confirmation 的数量摘要与已确认包含项不一致。', 'scopeConfirmation.counts');
+  }
+  for (const candidate of capturePlan.candidateVisualNodes) {
+    if (!includedVisualNodeIds.has(candidate.nodeId)) {
+      block('AIH_SOURCE_CAPTURE_BLOCKED', 'Capture Plan 自行扩大到未确认的视觉节点：' + candidate.nodeId, 'candidateVisualNodes');
+    }
+  }
+
+  if (
+    impact.scopeConfirmationId !== scope.id
+    || boundary.scopeConfirmationId !== scope.id
+    || boundary.highImpactConfirmationId !== impact.id
+    || impact.id === scope.id
+  ) {
+    block('AIH_SOURCE_CAPTURE_BLOCKED', '两个人工确认点与写回边界的身份引用不闭合。', 'highImpactConfirmation');
+  }
+  for (const proposal of impact.componentProposals) {
+    if (!includedComponentNodeIds.has(proposal.nodeId)) {
+      block('AIH_SOURCE_CAPTURE_BLOCKED', '组件抽象提案越出已确认范围：' + proposal.nodeId, 'highImpactConfirmation.componentProposals');
+    }
+    if (proposal.decision === 'shared-component' && !proposal.componentName) {
+      block('AIH_SOURCE_CAPTURE_BLOCKED', 'shared-component 提案必须记录组件名称：' + proposal.nodeId, 'highImpactConfirmation.componentProposals');
+    }
+  }
+  const candidates = new Map(capturePlan.candidateVisualNodes.map((item) => [item.nodeId, item]));
+  for (const ambiguity of impact.resourceAmbiguities) {
+    if (!includedVisualNodeIds.has(ambiguity.nodeId) || candidates.get(ambiguity.nodeId)?.strategy !== ambiguity.decision) {
+      block('AIH_SOURCE_CAPTURE_BLOCKED', '资源歧义决策必须位于确认范围并与最终分类一致：' + ambiguity.nodeId, 'highImpactConfirmation.resourceAmbiguities');
+    }
+  }
+
+  const operationIds = impact.writebackOperations.map((item) => item.id);
+  if (new Set(operationIds).size !== operationIds.length || !sameStringSet(operationIds, boundary.operationIds)) {
+    block('AIH_SOURCE_CAPTURE_BLOCKED', '写回边界必须完整引用第二次人工确认的有限写回操作。', 'writebackBoundary.operationIds');
+  }
+  const approvedDetachNodes = new Set(impact.detachApprovals.map((item) => item.instanceNodeId));
+  const requestedDetachNodes = new Set();
+  for (const operation of impact.writebackOperations) {
+    for (const nodeId of operation.targetNodeIds) {
+      if (!includedNodeIds.has(nodeId)) {
+        block('AIH_SOURCE_CAPTURE_BLOCKED', 'Figma 写回越出已确认范围：' + nodeId, operation.id);
+      }
+      if (operation.kind === 'detach-instance') {
+        requestedDetachNodes.add(nodeId);
+        if (!approvedDetachNodes.has(nodeId)) {
+          block('AIH_SOURCE_CAPTURE_BLOCKED', 'Detach Instance 只允许具体阻断实例获得明确批准后执行：' + nodeId, operation.id);
+        }
+      }
+    }
+  }
+  if (!sameStringSet([...approvedDetachNodes], [...requestedDetachNodes])) {
+    block('AIH_SOURCE_CAPTURE_BLOCKED', 'Detach Instance 批准项必须与有限写回中的具体实例一一对应。', 'highImpactConfirmation.detachApprovals');
+  }
+
+  const scopeAt = Date.parse(scope.confirmedAt);
+  const impactAt = Date.parse(impact.confirmedAt);
+  const writebackAt = Date.parse(boundary.completedAt);
+  const frozenAt = Date.parse(capturePlan.frozenAt);
+  if (!(scopeAt <= impactAt && impactAt <= writebackAt && writebackAt < frozenAt)) {
+    block('AIH_SOURCE_CAPTURE_BLOCKED', '必须先确认范围，再确认高影响决策，合并完成全部写回，最后执行唯一一次正式采集。', 'frozenAt');
+  }
+}
+
 const actor = argument('--actor');
 const capturePlanArgument = argument('--capture-plan');
 const acquisitionArgument = argument('--acquisition');
@@ -136,6 +229,7 @@ try {
     ]);
 
     if (planValid && acquisitionValid) {
+      validateConfirmedWorkflow(capturePlan);
       if (capturePlan.sourceId !== acquisition.sourceId || !same(capturePlan.sourceVersion, acquisition.sourceVersion)) {
         block('AIH_ASSET_CLOSURE_FAILED', 'Capture Plan 与 Acquisition Packet 的来源身份或版本不一致。');
       }

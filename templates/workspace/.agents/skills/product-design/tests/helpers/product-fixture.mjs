@@ -341,13 +341,47 @@ export async function completeProductFixture(root) {
     status: 'verified',
   };
   const capturePlan = {
-    version: '1.0.0',
+    version: '2.0.0',
     sourceId,
     rootNodeId: '1:2',
     sourceVersion,
     scopeConfirmation: {
       id: 'SCOPE-CONFIRMATION-001',
       sha256: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      confirmedBy: 'user:fixture-reviewer',
+      confirmedAt: '2026-07-15T09:55:00Z',
+      rootNodeId: '1:2',
+      includedNodes: [
+        { kind: 'page', nodeId: '1:1', name: 'Fixture Page' },
+        { kind: 'component', nodeId: '1:2', name: 'Prototype App Shell Instance' },
+        { kind: 'visual', nodeId: '1:2', name: 'Prototype App Shell Instance' },
+        { kind: 'visual', nodeId: '1:3', name: 'Fixture source icon' },
+      ],
+      excludedNodes: [{ kind: 'visual', nodeId: '1:4', name: 'Unrelated artwork', reason: 'Not used by the confirmed scenario.' }],
+      viewportIds: ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'],
+      scenarioIds: ['SCENARIO-001', 'SCENARIO-002', 'SCENARIO-003'],
+      stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'],
+      counts: { pages: 1, components: 1, visualNodes: 2, viewports: 2, scenarios: 3, states: 4 },
+    },
+    highImpactConfirmation: {
+      id: 'HIGH-IMPACT-CONFIRMATION-001',
+      sha256: 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      confirmedBy: 'user:fixture-reviewer',
+      confirmedAt: '2026-07-15T09:57:00Z',
+      scopeConfirmationId: 'SCOPE-CONFIRMATION-001',
+      componentProposals: [{ nodeId: '1:2', decision: 'shared-component', componentName: 'FixtureStatus', reason: 'Shared semantics and structure.' }],
+      stateAxes: [{ id: 'STATE-AXIS-RUNTIME', name: 'runtime-state', values: ['default', 'loading', 'success', 'error'] }],
+      resourceAmbiguities: [{ nodeId: '1:3', decision: 'asset', reason: 'Static source icon with no dynamic content.' }],
+      writebackOperations: [],
+      detachApprovals: [],
+    },
+    writebackBoundary: {
+      scopeConfirmationId: 'SCOPE-CONFIRMATION-001',
+      highImpactConfirmationId: 'HIGH-IMPACT-CONFIRMATION-001',
+      operationIds: [],
+      completedAt: '2026-07-15T09:58:00Z',
+      formalCaptureOrdinal: 1,
+      recaptureTriggers: ['scope-change', 'source-version-change', 'post-freeze-writeback'],
     },
     frozenAt: capturedAt,
     candidateVisualNodes: [
@@ -465,7 +499,7 @@ export async function completeProductFixture(root) {
   const allStateIds = ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '8.0.0',
+    version: '9.0.0',
     actor: 'ACTOR-001',
     draft: {
       version: '1.0.0',
@@ -488,7 +522,7 @@ export async function completeProductFixture(root) {
     },
     repairPolicy: {
       enabled: false,
-      maxAttempts: 3,
+      maxAttempts: 1,
       repairableBlockerCodes: ['AIH_VISUAL_SOURCE_PARITY_FAILED', 'AIH_VISUAL_STYLE_BINDING_FAILED'],
       allowedImplementationPaths: [
         'index.html',
@@ -577,6 +611,78 @@ export async function completeProductFixture(root) {
       instanceNodeIds: ['1:2'],
       screenIds: ['SCREEN-001'],
     }],
+    componentContracts: [{
+      id: 'COMPONENT-CONTRACT-001',
+      componentId: 'COMPONENT-001',
+      mappingId: 'COMPONENT-MAPPING-001',
+      figmaInstanceNodeIds: ['1:2'],
+      litTagName: 'psp-app',
+      slots: [],
+      properties: [{ name: 'mode', type: 'string', required: false, defaultValue: 'default' }],
+      attributes: [{ name: 'mode', propertyName: 'mode' }],
+      eventIds: ['EVENT-001', 'EVENT-002', 'EVENT-003'],
+      defaultStateMatrixEntryId: 'STATE-MATRIX-DEFAULT',
+      pageInstances: [{ id: 'COMPONENT-INSTANCE-001', screenId: 'SCREEN-001', figmaInstanceNodeId: '1:2' }],
+      implementationPaths: ['src/psp-app.ts'],
+      testAssertions: [
+        { kind: 'accessible-name', targetId: 'CONTROL-001' },
+        { kind: 'focusable', targetId: 'CONTROL-001' },
+        { kind: 'disabled', targetId: 'CONTROL-001', stateMatrixEntryId: 'STATE-MATRIX-LOADING', expected: true },
+        { kind: 'aria', targetId: 'COMPONENT-STATE-LOADING', stateMatrixEntryId: 'STATE-MATRIX-LOADING', attribute: 'aria-live', expected: 'polite' },
+      ],
+    }],
+    stateAxes: [
+      {
+        id: 'STATE-AXIS-VARIANT',
+        componentContractId: 'COMPONENT-CONTRACT-001',
+        kind: 'variant',
+        name: 'Mode',
+        values: [{ id: 'AXIS-VALUE-MODE-DEFAULT', value: 'Default' }],
+      },
+      {
+        id: 'STATE-AXIS-RUNTIME',
+        componentContractId: 'COMPONENT-CONTRACT-001',
+        kind: 'runtime-state',
+        name: 'status',
+        values: [
+          { id: 'AXIS-VALUE-RUNTIME-DEFAULT', value: 'default', stateId: 'COMPONENT-STATE-DEFAULT' },
+          { id: 'AXIS-VALUE-RUNTIME-LOADING', value: 'loading', stateId: 'COMPONENT-STATE-LOADING' },
+          { id: 'AXIS-VALUE-RUNTIME-SUCCESS', value: 'success', stateId: 'COMPONENT-STATE-SUCCESS' },
+          { id: 'AXIS-VALUE-RUNTIME-ERROR', value: 'error', stateId: 'COMPONENT-STATE-ERROR' },
+        ],
+      },
+      {
+        id: 'STATE-AXIS-INTERACTION',
+        componentContractId: 'COMPONENT-CONTRACT-001',
+        kind: 'interaction-state',
+        name: 'workflow',
+        values: [{ id: 'AXIS-VALUE-INTERACTION-READY', value: 'ready', stateId: 'INT-STATE-001' }],
+      },
+      {
+        id: 'STATE-AXIS-CONTENT',
+        componentContractId: 'COMPONENT-CONTRACT-001',
+        kind: 'content-override',
+        name: 'message',
+        values: [{ id: 'AXIS-VALUE-CONTENT-DEFAULT', value: 'default' }],
+      },
+    ],
+    stateMatrix: [
+      ['STATE-MATRIX-DEFAULT', 'AXIS-VALUE-RUNTIME-DEFAULT'],
+      ['STATE-MATRIX-LOADING', 'AXIS-VALUE-RUNTIME-LOADING'],
+      ['STATE-MATRIX-SUCCESS', 'AXIS-VALUE-RUNTIME-SUCCESS'],
+      ['STATE-MATRIX-ERROR', 'AXIS-VALUE-RUNTIME-ERROR'],
+    ].map(([id, runtimeValueId]) => ({
+      id,
+      componentContractId: 'COMPONENT-CONTRACT-001',
+      values: {
+        'STATE-AXIS-VARIANT': 'AXIS-VALUE-MODE-DEFAULT',
+        'STATE-AXIS-RUNTIME': runtimeValueId,
+        'STATE-AXIS-INTERACTION': 'AXIS-VALUE-INTERACTION-READY',
+        'STATE-AXIS-CONTENT': 'AXIS-VALUE-CONTENT-DEFAULT',
+      },
+      classification: 'legal',
+      renderInGallery: true,
+    })),
     controls: [{ id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' }, { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' }, { id: 'CONTROL-003', componentId: 'COMPONENT-001', label: '返回重试' }],
     states: [
       { id: 'INT-STATE-001', scope: 'workflow', ownerId: 'SCREEN-001', label: '等待验证' },
@@ -592,7 +698,28 @@ export async function completeProductFixture(root) {
       { id: 'SCENARIO-002', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: allViewportIds },
       { id: 'SCENARIO-003', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: ['INT-STATE-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002', 'EVENT-003'], expectedStateIds: ['COMPONENT-STATE-DEFAULT', 'INT-STATE-001'], viewportIds: allViewportIds },
     ],
-    mockBehaviors: [{ id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] }],
+    mockBehaviors: [
+      { id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] },
+      { id: 'MOCK-002', request: 'GET /api/spec-preview?mode=error', responseStateIds: ['COMPONENT-STATE-ERROR'] },
+    ],
+    mockCases: [
+      {
+        id: 'MOCK-CASE-DEFAULT', label: 'Default', routeId: 'ROUTE-001', screenId: 'SCREEN-001', mockBehaviorIds: [],
+        stateMatrixEntryIds: ['STATE-MATRIX-DEFAULT'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], isDefault: true, holdLoading: false,
+      },
+      {
+        id: 'MOCK-CASE-LOADING', label: 'Loading', routeId: 'ROUTE-001', screenId: 'SCREEN-001', mockBehaviorIds: [],
+        stateMatrixEntryIds: ['STATE-MATRIX-LOADING'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-LOADING'], isDefault: false, holdLoading: true,
+      },
+      {
+        id: 'MOCK-CASE-SUCCESS', label: 'Success', routeId: 'ROUTE-001', screenId: 'SCREEN-001', scenarioId: 'SCENARIO-001', mockBehaviorIds: ['MOCK-001'],
+        stateMatrixEntryIds: ['STATE-MATRIX-SUCCESS'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-SUCCESS'], isDefault: false, holdLoading: false,
+      },
+      {
+        id: 'MOCK-CASE-ERROR', label: 'Error', routeId: 'ROUTE-001', screenId: 'SCREEN-001', scenarioId: 'SCENARIO-002', mockBehaviorIds: ['MOCK-002'],
+        stateMatrixEntryIds: ['STATE-MATRIX-ERROR'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-ERROR'], isDefault: false, holdLoading: false,
+      },
+    ],
     viewports: [{ id: 'VIEWPORT-MOBILE', width: 390, height: 844 }, { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 }],
     renderAssertions: [
       {
