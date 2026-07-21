@@ -339,8 +339,11 @@ test('generated workspace applies an artifact operation through its local runtim
   const ucMarkdown = await readFile(ucPath, 'utf8');
   assert.match(authority, /本地事务执行验证/);
   assert.match(ucMarkdown, /本地事务执行验证/);
-  assert.match(ucMarkdown, /- 范围内：尚待确认/);
-  assert.match(ucMarkdown, /尚待定义 Actor 与 Use Case/);
+  assert.match(ucMarkdown, /Product Behavior（产品行为）/);
+  assert.match(ucMarkdown, /Interaction Flow（正式交互流程）/);
+  assert.match(ucMarkdown, /Low-Fi UI Blueprint/);
+  assert.match(ucMarkdown, /### 范围内\s+- 暂无正式条目/);
+  assert.match(ucMarkdown, /尚待定义稳定的产品行为/);
   assert.doesNotMatch(ucMarkdown, /```mermaid/);
   assert.doesNotMatch(ucMarkdown, /<!-- OFFICIAL|artifactRole|internalModel|## Gates|GAP-001|PSP\.md/);
 
