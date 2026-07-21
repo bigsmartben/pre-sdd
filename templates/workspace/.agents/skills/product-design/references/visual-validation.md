@@ -36,7 +36,7 @@
 7. 核对 `componentInventory` 已唯一覆盖全部 Figma 组件相关节点，`componentVariantCoverage` 已覆盖全部共享组件 Instance；浏览器逐项验证声明的 Lit Tag、`data-figma-instance-id`、Variant Attribute 与使用中的 Slot。
 8. 捕获控制台错误、页面异常和资源请求失败；只允许本地服务器、`data:` 与 `blob:` 请求。
 9. 仅当用户明确选择额外的键盘操作、读屏、焦点、触控尺寸或减少动画检查时，运行 `accessibility.checks` 中对应的检查；未声明 `accessibility` 时不得自动运行这些检查。
-10. `exact` 只在阻断码完全属于 `repairPolicy.repairableBlockerCodes` 时生成 Repair Packet；随后路由到 `$repair-canonical-ui-visual`，由该技能读取差异证据并修改实现。允许路径用于提示最小修改范围，不通过文件 hash 或 Action Report 阻止代码编辑；修改后直接重新运行同一 operation。外部设计证据仍使用内容 hash 校验，证据缺失或被替换时以 `AIH_SOURCE_INTEGRITY_FAILED` 阻断。
+10. `exact` 只在阻断码完全属于 `repairPolicy.repairableBlockerCodes` 时生成 Repair Packet；随后路由到 `$repair-canonical-ui-visual`，由该技能读取差异证据并修改实现。允许路径用于提示最小修改范围，不通过文件 hash 或预先存在的 Action Report 阻止代码编辑；修改后直接重新运行同一 operation。修复运行通过时生成 Repair Action Report 作为临时过程证据。外部设计证据仍使用内容 hash 校验，证据缺失或被替换时以 `AIH_SOURCE_INTEGRITY_FAILED` 阻断。
 11. Validator 最多接受 3 次实现修复；第 3 次仍失败时报告 `AIH_VISUAL_REPAIR_EXHAUSTED`，保留每次差异比例、实际截图和差异图。来源缺失、哈希不一致、覆盖不完整、业务冲突、运行时错误、网络错误、无障碍错误等非修复码不得生成可执行 Repair Packet。
 12. 运行 Product strict Profile；任何 FAIL、BLOCKED 或 NOT_RUN 都必须保留为 residual，不能表述为 ready，也不能据此阻止或撤回仍然可访问的评审地址。
 13. 每轮修复后确认当前评审地址仍可访问；若服务器重启，则读取并提供新的实际 `[READY]` 地址。只有服务器自身无法启动、未输出地址或地址无法请求时，才能以 `AIH_CANONICAL_UI_SERVER_FAILED` 阻断地址交付。

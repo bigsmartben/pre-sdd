@@ -28,9 +28,11 @@ Harness 与 Agent、领域 Skill 和正式产物之间的完整职责判定规�
 
 uninitialized 表示目录骨架和路径绑定有效，但用户实例不存在；`.gitkeep` 不属于用户文件，也不得列入用户交付。普通 Harness 变更和 Hook 不得创建用户文件。只有用户明确开始某阶段时，才能执行 Manifest 为该阶段声明的 stage operation。通用 `initialize-stage` 先执行 `upstreamScopes` 声明的 readiness，再复制已登记模板、保护目标路径、执行已登记领域命令并在失败时回滚，不解释模板内容；具体命令、上游依赖、可选 handoff 和模板只能从当前 Manifest 解析，不在协议中硬编码。
 
+Product Design 的 UI HTML 完成事件是 Manifest 登记的 Publish operation。Publish 在同一生命周期事务中写入项目绑定的发布凭证并把阶段从 `active` 改为 `published`；凭证锁定范围由领域 Contract 与 Validator 解释。`published` 可执行读取和校验，但 resolver 的 `change`、Artifact operation 与 Repair 必须以 `AIH_STAGE_LOCKED` 阻断。只有 Reopen operation 能把阶段恢复为 `active`，同时保留原发布历史；Reopen、Publish 都返回 `downstreamAction: NOT_RUN`，不得初始化 02 或触发外部移交。
+
 ## Dependency Evidence / 依赖证据
 
-Manifest 使用 `dependencies` 声明 Artifact Scope 的机器依赖，并使用 `handoffConsumers` 声明工作区内部移交边。依赖不自动构成 handoff：Product Design 的内部链是 Use Cases → Visual Spec → Canonical UI Prototype；Architecture Design 独立依赖 Use Cases readiness，不是产品设计 handoff consumer。本模板不声明工作区外消费者。正式内部移交必须执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 Manifest 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
+Manifest 使用 `dependencies` 声明 Artifact Scope 的机器依赖，并使用 `handoffConsumers` 声明工作区内部移交边。依赖不自动构成 handoff：Product Design 的内部链是 Use Cases → Visual Spec → UI HTML → Review/Repair → Publish/Lock；Architecture Design 拥有独立生命周期，不依赖 Product Design readiness、发布状态或 handoff。本模板不声明工作区外消费者。Architecture Design 可以在 Package 中选择一个显式、固定版本、只读的 Product Design 输入引用；该引用只用于一致性校验，不形成 Scope dependency、生命周期控制或回写权限。正式内部移交必须执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 Manifest 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
 
 ## Verify
 

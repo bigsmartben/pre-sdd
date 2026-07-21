@@ -152,25 +152,7 @@ if (stage && !['active', 'uninitialized'].includes(stage.status)) {
   block(stage.blockerCode || 'AIH_ARCHITECTURE_UNAVAILABLE', '架构阶段当前不可验证：' + stage.status, stageId);
 }
 
-let capabilities;
 if (project && manifest && blockers.length === 0) {
-  if (project.stages?.['product-design']?.status !== 'active') {
-    block(
-      'AIH_UPSTREAM_NOT_READY',
-      '产品设计阶段尚未 active；上游门禁由 Harness Profile 与 handoff 执行。',
-      'product-design',
-    );
-  } else {
-    try {
-      const upstreamPaths = artifactPaths(project, 'capabilities', 'product-design');
-      capabilities = parseYaml(await readFile(repositoryFile(root, upstreamPaths.authorityPath), 'utf8'));
-    } catch (error) {
-      block('AIH_UPSTREAM_NOT_READY', '无法读取上游 capabilities：' + error.message, 'product-design');
-    }
-  }
-}
-
-if (project && manifest && blockers.every((item) => item.code !== 'AIH_UPSTREAM_NOT_READY')) {
   const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
   for (const registry of manifest.artifactRegistry.filter((item) => item.stage === stageId)) {
     const paths = artifactPaths(project, registry.id, registry.stage);
@@ -207,10 +189,44 @@ const systemBoundary = models.get('system-boundary');
 const conceptualModel = models.get('conceptual-model');
 const technicalValidation = models.get('technical-validation');
 
-if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_FAILED')) {
-  const actorIds = duplicateIds(capabilities.actors, 'capabilities.actors');
-  const useCaseIds = duplicateIds(capabilities.useCases, 'capabilities.useCases');
+let capabilities;
+if (architecturePackage && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_FAILED')) {
+  const productInput = architecturePackage.productDesignInput;
+  if (productInput.mode === 'reference') {
+    try {
+      const reference = productInput.reference;
+      const productPaths = artifactPaths(project, reference.artifact, reference.stage);
+      if (!productPaths) throw new Error('项目未绑定引用的 Product Design Artifact。');
+      capabilities = parseYaml(await readFile(repositoryFile(root, productPaths.authorityPath), 'utf8'));
+      if (capabilities?.metadata?.version !== reference.version) {
+        block(
+          'AIH_REFERENCE_UNRESOLVED',
+          '固定 Product Design 输入版本与当前 capabilities 版本不一致。',
+          'architecture-package.productDesignInput.reference.version',
+        );
+      }
+    } catch (error) {
+      block(
+        'AIH_REFERENCE_UNRESOLVED',
+        '无法解析固定的只读 Product Design 输入：' + error.message,
+        'architecture-package.productDesignInput.reference',
+      );
+    }
+  }
+}
+
+if (models.size > 0 && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_FAILED')) {
   const boundaryUseCases = duplicateValues(systemBoundary?.useCases, 'system-boundary.useCases');
+  const interactionActors = duplicateValues(
+    (systemBoundary?.actorInteractions || []).map((item) => item.actor),
+    'system-boundary.actorInteractions',
+  );
+  const actorIds = capabilities
+    ? duplicateIds(capabilities.actors, 'capabilities.actors')
+    : interactionActors;
+  const useCaseIds = capabilities
+    ? duplicateIds(capabilities.useCases, 'capabilities.useCases')
+    : boundaryUseCases;
   const subsystemIds = duplicateIds(systemBoundary?.subsystems, 'system-boundary.subsystems');
   const externalSystemIds = duplicateIds(systemBoundary?.externalSystems, 'system-boundary.externalSystems');
   duplicateIds(systemBoundary?.constraints, 'system-boundary.constraints');
@@ -233,21 +249,28 @@ if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_
   const decisionById = new Map((technicalValidation?.decisions || []).map((item) => [item.id, item]));
 
   for (const useCase of boundaryUseCases) requireReference(useCase, useCaseIds, 'system-boundary.useCases');
-  const interactionActors = duplicateValues(
-    (systemBoundary?.actorInteractions || []).map((item) => item.actor),
-    'system-boundary.actorInteractions',
-  );
   for (const interaction of systemBoundary?.actorInteractions || []) {
     requireReference(interaction.actor, actorIds, 'system-boundary.actorInteractions.' + interaction.actor);
     for (const useCase of interaction.useCases) {
       requireReference(useCase, useCaseIds, 'system-boundary.actorInteractions.' + interaction.actor + '.useCases');
-      const upstreamUseCase = capabilities.useCases.find((item) => item.id === useCase);
-      if (upstreamUseCase && upstreamUseCase.actor !== interaction.actor) {
+      const referencedUseCase = capabilities?.useCases.find((item) => item.id === useCase);
+      if (referencedUseCase && referencedUseCase.actor !== interaction.actor) {
         block(
           'AIH_REFERENCE_UNRESOLVED',
-          useCase + ' 的 Actor 与上游 capabilities 不一致。',
+          useCase + ' 的 Actor 与固定 Product Design 输入不一致。',
           'system-boundary.actorInteractions.' + interaction.actor,
         );
+      }
+    }
+  }
+  const actorsByUseCase = new Map();
+  for (const interaction of systemBoundary?.actorInteractions || []) {
+    for (const useCase of interaction.useCases) {
+      const existing = actorsByUseCase.get(useCase);
+      if (existing && existing !== interaction.actor) {
+        block('AIH_REFERENCE_UNRESOLVED', useCase + ' 不能同时归属多个 Actor。', 'system-boundary.actorInteractions');
+      } else {
+        actorsByUseCase.set(useCase, interaction.actor);
       }
     }
   }
@@ -469,9 +492,6 @@ if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_
     }
 
     if (selected('architecture-package')) {
-      if (architecturePackage?.upstream?.version !== capabilities.metadata.version) {
-        block('AIH_UPSTREAM_NOT_READY', 'Architecture Package 记录的上游版本与 capabilities 当前版本不一致。', 'architecture-package.upstream.version');
-      }
       for (const [field, value] of Object.entries(architecturePackage?.overview || {})) {
         if (field !== 'constraints' && !value) block('AIH_ARTIFACT_INCOMPLETE', 'Architecture Overview 未定义：' + field, 'architecture-package.overview.' + field);
       }
@@ -487,15 +507,19 @@ if (capabilities && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_
       if (responsibilityOverlap.length) {
         block('AIH_REFERENCE_UNRESOLVED', '系统负责与不负责范围冲突：' + responsibilityOverlap.join(', '), 'system-boundary.system');
       }
-      if (!sameSet(boundaryUseCases, useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '系统边界必须精确覆盖全部上游 Use Case。', 'system-boundary.useCases');
-      const upstreamActors = new Set(capabilities.useCases.map((item) => item.actor));
-      if (!sameSet(interactionActors, upstreamActors)) block('AIH_REFERENCE_UNRESOLVED', 'Actor 交互必须覆盖所有具有 Use Case 的上游 Actor。', 'system-boundary.actorInteractions');
+      if (!sameSet(boundaryUseCases, useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '系统边界必须精确覆盖当前 Architecture 输入的全部 Use Case。', 'system-boundary.useCases');
+      const expectedActors = capabilities
+        ? new Set(capabilities.useCases.map((item) => item.actor))
+        : new Set(actorsByUseCase.values());
+      if (!sameSet(interactionActors, expectedActors)) block('AIH_REFERENCE_UNRESOLVED', 'Actor 交互必须覆盖所有具有 Use Case 的 Actor。', 'system-boundary.actorInteractions');
       if (!sameSet(unionOf(systemBoundary.actorInteractions, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', 'Actor 交互必须精确覆盖全部 Use Case。', 'system-boundary.actorInteractions');
       if (!sameSet(unionOf(systemBoundary.subsystems, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '子系统必须精确覆盖全部 Use Case。', 'system-boundary.subsystems');
       if (!sameSet(unionOf(architectureCapabilities, 'useCases'), useCaseIds)) block('AIH_REFERENCE_UNRESOLVED', '子系统能力必须精确覆盖全部 Use Case。', 'system-boundary.subsystems.capabilities');
       for (const subsystem of systemBoundary.subsystems) {
-        const expectedActors = new Set(capabilities.useCases.filter((item) => subsystem.useCases.includes(item.id)).map((item) => item.actor));
-        if (!sameSet(new Set(subsystem.actors), expectedActors)) block('AIH_REFERENCE_UNRESOLVED', '子系统 Actor 与其 UC 不一致：' + subsystem.id, 'system-boundary.subsystems.' + subsystem.id + '.actors');
+        const subsystemActors = capabilities
+          ? new Set(capabilities.useCases.filter((item) => subsystem.useCases.includes(item.id)).map((item) => item.actor))
+          : new Set(subsystem.useCases.map((useCase) => actorsByUseCase.get(useCase)).filter(Boolean));
+        if (!sameSet(new Set(subsystem.actors), subsystemActors)) block('AIH_REFERENCE_UNRESOLVED', '子系统 Actor 与其 UC 不一致：' + subsystem.id, 'system-boundary.subsystems.' + subsystem.id + '.actors');
         if (!subsystem.includedResponsibilities.length || !subsystem.excludedResponsibilities.length) block('AIH_ARTIFACT_INCOMPLETE', '子系统必须明确做什么与不做什么：' + subsystem.id, 'system-boundary.subsystems.' + subsystem.id);
       }
       for (const capability of architectureCapabilities) {

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/domains/product-design/publication-receipt.schema.json",
+  "title": "Product Design Publication Ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "stage", "current", "history"],
+  "properties": {
+    "version": {"const": "1.0.0"},
+    "stage": {"const": "product-design"},
+    "current": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/publication"}]},
+    "history": {"type": "array", "items": {"$ref": "#/$defs/publication"}}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "file": {
+      "type": "object", "additionalProperties": false, "required": ["path", "contentHash"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "contentHash": {"$ref": "#/$defs/hash"}}
+    },
+    "input": {
+      "type": "object", "additionalProperties": false, "required": ["version", "path", "contentHash"],
+      "properties": {"version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "path": {"type": "string"}, "contentHash": {"$ref": "#/$defs/hash"}}
+    },
+    "asset": {
+      "type": "object", "additionalProperties": false, "required": ["id", "path", "contentHash"],
+      "properties": {"id": {"type": "string"}, "path": {"type": "string"}, "contentHash": {"$ref": "#/$defs/hash"}}
+    },
+    "fileSet": {
+      "type": "object", "additionalProperties": false, "required": ["files", "contentHash"],
+      "properties": {"files": {"type": "array", "items": {"$ref": "#/$defs/file"}}, "contentHash": {"$ref": "#/$defs/hash"}}
+    },
+    "actor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["actor", "draftVersion", "inputs", "source", "buildInputs", "implementationHash", "review"],
+      "properties": {
+        "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+        "draftVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "inputs": {"type": "object"},
+        "source": {"$ref": "#/$defs/fileSet"},
+        "buildInputs": {"$ref": "#/$defs/fileSet"},
+        "implementationHash": {"$ref": "#/$defs/hash"},
+        "review": {
+          "type": "object", "additionalProperties": false,
+          "required": ["version", "reviewId", "evidenceHash", "reviewAddress"],
+          "properties": {"version": {"const": "1.0.0"}, "reviewId": {"type": "string", "pattern": "^review-[a-f0-9]{64}$"}, "evidenceHash": {"$ref": "#/$defs/hash"}, "reviewAddress": {"type": "string"}}
+        }
+      }
+    },
+    "publication": {
+      "type": "object", "additionalProperties": false,
+      "required": ["publicationId", "publishedAt", "inputLocks", "actors", "reviewVersion", "stageIdentityHash", "credential"],
+      "properties": {
+        "publicationId": {"type": "string", "pattern": "^publish-[a-f0-9]{64}$"},
+        "publishedAt": {"type": "string", "format": "date-time"},
+        "reopenedAt": {"type": "string", "format": "date-time"},
+        "inputLocks": {
+          "type": "object", "additionalProperties": false, "required": ["useCases", "visualSpec", "visualAssets"],
+          "properties": {"useCases": {"$ref": "#/$defs/input"}, "visualSpec": {"$ref": "#/$defs/input"}, "visualAssets": {"type": "array", "items": {"$ref": "#/$defs/asset"}}}
+        },
+        "actors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/actor"}},
+        "reviewVersion": {"const": "1.0.0"},
+        "stageIdentityHash": {"$ref": "#/$defs/hash"},
+        "credential": {"$ref": "#/$defs/hash"}
+      }
+    }
+  }
+}

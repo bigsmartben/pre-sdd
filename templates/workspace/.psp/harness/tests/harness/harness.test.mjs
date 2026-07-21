@@ -48,6 +48,18 @@ test('resolver maps Canonical UI authority and projections to one artifact scope
   assert.deepEqual(result.downstreamConsumers, []);
 });
 
+test('resolver makes published stages readable but requires Reopen before change', () => {
+  const published = structuredClone(project);
+  published.stages['product-design'].status = 'published';
+  const stage = published.stages['product-design'];
+  const path = stage.root + '/' + stage.areas['canonical-ui-prototypes'].root + '/ACTOR-001/src/spec/canonical-ui.ts';
+  const change = resolveHarness(manifest, published, [path], 'change', repositoryRoot);
+  assert.equal(change.status, 'BLOCKED');
+  assert.ok(change.blockers.some((item) => item.code === 'AIH_STAGE_LOCKED'));
+  const readiness = resolveHarness(manifest, published, [path], 'readiness', repositoryRoot);
+  assert.equal(readiness.status, 'READY', JSON.stringify(readiness.blockers));
+});
+
 test('Use Cases hands off to Visual Spec and Visual Spec hands off to Canonical UI Prototype', () => {
   const active = structuredClone(project);
   active.stages['product-design'].status = 'active';
@@ -82,37 +94,49 @@ test('Use Cases hands off to Visual Spec and Visual Spec hands off to Canonical 
 test('User Harness declares only internal handoff consumers', () => {
   for (const scope of manifest.scopes) assert.deepEqual(scope.externalConsumers || [], [], scope.id);
   const architecture = manifest.scopes.find((item) => item.id === 'architecture-design');
-  assert.deepEqual(architecture.dependencies, ['use-cases']);
+  assert.deepEqual(architecture.dependencies || [], []);
   assert.deepEqual(architecture.handoffConsumers || [], []);
+  const initialization = manifest.operations.find((item) => item.id === 'initialize-architecture');
+  assert.deepEqual(initialization.upstreamScopes || [], []);
+  assert.equal(initialization.upstreamHandoff, undefined);
 });
 
 test('resolver uses artifact-level Architecture Design dependencies and readiness profiles', () => {
   const active = structuredClone(project);
-  active.stages['product-design'].status = 'active';
   active.stages['architecture-design'].status = 'active';
   const stage = active.stages['architecture-design'];
   const pathFor = (artifactId) => stage.root + '/' + stage.artifacts[artifactId].internalModel;
 
   const systemBoundary = resolveHarness(manifest, active, [pathFor('system-boundary')], 'readiness', repositoryRoot);
   assert.deepEqual(systemBoundary.scopes, ['system-boundary']);
-  assert.deepEqual(systemBoundary.upstreamScopes, ['use-cases']);
+  assert.deepEqual(systemBoundary.upstreamScopes, []);
   assert.ok(systemBoundary.commandIds.includes('architecture-system-boundary'));
 
   const conceptualModel = resolveHarness(manifest, active, [pathFor('conceptual-model')], 'readiness', repositoryRoot);
   assert.deepEqual(conceptualModel.scopes, ['conceptual-model']);
-  assert.deepEqual(conceptualModel.upstreamScopes, ['use-cases', 'system-boundary']);
+  assert.deepEqual(conceptualModel.upstreamScopes, ['system-boundary']);
   assert.ok(conceptualModel.commandIds.includes('architecture-conceptual-model'));
 
   const technicalArea = stage.root + '/' + stage.areas['technical-validation'].root + '/cases/EXP-001.case.mjs';
   const technicalValidation = resolveHarness(manifest, active, [technicalArea], 'change', repositoryRoot);
   assert.deepEqual(technicalValidation.scopes, ['technical-validation']);
-  assert.deepEqual(technicalValidation.upstreamScopes, ['use-cases', 'system-boundary']);
+  assert.deepEqual(technicalValidation.upstreamScopes, ['system-boundary']);
   assert.ok(!technicalValidation.commandIds.includes('architecture-strict'));
 
   const architecturePackage = resolveHarness(manifest, active, [pathFor('architecture-package')], 'readiness', repositoryRoot);
   assert.deepEqual(architecturePackage.scopes, ['architecture-package']);
-  assert.deepEqual(architecturePackage.upstreamScopes, ['use-cases', 'system-boundary', 'conceptual-model', 'technical-validation']);
+  assert.deepEqual(architecturePackage.upstreamScopes, ['system-boundary', 'conceptual-model', 'technical-validation']);
   assert.ok(architecturePackage.commandIds.includes('architecture-package-readiness'));
+});
+
+test('Harness rejects reintroduced Product Design lifecycle coupling from Architecture Design', async () => {
+  const root = await temporaryRepository();
+  await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+    value.scopes.find((item) => item.id === 'architecture-design').dependencies = ['use-cases'];
+    value.operations.find((item) => item.id === 'initialize-architecture').upstreamScopes = ['use-cases'];
+  });
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_HARNESS_COUPLED'));
 });
 
 test('Harness validator accepts registered domains and rejects a vertical path outside its domain', async () => {

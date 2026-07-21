@@ -156,10 +156,23 @@ if (project && manifest) {
             block('AIH_CONTRACT_INVALID', 'Contract inputs 引用未知 Artifact：' + inputArtifact, registry.contract);
           }
         }
+        for (const reference of contract?.spec?.references || []) {
+          const referenced = manifest.artifactRegistry.find((item) =>
+            item.id === reference.artifact && item.stage === reference.stage,
+          );
+          if (!referenced) {
+            block('AIH_CONTRACT_INVALID', 'Contract references 引用未知阶段 Artifact：' + reference.stage + '/' + reference.artifact, registry.contract);
+          }
+          if (reference.stage === registry.stage) {
+            block('AIH_CONTRACT_INVALID', '同阶段 Artifact 必须使用 inputs，不得伪装成只读跨阶段引用。', registry.contract);
+          }
+        }
         const boundOutputs = projectValid
           ? [...(binding?.projections || binding?.outputs || []), ...(binding?.memberOutputs || binding?.memberProjections || [])]
           : [];
-        if (projectValid && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)) {
+        const areaAuthorityIsUserArtifact = ['area', 'area-set'].includes(registry.authorityKind)
+          && contract?.spec?.outputRole === 'user-artifact';
+        if (projectValid && !areaAuthorityIsUserArtifact && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)) {
           block('AIH_CONTRACT_INVALID', 'Contract outputRole 与项目 Artifact binding 不一致。', registry.contract);
         }
         const registeredProjections = new Map((registry.projections || []).map((item) => [item.id, item]));
@@ -333,6 +346,9 @@ if (manifest && manifestValid) {
     if (operation.upstreamScopes && operation.upstreamHandoff) {
       block('AIH_CONTRACT_INVALID', '阶段初始化不能同时声明 upstreamScopes 与 upstreamHandoff。', operation.id);
     }
+    if (operation.stage === 'architecture-design' && (operation.upstreamScopes?.length || operation.upstreamHandoff)) {
+      block('AIH_HARNESS_COUPLED', 'Architecture Design 初始化不得声明跨阶段 readiness 或 handoff。', operation.id);
+    }
     const stageScope = [...scopes.values()].find((scope) =>
       scope.selector?.type === 'stage' && scope.selector.stage === operation.stage,
     );
@@ -421,7 +437,18 @@ if (manifest && manifestValid) {
       block('AIH_SCOPE_INVALID', 'Unsupported Scope 引用未知 blocker：' + scope.blockerCode, scope.id);
     }
     for (const dependency of scope.dependencies || []) {
-      if (!scopes.has(dependency)) block('AIH_SCOPE_INVALID', 'Scope 引用未知依赖：' + dependency, scope.id);
+      const dependencyScope = scopes.get(dependency);
+      if (!dependencyScope) {
+        block('AIH_SCOPE_INVALID', 'Scope 引用未知依赖：' + dependency, scope.id);
+        continue;
+      }
+      const scopeStage = ['stage', 'artifact', 'area'].includes(scope.selector?.type) ? scope.selector.stage : null;
+      const dependencyStage = ['stage', 'artifact', 'area'].includes(dependencyScope.selector?.type)
+        ? dependencyScope.selector.stage
+        : null;
+      if (scopeStage === 'architecture-design' && dependencyStage === 'product-design') {
+        block('AIH_HARNESS_COUPLED', 'Architecture Design Scope 不得依赖 Product Design 生命周期 Scope。', scope.id);
+      }
     }
     for (const consumerId of scope.handoffConsumers || []) {
       const consumer = scopes.get(consumerId);

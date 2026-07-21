@@ -8,6 +8,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import { cleanupTemporaryRepositories, codes, runScript, temporaryRepository } from './helpers/fixture.mjs';
 import { completeProductFixture, fixtureProject, readArtifact, writeArtifact } from './helpers/product-fixture.mjs';
 import { migrateLegacyWireflowDirectory } from '../scripts/lib/migrate-legacy-wireflow.mjs';
+import { canonicalLocks, reviewEvidenceDirectory } from '../canonical-ui-prototype/scripts/integrity.mjs';
 
 test.after(cleanupTemporaryRepositories);
 
@@ -28,6 +29,29 @@ async function canonicalFixture(root) {
 
 async function writeCanonical(path, model) {
   await writeFile(path, 'export const canonicalUi = ' + JSON.stringify(model, null, 2) + ' as const;\n');
+}
+
+async function writeReviewEvidence(root, actors) {
+  const evidence = {
+    version: '1.0.0',
+    status: 'PASS',
+    reviewId: 'review-' + 'a'.repeat(64),
+    createdAt: new Date().toISOString(),
+    stage: 'product-design',
+    actors: actors.map((item) => ({
+      actor: item.actor,
+      draftVersion: item.draftVersion,
+      implementationHash: item.implementationHash,
+      buildInputHash: item.buildInputs.contentHash,
+      reviewAddress: 'http://127.0.0.1:4173/?review=' + item.implementationHash.slice('sha256:'.length),
+      screenshots: ['fixture-review.png'],
+    })),
+    validation: [{ id: 'fixture-pass', status: 'PASS', blockers: [] }],
+    markers: [],
+  };
+  const directory = reviewEvidenceDirectory(root);
+  await mkdir(directory, { recursive: true });
+  await writeFile(resolve(directory, 'review-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
 }
 
 async function prepareExactFixture(root) {
@@ -133,7 +157,7 @@ test('generic initialization creates atomic UC and provider-neutral Visual Spec 
   assert.doesNotMatch(runtime, /runRepairGate|runReviewReadiness|executeRegisteredCommand/);
   assert.match(runtime, /独立应用评审地址/);
   const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  assert.equal(manifest.validationProfiles.some((item) => item.id === 'canonical-ui-review-readiness'), false);
+  assert.equal(manifest.validationProfiles.some((item) => item.id === 'canonical-ui-review-readiness'), true);
   const skill = await readFile(resolve(root, '.agents/skills/product-design/SKILL.md'), 'utf8');
   assert.match(skill, /AIH_CANONICAL_UI_SERVER_FAILED/);
   assert.match(skill, /不得根据默认端口猜测或伪造地址/);
@@ -291,6 +315,24 @@ test('atomic UC readiness blocks incomplete flow, traceability, blueprint, and e
   }
 });
 
+test('atomic UC transitions require runnable UI HTML branch and recovery coverage', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+
+  const missingBranch = structuredClone(model);
+  for (const scenario of missingBranch.scenarios) scenario.transitionIds = ['IF-001-TRANS-01'];
+  await writeCanonical(path, missingBranch);
+  const branch = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json']);
+  assert.ok(codes(branch).has('AIH_CANONICAL_UI_FLOW_COVERAGE_FAILED'));
+
+  const missingRecovery = structuredClone(model);
+  missingRecovery.scenarios.find((item) => item.id === 'SCENARIO-003').recoveryStateIds = [];
+  await writeCanonical(path, missingRecovery);
+  const recovery = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json']);
+  assert.ok(codes(recovery).has('AIH_CANONICAL_UI_FLOW_COVERAGE_FAILED'));
+});
+
 test('non-UI Use Case is explicit and requires neither flow nor Low-Fi blueprint', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
@@ -361,16 +403,17 @@ test('legacy Wireflow is accepted only as a one-time input and converts into the
   assert.equal('wireflows' in migrated, false);
 });
 
-test('static semantic entry generates deterministic hidden JSON and README projections', async () => {
+test('canonical-ui.ts remains an internal machine index with only a deterministic hidden JSON projection', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
   const binding = stage.artifacts['canonical-ui-prototype'];
   const hidden = await readFile(resolve(root, stage.root, binding.memberProjections[0].root, 'ACTOR-001', binding.memberProjections[0].member), 'utf8');
-  const readme = await readFile(resolve(root, stage.root, binding.memberProjections[1].root, 'ACTOR-001', binding.memberProjections[1].member), 'utf8');
+  assert.equal(binding.memberProjections.length, 1);
+  assert.equal(binding.memberProjections[0].role, 'generated-support');
   assert.match(hidden, /"screens":/);
-  assert.match(readme, /# Canonical UI Prototype/);
+  assert.match(hidden, /"draft":/);
   assert.equal(runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--check', '--json']).exitCode, 0);
 });
 
@@ -452,6 +495,75 @@ test('Canonical UI input gate requires reproducible design source evidence', asy
   assert.ok(codes(invalid).has('AIH_SOURCE_INTEGRITY_FAILED'));
 });
 
+test('Canonical UI input gate Review evidence binds a real address to the frozen Draft', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const reviewed = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/review.mjs', root, ['--json']);
+  assert.equal(reviewed.exitCode, 0, JSON.stringify(reviewed.output, null, 2));
+  assert.match(reviewed.output.actors[0].reviewAddress, /^http:\/\/127\.0\.0\.1:[0-9]+\/\?review=[a-f0-9]{64}$/);
+  const evidence = JSON.parse(await readFile(reviewed.output.reviewEvidence, 'utf8'));
+  assert.equal(evidence.status, 'PASS');
+  assert.equal(evidence.actors[0].draftVersion, '1.0.0');
+  assert.ok(evidence.actors[0].screenshots.length > 0);
+});
+
+test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form one lifecycle', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const packagePath = resolve(root, 'package.json');
+  const packageJson = JSON.parse(await readFile(packagePath, 'utf8'));
+  packageJson.scripts['fixture:pass'] = 'node -e "process.exit(0)"';
+  await writeFile(packagePath, JSON.stringify(packageJson, null, 2) + '\n');
+  const manifestPath = resolve(root, '.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.commands.push({
+    id: 'fixture-pass', npmScript: 'fixture:pass', run: 'npm run fixture:pass', purpose: 'fixture', blocking: true,
+    executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' },
+  });
+  manifest.validationProfiles.find((item) => item.id === 'canonical-ui-review-readiness').commands = ['fixture-pass'];
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+  let project = await fixtureProject(root);
+  await writeReviewEvidence(root, await canonicalLocks(root, project));
+  const published = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
+    '--operation', 'publish-product-design', '--json',
+  ]);
+  assert.equal(published.exitCode, 0, JSON.stringify(published.output, null, 2));
+  assert.equal(published.output.downstreamAction, 'NOT_RUN');
+  project = await fixtureProject(root);
+  assert.equal(project.stages['product-design'].status, 'published');
+  assert.equal(project.stages['architecture-design'].status, 'uninitialized');
+  const ledger = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
+  assert.ok(ledger.current.credential.startsWith('sha256:'));
+  assert.equal(ledger.current.inputLocks.visualAssets.length, 1);
+
+  const stage = project.stages['product-design'];
+  const appPath = resolve(root, stage.root, stage.areas['canonical-ui-prototypes'].root, 'ACTOR-001', 'src/psp-app.ts');
+  await appendFile(appPath, '\n// manual published drift\n');
+  const stale = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json']);
+  assert.ok(codes(stale).has('AIH_PUBLISH_CREDENTIAL_STALE'));
+  const locked = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
+    '--operation', 'apply-product-artifact', '--artifact', 'capabilities', '--input', resolve(root, stage.root, stage.artifacts.capabilities.internalModel), '--dry-run', '--json',
+  ]);
+  assert.ok(codes(locked).has('AIH_STAGE_LOCKED'));
+
+  const reopened = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
+    '--operation', 'reopen-product-design', '--json',
+  ]);
+  assert.equal(reopened.exitCode, 0, JSON.stringify(reopened.output, null, 2));
+  project = await fixtureProject(root);
+  assert.equal(project.stages['product-design'].status, 'active');
+  const history = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
+  assert.equal(history.current, null);
+  assert.equal(history.history.length, 1);
+
+  await writeReviewEvidence(root, await canonicalLocks(root, project));
+  const sameVersion = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
+    '--operation', 'publish-product-design', '--json',
+  ]);
+  assert.ok(codes(sameVersion).has('AIH_PUBLISH_VERSION_NOT_ADVANCED'));
+});
+
 test('Figma source registration packet validates adapter output without owning Canonical UI identifiers', async () => {
   const root = await temporaryRepository();
   const schema = JSON.parse(await readFile(
@@ -479,7 +591,7 @@ test('Figma source registration packet validates adapter output without owning C
   assert.equal(validate(packet), false);
 });
 
-test('Canonical UI 6.0 rejects every removed legacy structure', async () => {
+test('Canonical UI 7.0 rejects every removed legacy structure', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { path, model } = await canonicalFixture(root);
@@ -719,16 +831,17 @@ test('browser validator executes declared routes, interactions and viewports wit
   const { areaPath } = await canonicalFixture(root);
   const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.equal(result.exitCode, 0, JSON.stringify(result.output, null, 2));
-  assert.equal(result.output.evidence.length, 6);
+  assert.equal(result.output.evidence.length, 8);
   assert.equal(result.output.evidence.filter((item) => item.kind === 'route').length, 2);
-  assert.equal(result.output.evidence.filter((item) => item.kind === 'scenario').length, 4);
+  assert.equal(result.output.evidence.filter((item) => item.kind === 'scenario').length, 6);
   assert.deepEqual(new Set(result.output.evidence.filter((item) => item.kind === 'scenario').map((item) => item.viewportId)), new Set(['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP']));
   for (const item of result.output.evidence.filter((entry) => entry.kind === 'scenario')) {
-    assert.equal(item.actionStateTraces.length, 1);
     const expected = item.scenarioId === 'SCENARIO-001'
-      ? ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS']
-      : ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'];
-    assert.deepEqual(item.actionStateTraces[0].stateIds, expected);
+      ? [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS']]
+      : item.scenarioId === 'SCENARIO-002'
+        ? [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR']]
+        : [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'], ['COMPONENT-STATE-DEFAULT']];
+    assert.deepEqual(item.actionStateTraces.map((trace) => trace.stateIds), expected);
   }
   assert.ok(result.output.evidence.every((item) => !item.screenshot.startsWith(root)));
 
@@ -878,6 +991,10 @@ test('exact visual repair emits a complete packet and passes after an allowed im
   assert.equal(repaired.output.attempts, 1);
   assert.equal(repaired.output.attemptHistory[0].attempt, 1);
   assert.ok(repaired.output.attemptHistory[0].failures.length > 0);
+  const actionReport = JSON.parse(await readFile(repaired.output.repairActionReport, 'utf8'));
+  assert.equal(actionReport.status, 'PASS');
+  assert.equal(actionReport.actor, 'ACTOR-001');
+  assert.equal(actionReport.attempts, 1);
 });
 
 test('exact visual repair keeps external evidence hashes but does not hash-gate code edits', async () => {
@@ -1006,5 +1123,5 @@ test('browser validator separates console, network, visual, accessibility and as
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_RUNTIME_FAILED' && item.message.includes('事件控件未绑定声明动作')));
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED' && item.message.includes('键盘 Tab 到达')));
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED' && item.message.includes('缺少可访问名称')));
-  assert.equal(result.output.evidence.length, 6);
+  assert.equal(result.output.evidence.length, 8);
 });

@@ -11,12 +11,12 @@
 
 ## 行为边界
 
-- 仓库内部交付关系为 Product Idea → Use Cases；每个 UC 原子包含 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint；Use Cases → provider-neutral Visual Spec → Canonical UI Prototype；Use Cases → Architecture Design。Architecture Design 只依赖通过严格门禁的 Use Cases，不依赖 Visual Spec 或 Canonical UI Prototype。当前工作区不绑定任何外部框架生命周期。Agent 每轮只处理用户明确请求的当前产物，不得把“一句话”自动扩展成全部分支产物。
+- 仓库内部交付关系为 Product Idea → Use Cases；每个 UC 原子包含 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint；Use Cases → provider-neutral Visual Spec → Canonical UI Prototype。Architecture Design 拥有独立生命周期，不依赖 Product Design readiness、发布状态或 handoff；它可以显式选择固定版本、只读的 Use Cases 引用，但该引用不形成生命周期控制。当前工作区不绑定任何外部框架生命周期。Agent 每轮只处理用户明确请求的当前产物，不得把“一句话”自动扩展成全部分支产物。
 - Use Cases 是产品设计的首个权威产物和产品事实唯一来源；YAML 是机器权威视图，`UC.md` 是从同一模型确定性生成的唯一人类视图，不拥有独立事实，也不得反向更新 Use Cases。
 - Visual Spec 只拥有确定渲染事实，不拥有或修改产品行为；`visual-spec.yaml` 是机器权威视图，`Visual-Spec.md` 是确定性用户投影。写入必须使用独立 operation，并在缺少已就绪 Use Cases 时以稳定 blocker 阻断。
 - 当前产物 readiness 全部通过且 Manifest 为当前产物声明了 handoff（移交）边后，Agent 必须执行登记的 handoff 操作；只有取得本次 `PASS` 凭证，才能在回复中提示移交并结束本轮。Manifest 未声明消费者时，当前范围在 readiness 通过后结束。只有用户后续明确请求下游工作时，才建立新的执行范围。
 - Harness 只拥有与产品语义和内容效果无关的硬治理：输入输出角色与路径绑定、Scope、上下游依赖、生命周期、工程命令规范与执行、readiness Profile、blocker code 协议和确定的 handoff；不拥有用户对话、审批、`currentStep`、领域语义或自动推进状态。
-- 架构设计单向依赖产品设计；不得从实现便利性反向推导、静默改变或伪造产品事实。
+- 架构设计不得修改、补齐或锁定产品设计；可选 Product Design 引用只用于只读一致性校验，不得从实现便利性反向推导、静默改变或伪造产品事实。
 - 除 Canonical UI Prototype 外，面向用户阅读、评审和交付的正式规格产物必须是 Markdown。Canonical UI Prototype 的可执行界面及 `src/spec/canonical-ui.ts` 是正式界面规格和唯一事实来源；README 是面向人的评审投影。
 - YAML/JSON 只作为领域能力使用的隐藏结构化模型或机器投影，必须位于项目绑定声明的 `.psp/models/` 路径，不属于用户产物。对 authorityKind 为 `internal-model` 或 `internal-model-set` 的产物，Agent 不得直接写目标 YAML 或对应 Markdown；必须通过 Manifest 登记的 artifact operation（产物操作）从同一候选数据生成两者。集合产物以稳定 `ACTOR-ID` 分区，显示名称变化不得移动目录。
 - `user-artifact` 是正式用户产物；`generated-support` 只供机器消费，不得列入用户交付清单。用户目录不得放置 Contract、Schema、Validator、Harness 测试或通用模板。
@@ -24,7 +24,7 @@
 - 工作区初始化必须创建所有已绑定且非 unavailable 的阶段根目录；空目录骨架不等于用户实例。
 - 纯脚手架初始状态下，所有非 unavailable 阶段必须为 uninitialized，阶段根目录只能包含 manifest 声明的工作区标记。
 - status 为 uninitialized 的阶段只有目录骨架，不拥有用户实例；只有用户明确开始该阶段时才能执行 manifest 声明的初始化 operation。
-- status 为 unavailable 的阶段禁止写入；下游只能记录缺口，不得把架构假设写成上游事实。
+- status 为 unavailable 的阶段禁止写入；Architecture 独立模式不读取该阶段，显式引用模式只能记录缺口，不得把架构假设写成产品事实。
 
 ## Harness 接入
 

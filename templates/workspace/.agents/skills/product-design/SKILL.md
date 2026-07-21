@@ -16,7 +16,7 @@ description: 在 PSP 仓库中编写、审查或验证原子 Use Cases、provide
 - Atomic Use Cases（原子用例）：`capabilities/contract.yaml`、`capabilities/schema.json`、`capabilities/template.yaml`；`use-cases.yaml` 同时拥有 Product Behavior、与 UC 步骤可追溯的正式 Interaction Flow、以及内部 Low-Fi UI Blueprint；`UC.md` 是三部分的唯一人类视图。非 UI 用例必须显式 `not-applicable`，UI 用例必须同时具备完整流程与 Low-Fi 建议
 - Interaction Flow 只表达用户动作、系统响应、状态、迁移、Guard、分支、失败、重试、恢复与返回，不引用 Screen 或 Control。Low-Fi UI Blueprint 表达 IA、Screen、Region、Layout 与 Control 建议，并把正式状态映射到建议呈现；它不是 UI HTML 的结构或像素约束
 - Visual Spec Intake（视觉规格输入）：`visual-spec/contract.yaml`、`visual-spec/schema.json`、`visual-spec/template.yaml`；`visual-spec.yaml` 是提供方中立的机器权威模型，固定 Runtime、Viewport、Page、Rendering、Layout、Typography、Paint、Effect、组件状态 × Variant 完整组合，以及资源路径、来源版本和 SHA-256；`Visual-Spec.md` 是只读用户投影
-- Canonical UI Prototype：`canonical-ui-prototype/contract.yaml`、`canonical-ui-prototype/schema.json` 与 `canonical-ui-prototype/template/`；`Canonical-UI-Prototypes/<ACTOR-ID>/` 消费同 Actor UC 的 Interaction Flow 与已就绪 Visual Spec，每个目录拥有独立源码、`package.json`、构建配置和语义入口。`dist`、HTTP 评审地址与临时证据由运行器和 Validator 管理，不是产品事实
+- UI HTML：`canonical-ui-prototype/contract.yaml`、`canonical-ui-prototype/schema.json` 与 `canonical-ui-prototype/template/`；`Canonical-UI-Prototypes/<ACTOR-ID>/` 消费同 Actor 的 ready UC 与 ready Visual Spec，并在 `draft.inputs` 固定两者版本和内容哈希。HTML、CSS、组件与资源共同构成用户 Artifact；`canonical-ui.ts` 只保留机器索引和实现映射，不是独立用户 Artifact。`dist`、Review 地址与过程证据由运行器和 Validator 管理，不是新的 SSOT（唯一事实来源）
 - 来源整理：Canonical UI 任务开始时必须读取 `references/input-mapping.md`、`references/source-reconciliation.md` 与 `references/visual-validation.md`
 - 提供方采集：`designSources[].kind` 为 `figma` 时路由到 `$capture-figma-design-source`；本 Skill 校验其 Registration Packet（登记包）并拥有 `canonical-ui.ts` 的来源、资源与使用目标登记，不复制 Figma 连接器操作、节点采集或资源导出步骤
 - 组件抽象：Figma 证据包含组件相关节点时，本 Skill 在 `canonical-ui.ts` 中登记 Component Inventory（组件清单）、Figma ↔ Lit Component Mapping（组件映射）与 Variant Coverage Matrix（变体覆盖矩阵）；抽象模型由 `$figma-component-from-design` 提出并经用户确认，最终节点身份只读取重新采集后的本地证据
@@ -37,16 +37,18 @@ description: 在 PSP 仓库中编写、审查或验证原子 Use Cases、provide
    - `shared-component` 必须绑定一个 Canonical Component、一个 Figma ↔ Lit 映射，以及覆盖全部使用中 Instance 的 Variant 覆盖行。
    - 语义职责与复用决定来自用户确认；Component Key、Component Set、Main Component、Instance 与 Variant 属性来自最终 Figma 证据。二者缺一时以 `AIH_COMPONENT_ABSTRACTION_UNRESOLVED` 停止实现。
 9. 对原子 Use Cases 和 Visual Spec，先在工作区外分别准备完整候选 YAML，再使用各自 Manifest operation。`apply-product-artifact` 原子更新 `use-cases.yaml` 与 `UC.md`；`apply-visual-spec` 在确认 Use Cases 已就绪并解析候选引用后，原子更新 `visual-spec.yaml` 与 `Visual-Spec.md`。`--dry-run` 只预检 Schema、上游和目标路径；不得直接编辑目标，也不得在日常更新中运行 `render:product`。旧参与者 Wireflow 目录只允许作为 Use Cases 一次性迁移输入。Canonical UI Prototype 仍按每个参与者应用的 TypeScript 权威入口与专用投影规则执行。
-10. 每个 Canonical UI Prototype 达到可运行状态后，必须通过 Manifest 登记的 `canonical-ui-dev` 命令并用 `--actor ACTOR-NNN` 启动该独立应用的 HTTP Server（超文本传输协议服务器）。读取服务器实际输出的 `[READY] <ACTOR-ID> 独立应用评审地址`，请求该地址并确认返回成功后立即提供可点击地址；多个参与者不得共享一个运行入口。不得等待视觉修复或正式 readiness，也不得根据默认端口猜测或伪造地址。普通评审地址默认开启不一致标记工具；只有用户明确要求干净预览时才提供带 `?annotate=0` 的地址。服务未启动、地址未输出或无法访问时，以 `AIH_CANONICAL_UI_SERVER_FAILED` 阻断。
-11. 地址交付后，对全部实际变更路径重新调用 Resolver，并按 Manifest 返回顺序执行所有验证命令；Skill 不维护静态命令清单，也不自行判断 readiness。任何 FAIL、BLOCKED 或 NOT_RUN 都作为 residual（剩余问题）报告并阻止正式 ready（就绪）或 handoff（移交），但只要评审服务本身仍可访问，就不得撤回或隐瞒已经提供的地址。
-12. `exact` 的来源一致性验收出现 `AIH_VISUAL_SOURCE_PARITY_FAILED` 或 `AIH_VISUAL_STYLE_BINDING_FAILED` 时，先调用 Manifest 登记的 `canonical-ui-repair` operation。返回 `AIH_VISUAL_REPAIR_REQUIRED` 和符合 Schema 的 Repair Packet 后，路由到 `$repair-canonical-ui-visual`；Repair Packet 中的允许路径是修改建议，不是 hash 写入许可。代码修改后直接重新运行同一 operation，由当前运行结果判断是否修复。外部设计证据缺失或内容 hash 不匹配仍以 `AIH_SOURCE_INTEGRITY_FAILED` 阻断。每轮修复完成后必须确认现有地址仍可访问；若服务重启，则提供新的实际地址。
-13. 当前产物 readiness 全部通过且 Manifest 为当前产物声明了移交边时，必须调用登记的 handoff operation。只有新鲜 `PASS` 凭证允许提示移交；移交不得初始化或编写下游。Manifest 未声明消费者时，在完成运行地址交付并如实报告 residual 后结束当前范围。
+10. 创建或更新 UI HTML Draft 前，先运行 UC 与 Visual Spec 的严格门禁；两者必须为 `ready` 且无 gap。把它们的 `metadata.version` 与权威文件 SHA-256 写入每个 Actor 的 `draft.inputs`。任何版本或内容变化都以 `AIH_CANONICAL_UI_INPUT_DRIFT` 阻断，不得继续沿用原 Draft。
+11. 每个正式 Interaction Transition（交互迁移）必须被 `scenarios[].transitionIds` 覆盖；有 `failureResponse.returnToState` 的失败分支还必须有场景声明并实际运行 `recoveryStateIds`。所有正式状态、分支、返回/恢复路径和使用中的组件 Variant 都要通过浏览器门禁。
+12. UI HTML 可运行后调用 Manifest 登记的 `canonical-ui-review` operation。它执行固定 Review Profile，使用 Validator 返回的真实本地地址和截图，并把 Draft 版本、源码哈希、构建输入哈希与地址绑定成临时 Review Evidence。不得根据默认端口猜测或伪造地址；服务未启动、地址未输出或无法访问时以 `AIH_CANONICAL_UI_SERVER_FAILED` 阻断。Review Marker 按三类路由：行为问题 → UC，视觉输入问题 → Visual Spec，实现偏差 → 当前 UI HTML；Marker、截图和 Review Evidence 都只是过程证据，不得成为平行规格。
+13. `exact` 的来源一致性验收出现可修复视觉失败时，调用 `canonical-ui-repair`。Repair Packet 只描述差异和允许实现路径；修复成功后生成临时 Repair Action Report。两者都不写入用户 Artifact，也不授权改写 UC 或 Visual Spec。上游行为或视觉输入有问题时回到对应 SSOT 形成新版本，再重新绑定 Draft。
+14. Review 通过后调用 `publish-product-design`。Publish 会再次执行固定 Profile，并在同一事务中写入 01 发布凭证、把阶段改为 `published`，锁定 UC、Visual Spec、Asset、UI HTML 源码、构建输入、Review 版本和 01 阶段身份。成功返回 `downstreamAction: NOT_RUN`；不得自动初始化 02、调用外部平台或执行 handoff。
+15. `published` 只允许读取和校验；Resolver、产物事务与 Repair 统一以 `AIH_STAGE_LOCKED` 拒绝修改。任何手工漂移都会让原凭证以 `AIH_PUBLISH_CREDENTIAL_STALE` 稳定失效。需要变更时先调用 `reopen-product-design`，再创建更高的新 Draft 版本、重新 Review 和 Publish；不得覆盖原发布历史。
 
 ## 领域约束
 
-- 每个参与者 Canonical UI Prototype 的静态语义入口和可执行界面共同构成该参与者界面规格唯一事实来源；README 与隐藏 JSON 是生成投影。参与者改名只更新显示名称，不改变稳定 `ACTOR-ID` 目录键。
+- 每个参与者的可执行 UI HTML 是界面 Artifact；`canonical-ui.ts` 是该应用内部的机器索引和实现映射，隐藏 JSON 只是生成支撑，不得把它们提升为独立用户 Artifact。参与者改名只更新显示名称，不改变稳定 `ACTOR-ID` 目录键。
 - `autonomous` 允许 Agent 自主确定视觉；`guided` 只约束 `visualPolicy.aspects` 与 `coverage` 声明的部分；`exact` 要求所有已确认路由、场景和视口都有来源截图一致性门禁。不得把 `exact` 描述成视觉灵感或重新设计任务。
-- `repairPolicy` 只允许 `exact` 启用，固定最多 3 次；`autonomous` 与 `guided` 不进入整页像素修复循环。Repair Packet 位于操作系统临时目录，只作为 Agent 修复证据，不写入用户产物。
+- `repairPolicy` 只允许 `exact` 启用，固定最多 3 次；`autonomous` 与 `guided` 不进入整页像素修复循环。Repair Packet 与 Repair Action Report 位于操作系统临时目录，只作为 Agent 修复证据，不写入用户产物。
 - 提供方连接器只负责生成来源证据，不拥有产品语义、视觉策略、readiness 或 handoff；Figma 写回和 Code Connect（代码连接）由独立 Figma 技能负责。
 - Visual Spec 是提供方中立的视觉交接唯一事实来源；Figma、Design System、资源文件和用户输入只是来源类型，不能把各自的采集步骤、插件字段或 Agent 修复循环写进正式模型。
 - 具体 Screen、Component、State、Event、Action、追溯、视觉和无障碍规则只由本 Skill 内的 Contract、Schema 与 Validator 定义。

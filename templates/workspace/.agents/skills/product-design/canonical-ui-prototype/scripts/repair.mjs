@@ -169,6 +169,7 @@ async function main() {
   const sessionRoot = resolve(tmpdir(), 'psp-canonical-ui-repair-' + sessionId);
   const statePath = resolve(sessionRoot, 'state.json');
   const packetPath = resolve(sessionRoot, 'repair-packet.json');
+  const reportPath = resolve(sessionRoot, 'repair-action-report.json');
   await mkdir(sessionRoot, { recursive: true });
 
   let state = await readState(statePath);
@@ -189,8 +190,27 @@ async function main() {
           failures: state.lastFailures,
         }]
       : [];
-    await rm(sessionRoot, { recursive: true, force: true });
-    emit({ status: 'PASS', attempts: attemptHistory.length, attemptHistory });
+    let repairActionReport = null;
+    if (attemptHistory.length > 0) {
+      const report = {
+        version: '1.0.0',
+        status: 'PASS',
+        actor,
+        completedAt: new Date().toISOString(),
+        attempts: attemptHistory.length,
+        resolvedFailures: attemptHistory.flatMap((item) => item.failures || []),
+        validationEvidence: runtime.evidence || [],
+      };
+      const reportSchema = JSON.parse(await readFile(repositoryFile(root, '.agents/skills/product-design/canonical-ui-prototype/repair-action-report.schema.json'), 'utf8'));
+      const validateReport = new Ajv2020({ allErrors: true, strict: false, formats: { 'date-time': true } }).compile(reportSchema);
+      if (!validateReport(report)) throw Object.assign(new Error('Repair Action Report 不符合 Schema：' + JSON.stringify(validateReport.errors)), { code: 'AIH_VISUAL_REPAIR_PACKET_FAILED' });
+      await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+      await Promise.all([rm(statePath, { force: true }), rm(packetPath, { force: true })]);
+      repairActionReport = reportPath;
+    } else {
+      await rm(sessionRoot, { recursive: true, force: true });
+    }
+    emit({ status: 'PASS', attempts: attemptHistory.length, attemptHistory, ...(repairActionReport ? { repairActionReport } : {}) });
     return 0;
   }
 

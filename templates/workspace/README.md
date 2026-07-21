@@ -27,7 +27,7 @@ Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次�
 
 只有使用者明确开始某一阶段时，Agent 才能执行 Manifest 登记的初始化 operation（操作）。`uninitialized` 的结构验证通过，只表示空骨架有效，不表示任何产物内容就绪。
 
-例如，只请求架构设计时，如果 Use Cases（用例）尚未通过严格门禁，架构阶段初始化会被阻断；Agent 不能用架构假设补写产品事实。
+例如，只请求架构设计时，即使 Product Design（产品设计）仍是 `uninitialized`，也可以独立初始化 Architecture Design。Agent 使用架构本地输入建立边界；如果显式引用 Product Design，只能读取 Package 中记录的固定版本，不能补写产品事实。
 
 ## 工作区交付关系
 
@@ -35,27 +35,30 @@ Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次�
 flowchart LR
     I["Product Idea / 产品想法（使用者输入）"] --> U["Use Cases / 产品行为 + 正式交互流程 + Low-Fi 建议"]
     U --> V["Visual Spec / 提供方中立的确定视觉规格"]
-    V --> C["Canonical UI Prototype / 规范界面原型"]
-    U --> A["Architecture Design / 架构设计"]
+    V --> C["UI HTML Draft / 可执行界面草稿"]
+    C --> R["Review / Repair / 审查与修复"]
+    R --> P["Publish UI HTML / 发布并锁定 01"]
+    I --> A["Architecture Design / 独立架构生命周期"]
+    U -. "可选：固定版本只读引用" .-> A
 ```
 
-“Product Idea（产品想法）”是使用者提供的输入；进入工作区后形成的第一个权威产物是 Use Cases。`use-cases.yaml` 是机器权威视图，`UC.md` 是唯一人类视图。Architecture Design 只依赖已通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。
+“Product Idea（产品想法）”是使用者提供的输入；进入 Product Design 后形成的第一个权威产物是 Use Cases。`use-cases.yaml` 是机器权威视图，`UC.md` 是唯一人类视图。Architecture Design 不依赖 Product Design 生命周期；它可以完全独立，也可以显式固定一个只读 Use Cases 版本。Canonical UI Prototype 不是架构输入。
 
 每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
 
-例如，Use Cases 通过后可向 `visual-spec` 形成产品设计移交，Visual Spec 通过后再向 `canonical-ui-prototype` 移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。
+例如，Use Cases 通过后可向 `visual-spec` 形成产品设计移交，Visual Spec 通过后再向 `canonical-ui-prototype` 移交；使用者明确开始 Architecture Design 时，不执行 Product Design readiness，也不生成 `use-cases` 到 `architecture-design` 的移交凭证。
 
 当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
 
 ## 权威模型与正式产物
 
-内部模型产物通过一个轻量 artifact operation（产物操作）更新：Agent 在工作区外准备候选 YAML，或为集合产物准备完整候选目录；operation 校验 Schema（结构定义）、生成 Markdown，并用短期文件锁避免同一产物同时写入。它不要求旧版本 hash，也不维护事务恢复状态机；写入未完成时重新运行同一 operation，Validator 会识别尚未同步的投影。Agent 不得直接修改 `.psp/models/` 目标文件或对应 Markdown。规范界面原型是例外：每个参与者可执行界面及其 `src/spec/canonical-ui.ts` 是该应用语义事实来源，README 是面向人的评审投影。
+内部模型产物通过一个轻量 artifact operation（产物操作）更新：Agent 在工作区外准备候选 YAML，或为集合产物准备完整候选目录；operation 校验 Schema（结构定义）、生成 Markdown，并用短期文件锁避免同一产物同时写入。它不要求旧版本 hash，也不维护事务恢复状态机；写入未完成时重新运行同一 operation，Validator 会识别尚未同步的投影。Agent 不得直接修改 `.psp/models/` 目标文件或对应 Markdown。UI HTML 是 Area Artifact（目录产物）：HTML、CSS、组件和资源是正式内容；`src/spec/canonical-ui.ts` 只保存 Draft 输入绑定、机器索引和实现映射，隐藏 JSON 是生成支撑，不是独立用户产物。
 
 | 当前产物 | 权威入口 | 正式用户产物 |
 |---|---|---|
 | Use Cases（原子用例） | `01-product-design/.psp/models/use-cases.yaml`：同时拥有 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint | `01-product-design/UC.md` 确定性呈现三部分 |
 | Visual Spec（视觉规格） | `01-product-design/.psp/models/visual-spec.yaml`：提供方中立地定义运行环境、页面、状态渲染、布局、组件状态与 Variant、资源来源和哈希 | `01-product-design/Visual-Spec.md` 确定性呈现全部视觉输入 |
-| Canonical UI Prototype（规范界面原型） | `Canonical-UI-Prototypes/<ACTOR-ID>/src/spec/canonical-ui.ts`：每位参与者一份独立界面规格 | 每个参与者目录拥有独立源码、`package.json`、构建配置和 README；`dist`、HTTP 地址与临时证据由运行和校验过程管理 |
+| UI HTML（可执行界面） | `Canonical-UI-Prototypes/<ACTOR-ID>/` 中的 HTML、CSS、组件与资源；`canonical-ui.ts` 是内部机器索引 | 每个参与者目录的可执行界面；`dist`、Review Marker、截图、Repair Packet、Repair Action Report 与 HTTP 地址只是临时过程证据 |
 | Architecture Design（架构设计） | `02-architecture-design/.psp/models/*.yaml` | `02-architecture-design/README.md`、`02-architecture-design/系统边界.md`、`02-architecture-design/概念建模.md` 与 `02-architecture-design/技术验证/README.md` |
 
 例如，调整一个用例时，Agent 先在临时文件准备包含三部分的完整候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml` 与 `UC.md`。旧 Wireflow 目录只允许通过显式 `--legacy-wireflow-input` 作为一次性迁移输入；迁移后不会被正常校验、readiness、渲染或 handoff 读取。直接修改目标 YAML/Markdown，或单独运行 `render:product`，都会被视为不符合日常更新协议。
@@ -79,11 +82,9 @@ flowchart LR
 └─ Canonical-UI-Prototypes/
    ├─ ACTOR-001/
    │  ├─ src/spec/canonical-ui.ts
-   │  ├─ README.md
    │  └─ package.json
    └─ ACTOR-002/
       ├─ src/spec/canonical-ui.ts
-      ├─ README.md
       └─ package.json
 ```
 
@@ -102,7 +103,7 @@ flowchart LR
 
 `primaryChain`、`supportingArtifacts`、旧 Product Package gates 和 handoff 信息属于旧治理模型，不迁入产品事实。迁入完成后只能通过 Use Cases 产物 operation 生成新的 `UC.md`，不得从旧摘要文档反向生成用例。
 
-架构阶段只有在 `use-cases` 上游 readiness 通过后才能初始化；这是一条显式依赖，不是 handoff。初始化后的关键结构如下：
+架构阶段可以独立初始化；Product Design 处于未初始化、草稿、已发布或重新打开状态都不控制 02 生命周期。初始化后的关键结构如下：
 
 ```text
 02-architecture-design/
@@ -197,7 +198,7 @@ flowchart LR
 |---|---|---|
 | 解析实际变更路径 | `npm run harness:resolve -- --intent change --path <仓库相对路径> --json` | 路径使用正斜杠 |
 | 初始化产品阶段 | `npm run init:product` | 使用者明确开始产品阶段 |
-| 初始化架构阶段 | `npm run init:architecture` | Use Cases readiness 通过 |
+| 初始化架构阶段 | `npm run init:architecture` | 只要求 Architecture Design 尚未初始化；不检查 Product Design 生命周期 |
 | 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 提交 Visual Spec | `npm run apply:visual-spec -- --artifact visual-spec --input <候选文件>` | Use Cases 独立 readiness 已通过；引用缺失时稳定阻断 |
 | 独立验证 Visual Spec | `npm run validate:visual-spec` | 检查 UC 引用、状态/视口覆盖、Variant 组合、资源路径与 SHA-256 |
@@ -217,4 +218,4 @@ flowchart LR
 | Agent（智能代理） | 使用者对话、当前范围、产物编写、结果解释 | 绕过门禁、自动推进 | 使用者只要求 Use Cases 时，不自动开始 Canonical UI Prototype |
 | Harness（执行控制体系） | 输入输出、路径、Scope（范围）、依赖、生命周期、命令、状态与移交 | 产品或架构语义 | 检查 Manifest 声明的文件是否存在，不判断产品目标是否合理 |
 | Domain Skill（领域能力） | 领域工作流、Contract、Schema、模板、追溯、渲染器和领域 Validator | 使用者审批、阶段推进、路径推断 | 产品设计能力检查用例场景是否完整 |
-| Canonical UI Prototype（规范界面原型） | 可执行界面和 `src/spec/canonical-ui.ts` 语义事实 | 下游平台映射和代码生成规则 | 按页面流程表达界面状态，但不决定使用 React 或 Vue |
+| UI HTML（可执行界面） | 可执行 HTML/CSS/组件/资源、内部 `canonical-ui.ts` 映射，以及 Review/Publish 领域规则 | 下游平台映射、02 初始化和代码生成规则 | Publish 锁定整个 01，但返回 `downstreamAction: NOT_RUN` |

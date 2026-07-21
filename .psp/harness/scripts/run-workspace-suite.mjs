@@ -15,7 +15,7 @@ const suites = new Map([
   ['architecture', {
     command: 'test:architecture',
     tests: '.agents/skills/architecture-design/tests',
-    changePattern: '^(architecture empty scaffold|all architecture artifacts declare fixed inputs)',
+    changePattern: '^(architecture empty scaffold|architecture initialization|architecture artifact operation|complete Architecture mapping|optional Product Design reference|each Architecture artifact|strict validation accepts|all architecture artifacts declare fixed inputs)',
   }],
 ]);
 

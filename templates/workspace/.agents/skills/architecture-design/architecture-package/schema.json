@@ -3,20 +3,34 @@
   "$id": "https://psp.dev/schemas/artifacts/architecture-package.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "metadata", "upstream", "overview", "artifactOrder", "gates", "gaps"],
+  "required": ["apiVersion", "kind", "metadata", "productDesignInput", "overview", "artifactOrder", "gates", "gaps"],
   "properties": {
     "apiVersion": {"const": "psp.dev/v1"},
     "kind": {"const": "ArchitecturePackage"},
     "metadata": {"$ref": "#/$defs/metadata"},
-    "upstream": {
+    "productDesignInput": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stage", "artifact", "version"],
+      "required": ["mode", "reference"],
       "properties": {
-        "stage": {"const": "product-design"},
-        "artifact": {"const": "capabilities"},
-        "version": {"$ref": "#/$defs/nullableVersion"}
-      }
+        "mode": {"enum": ["independent", "reference"]},
+        "reference": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/productDesignReference"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "independent"}}},
+          "then": {"properties": {"reference": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"mode": {"const": "reference"}}},
+          "then": {"properties": {"reference": {"$ref": "#/$defs/productDesignReference"}}}
+        }
+      ]
     },
     "overview": {
       "type": "object",
@@ -43,7 +57,17 @@
       }
     },
     "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-    "nullableVersion": {"type": ["string", "null"], "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "productDesignReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "artifact", "version", "access"],
+      "properties": {
+        "stage": {"const": "product-design"},
+        "artifact": {"const": "capabilities"},
+        "version": {"$ref": "#/$defs/version"},
+        "access": {"const": "read-only"}
+      }
+    },
     "nullableText": {"type": ["string", "null"], "minLength": 1},
     "gate": {
       "type": "object",

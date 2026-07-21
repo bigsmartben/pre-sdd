@@ -1,4 +1,6 @@
 type IssueType = 'position-size' | 'text' | 'interaction' | 'visual';
+type FeedbackCategory = 'behavior' | 'visual-input' | 'implementation';
+type FeedbackRoute = 'use-cases' | 'visual-spec' | 'canonical-ui-prototype';
 
 type Point = {
   x: number;
@@ -48,6 +50,13 @@ const ISSUE_LABELS: Record<IssueType, string> = {
   text: '文字错误',
   interaction: '交互错误',
   visual: '看起来不一样',
+};
+
+const FEEDBACK_ROUTING: Record<IssueType, { category: FeedbackCategory; routedTo: FeedbackRoute; label: string }> = {
+  interaction: { category: 'behavior', routedTo: 'use-cases', label: '行为问题 → UC' },
+  visual: { category: 'visual-input', routedTo: 'visual-spec', label: '视觉输入问题 → Visual Spec' },
+  'position-size': { category: 'implementation', routedTo: 'canonical-ui-prototype', label: '实现偏差 → UI HTML' },
+  text: { category: 'implementation', routedTo: 'canonical-ui-prototype', label: '实现偏差 → UI HTML' },
 };
 
 const MINIMUM_SELECTION_SIZE = 8;
@@ -556,7 +565,7 @@ class InconsistencyAnnotator extends HTMLElement {
       const markerTop = Math.round(marker.pageY);
       const width = Math.round(marker.width);
       const height = Math.round(marker.height);
-      const line = `#${marker.id}  ${ISSUE_LABELS[marker.type]}  ·  ${marker.target}  ·  x=${left}, y=${markerTop}, w=${width}, h=${height}`;
+      const line = `#${marker.id}  ${ISSUE_LABELS[marker.type]}  ·  ${FEEDBACK_ROUTING[marker.type].label}  ·  ${marker.target}  ·  x=${left}, y=${markerTop}, w=${width}, h=${height}`;
       context.fillStyle = '#fff';
       context.fillText(
         this.truncateForCanvas(context, line, window.innerWidth - 32),
@@ -574,6 +583,8 @@ class InconsistencyAnnotator extends HTMLElement {
     ];
     const details = markers.map((marker) => [
       `#${marker.id} ${ISSUE_LABELS[marker.type]}`,
+      `反馈分类：${FEEDBACK_ROUTING[marker.type].category}`,
+      `路由到：${FEEDBACK_ROUTING[marker.type].routedTo}`,
       `区域：x=${Math.round(marker.pageX)}, y=${Math.round(marker.pageY)}, w=${Math.round(marker.width)}, h=${Math.round(marker.height)}`,
       `关联元素：${marker.target}`,
     ].join('\n'));

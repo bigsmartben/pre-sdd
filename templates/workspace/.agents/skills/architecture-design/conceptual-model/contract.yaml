@@ -2,7 +2,7 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: conceptual-model
-  version: 2.1.0
+  version: 3.0.0
 spec:
   stage: architecture-design
   internalModelFormat: yaml
@@ -10,7 +10,6 @@ spec:
   purpose: 从 UC 与子系统能力中提取关键对象实体，定义字段、唯一键、约束、归一/继承关系以及跨 UC 的对象数据流与生命周期。
   inputs:
     artifacts:
-      - capabilities
       - system-boundary
     directoryRole: supporting-input
   owns:

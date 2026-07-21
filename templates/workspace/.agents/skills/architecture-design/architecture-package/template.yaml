@@ -3,10 +3,9 @@ kind: ArchitecturePackage
 metadata:
   status: draft
   version: 0.1.0
-upstream:
-  stage: product-design
-  artifact: capabilities
-  version: null
+productDesignInput:
+  mode: independent
+  reference: null
 overview:
   systemName: null
   architectureGoal: null
@@ -16,8 +15,8 @@ artifactOrder:
   - conceptual-model
   - technical-validation
 gates:
-  - id: upstream-baseline-pinned
-    label: 已记录通过 strict 门禁的 Product Design 版本
+  - id: product-input-mode-recorded
+    label: 已明确采用独立输入或固定版本的只读 Product Design 引用
     checked: false
   - id: abstraction-reviewed
     label: 子系统边界、对象模型与技术选型的抽象边界已审阅
@@ -27,5 +26,5 @@ gates:
     checked: false
 gaps:
   - id: GAP-001
-    field: upstream.version
-    reason: 尚未绑定通过严格门禁的产品规格版本
+    field: overview
+    reason: 尚未定义系统名称与架构目标

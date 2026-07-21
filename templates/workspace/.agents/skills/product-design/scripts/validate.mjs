@@ -16,6 +16,7 @@ import {
 import { outputDrift } from './lib/rendering.mjs';
 import { extractCanonicalUi } from '../canonical-ui-prototype/scripts/extract.mjs';
 import { canonicalOutputDrift } from '../canonical-ui-prototype/scripts/project.mjs';
+import { verifyPublishedProduct } from '../canonical-ui-prototype/scripts/publication.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
 const stepIndex = process.argv.indexOf('--step');
@@ -490,6 +491,7 @@ try {
   const stage = project.stages?.['product-design'];
   const initializing = process.env.AI_HARNESS_INITIALIZING === 'product-design';
   if (!stage) throw Object.assign(new Error('项目未绑定 product-design。'), { code: 'AIH_PROJECT_BINDING_INVALID' });
+  for (const item of await verifyPublishedProduct(root, project, manifest)) block(item.code, item.message, stage.publication?.receipt);
   if (stage.status === 'uninitialized' && !initializing) {
     const partial = await stageHasUserFiles(root, stage.root, [workspaceRootMarker(manifest)].filter(Boolean));
     if (partial) block('AIH_PARTIAL_INITIALIZATION', 'uninitialized 产品阶段包含用户文件。', stage.root);

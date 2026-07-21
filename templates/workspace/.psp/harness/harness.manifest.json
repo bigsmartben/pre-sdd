@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "13.0.0",
+  "version": "15.0.0",
   "runtime": {
     "protocol": "pre-sdd-harness/v2",
     "authority": "generated-workspace-local",
@@ -189,9 +189,6 @@
       "commands": [
         "render-architecture",
         "architecture-structure"
-      ],
-      "upstreamScopes": [
-        "use-cases"
       ]
     },
     {
@@ -269,6 +266,57 @@
       "domain": "product-design",
       "stage": "product-design",
       "artifact": "canonical-ui-prototype"
+    },
+    {
+      "id": "canonical-ui-review",
+      "kind": "review",
+      "npmScript": "review:canonical-ui",
+      "run": "npm run review:canonical-ui",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/review.mjs",
+        "args": ["--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "profile": "canonical-ui-review-readiness",
+      "evidenceVersion": "1.0.0"
+    },
+    {
+      "id": "publish-product-design",
+      "kind": "publish",
+      "npmScript": "publish:product-design",
+      "run": "npm run publish:product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs",
+        "args": ["--operation", "publish-product-design", "--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "profile": "canonical-ui-review-readiness",
+      "fromState": "active",
+      "toState": "published",
+      "receipt": ".psp/publications/product-design.json"
+    },
+    {
+      "id": "reopen-product-design",
+      "kind": "reopen",
+      "npmScript": "reopen:product-design",
+      "run": "npm run reopen:product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs",
+        "args": ["--operation", "reopen-product-design", "--json"]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "fromState": "published",
+      "toState": "active",
+      "receipt": ".psp/publications/product-design.json"
     },
     {
       "id": "handoff",
@@ -748,6 +796,18 @@
       ]
     },
     {
+      "id": "canonical-ui-review-readiness",
+      "commands": [
+        "harness",
+        "product-structure",
+        "canonical-ui-input",
+        "canonical-ui-typecheck",
+        "canonical-ui-build",
+        "canonical-ui-runtime",
+        "product-strict"
+      ]
+    },
+    {
       "id": "architecture-framework",
       "commands": [
         "harness",
@@ -1000,9 +1060,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "architecture-delivery",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "use-cases"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -1021,9 +1078,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "system-boundary-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "use-cases"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -1043,7 +1097,6 @@
       "readinessProfile": "conceptual-model-readiness",
       "uninitializedProfile": "architecture-uninitialized",
       "dependencies": [
-        "use-cases",
         "system-boundary"
       ],
       "domain": "architecture-design"
@@ -1068,7 +1121,6 @@
       "readinessProfile": "technical-validation-readiness",
       "uninitializedProfile": "architecture-uninitialized",
       "dependencies": [
-        "use-cases",
         "system-boundary"
       ],
       "domain": "architecture-design"
@@ -1476,6 +1528,80 @@
       "owner": "product-design",
       "domain": "product-design",
       "meaning": "完全实现经过三次 Agent 实现修复后仍未通过视觉验收"
+    },
+    {
+      "code": "AIH_STAGE_LOCKED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "阶段已经发布并锁定；任何修改必须先执行 Reopen"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_INPUT_DRIFT",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI HTML Draft 固定的 UC 或 Visual Spec 版本与内容哈希不再匹配"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_FLOW_COVERAGE_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "正式 Interaction State、分支或失败恢复路径没有可执行 UI HTML 场景"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_REVIEW_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI HTML Review 未产生与实际冻结版本对应的真实运行地址和过程证据"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_REVIEW_REQUIRED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Publish 前缺少通过的 UI HTML Review Evidence"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_REVIEW_STALE",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Review 对应的 Draft、源码或构建输入不是当前待发布版本"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_FEEDBACK_ROUTE_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Review 反馈未按行为问题、视觉输入问题和实现偏差路由到既有唯一事实来源"
+    },
+    {
+      "code": "AIH_PUBLISH_VALIDATION_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Product Design Publish 原子锁定前的工程门禁未通过"
+    },
+    {
+      "code": "AIH_PUBLISH_RECEIPT_INVALID",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "Product Design 发布凭证缺失或结构无效"
+    },
+    {
+      "code": "AIH_PUBLISH_CREDENTIAL_STALE",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "已锁定输入、资源、UI HTML 源码、构建输入或 Review 身份发生漂移，原发布凭证失效"
+    },
+    {
+      "code": "AIH_PUBLISH_VERSION_NOT_ADVANCED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Reopen 后仍使用原 UI HTML Draft 版本，不能重新发布"
     }
   ],
   "domainRegistry": [

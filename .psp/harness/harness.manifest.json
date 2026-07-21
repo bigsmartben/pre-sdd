@@ -97,7 +97,7 @@
       {
         "id": "scaffold-quickstart",
         "path": "QUICKSTART.md",
-        "requiredText": ["使用者视角（User View）", "会改变状态的公共操作只有三项", "npm install --global git+https://github.com/bigsmartben/pre-sdd.git", "pre-sdd init", "git init", "文件存在不等于", "01-product-design", "02-architecture-design", "架构设计只需要已经确认并检查通过的 Use Cases", "本轮只完成"],
+        "requiredText": ["使用者视角（User View）", "会改变状态的公共操作只有三项", "npm install --global git+https://github.com/bigsmartben/pre-sdd.git", "pre-sdd init", "git init", "文件存在不等于", "01-product-design", "02-architecture-design", "架构设计拥有独立生命周期", "本轮只完成"],
         "forbiddenText": ["pre-sdd harness", "npm exec", "npm run", ".psp/harness/scripts/run-ci-validation.mjs"]
       },
       {

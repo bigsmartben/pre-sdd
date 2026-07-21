@@ -152,13 +152,22 @@ Figma 再次写入后，必须重新执行 2.3 和 2.4。
 
 ## 3. 架构设计 SOP
 
-架构设计只需要已经确认并检查通过的 Use Cases，不要求先完成 UI HTML。
+架构设计拥有独立生命周期，不要求先初始化、完成或发布 Product Design，也不要求 UI HTML。默认使用 Architecture 本地输入；如果希望复用 Use Cases，必须在 Architecture Package 中选择 `reference` 模式并固定只读版本。
 
 ```text
-请根据已确认的 Use Cases 开始 Architecture Design。
+请独立开始 Architecture Design，使用我在本轮提供的架构输入。
 依次完成系统边界、概念模型、必要技术验证和架构总览。
-信息不足时列出缺口，不要修改产品设计。
+Architecture Package 使用 productDesignInput.mode: independent。
+信息不足时列出 Architecture gap，不要读取或修改产品设计。
 本轮只完成架构设计，不要开始开发。
+```
+
+需要复用现有 Use Cases 时，可改为：
+
+```text
+请开始 Architecture Design，并只读引用 Product Design capabilities 版本 1.2.3。
+Architecture Package 使用 productDesignInput.mode: reference，记录 artifact、固定版本和 access: read-only。
+不要执行 Product Design readiness、handoff、发布或状态转换；版本不匹配时只报告引用阻断。
 ```
 
 依次评审：`02-architecture-design/系统边界.md` → `概念建模.md` → `技术验证/README.md` → `README.md`。

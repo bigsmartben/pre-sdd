@@ -130,7 +130,6 @@ export class PspApp extends LitElement {
                 data-event-id="EVENT-003"
                 data-event="return-retry"
                 data-action-id="ACTION-003"
-                ?disabled=${this.previewState !== 'COMPONENT-STATE-ERROR'}
                 @click=${this.returnToEntry}
               >
                 返回重试

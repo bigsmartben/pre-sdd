@@ -32,9 +32,6 @@ stages:
           - root: .psp/models/canonical-ui-prototypes
             member: canonical-ui-prototype.json
             role: generated-support
-          - root: Canonical-UI-Prototypes
-            member: README.md
-            role: user-artifact
     areas:
       canonical-ui-prototypes:
         root: Canonical-UI-Prototypes
