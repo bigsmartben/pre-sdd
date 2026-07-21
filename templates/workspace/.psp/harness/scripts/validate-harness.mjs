@@ -13,6 +13,7 @@ import {
   repositoryFile,
   repositoryRootFrom,
 } from './lib/repository.mjs';
+import { dependencyIds } from './lib/project-dag.mjs';
 import { stageIsReadable } from './lib/stage-state.mjs';
 
 const root = repositoryRootFrom(import.meta.dirname);
@@ -49,11 +50,26 @@ const REQUIRED_CODES = [
   'AIH_PARTIAL_INITIALIZATION',
   'AIH_STAGE_ALREADY_INITIALIZED',
   'AIH_DOMAIN_BOUNDARY_INVALID',
-  'AIH_HANDOFF_EDGE_INVALID',
+  'AIH_ASSET_CLASSIFICATION_INCOMPLETE',
+  'AIH_ASSET_MISSING',
+  'AIH_ASSET_HASH_MISMATCH',
+  'AIH_ASSET_CLOSURE_FAILED',
+  'AIH_ASSET_CSS_BYPASS',
+  'AIH_ASSET_INGEST_CONFLICT',
+  'AIH_DAG_NODE_UNKNOWN',
+  'AIH_DAG_EDGE_CONFLICT',
+  'AIH_DAG_CYCLE',
+  'AIH_HANDOFF_UNREACHABLE',
 ];
 
 function block(code, message, location) {
   blockers.push({ code, message, ...(location ? { location } : {}) });
+}
+
+function scopeStage(scope) {
+  return ['stage', 'area', 'artifact'].includes(scope?.selector?.type)
+    ? scope.selector.stage
+    : null;
 }
 
 async function requirePath(path, location = path) {
@@ -324,6 +340,28 @@ if (manifest && manifestValid) {
       }
       continue;
     }
+    if (operation.kind === 'ingest') {
+      const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+      if (
+        !registered
+        || registered.stage !== operation.stage
+        || registered.domain !== operation.domain
+        || !['area', 'area-set'].includes(registered.authorityKind)
+        || !stage?.artifacts?.[operation.artifact]
+      ) {
+        block('AIH_CONTRACT_INVALID', 'Ingest operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+      }
+      if (
+        operation.executor?.kind !== 'module'
+        || operation.executor.path !== '.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs'
+      ) {
+        block('AIH_COMMAND_INVALID', 'Figma Asset Ingest 必须绑定专用执行器。', operation.id);
+      }
+      for (const [schemaId, schemaPath] of Object.entries(operation.packetSchemas || {})) {
+        await requirePath(schemaPath, operation.id + '.packetSchemas.' + schemaId);
+      }
+      continue;
+    }
     if (['review', 'publish', 'reopen'].includes(operation.kind)) {
       const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
       if (
@@ -342,23 +380,6 @@ if (manifest && manifestValid) {
         block('AIH_PROJECT_BINDING_INVALID', '发布凭证路径与项目绑定不一致：' + operation.id, operation.id);
       }
       continue;
-    }
-    if (operation.upstreamScopes && operation.upstreamHandoff) {
-      block('AIH_CONTRACT_INVALID', '阶段初始化不能同时声明 upstreamScopes 与 upstreamHandoff。', operation.id);
-    }
-    if (operation.stage === 'architecture-design' && (operation.upstreamScopes?.length || operation.upstreamHandoff)) {
-      block('AIH_HARNESS_COUPLED', 'Architecture Design 初始化不得声明跨阶段 readiness 或 handoff。', operation.id);
-    }
-    const stageScope = [...scopes.values()].find((scope) =>
-      scope.selector?.type === 'stage' && scope.selector.stage === operation.stage,
-    );
-    for (const scopeId of operation.upstreamScopes || []) {
-      const upstream = scopes.get(scopeId);
-      if (!upstream || upstream.status !== 'active') {
-        block('AIH_SCOPE_INVALID', '阶段初始化引用未知或不可用的上游 Scope：' + scopeId, operation.id);
-      } else if (!stageScope?.dependencies?.includes(scopeId)) {
-        block('AIH_SCOPE_INVALID', '阶段 Scope 未声明初始化所需上游依赖：' + scopeId, operation.id);
-      }
     }
     for (const [areaId, template] of Object.entries(operation.areaTemplates || {})) {
       if (!stage?.areas?.[areaId]) {
@@ -436,29 +457,88 @@ if (manifest && manifestValid) {
     } else if (!catalog.has(scope.blockerCode)) {
       block('AIH_SCOPE_INVALID', 'Unsupported Scope 引用未知 blocker：' + scope.blockerCode, scope.id);
     }
-    for (const dependency of scope.dependencies || []) {
-      const dependencyScope = scopes.get(dependency);
-      if (!dependencyScope) {
-        block('AIH_SCOPE_INVALID', 'Scope 引用未知依赖：' + dependency, scope.id);
-        continue;
-      }
-      const scopeStage = ['stage', 'artifact', 'area'].includes(scope.selector?.type) ? scope.selector.stage : null;
-      const dependencyStage = ['stage', 'artifact', 'area'].includes(dependencyScope.selector?.type)
-        ? dependencyScope.selector.stage
-        : null;
-      if (scopeStage === 'architecture-design' && dependencyStage === 'product-design') {
-        block('AIH_HARNESS_COUPLED', 'Architecture Design Scope 不得依赖 Product Design 生命周期 Scope。', scope.id);
-      }
+  }
+
+  const consistencyCommand = commands.get('project-consistency');
+  if (
+    !consistencyCommand
+    || consistencyCommand.executor?.kind !== 'module'
+    || consistencyCommand.executor.path !== '.agents/skills/project-consistency/scripts/check.mjs'
+  ) {
+    block('AIH_COMMAND_INVALID', 'project-consistency 必须绑定只读 Repository Skill 检查器。', 'project-consistency');
+  }
+  for (const profile of profiles.values()) {
+    if (profile.commands.includes('project-consistency')) {
+      block('AIH_PROFILE_INVALID', 'project-consistency 只能由用户显式调用，不得加入 validation Profile。', profile.id);
     }
-    for (const consumerId of scope.handoffConsumers || []) {
-      const consumer = scopes.get(consumerId);
-      if (!consumer) {
-        block('AIH_SCOPE_INVALID', 'Scope 引用未知 handoff consumer：' + consumerId, scope.id);
-      } else if (!consumer.dependencies?.includes(scope.id)) {
-        block('AIH_SCOPE_INVALID', 'Handoff consumer 未声明对应上游依赖：' + consumerId, scope.id);
+  }
+
+  const dagNodes = new Map();
+  for (const node of manifest.projectDag.nodes) {
+    const scope = scopes.get(node.id);
+    if (dagNodes.has(node.id)) {
+      block('AIH_DAG_NODE_UNKNOWN', '项目 DAG 节点 id 重复：' + node.id, 'projectDag.nodes');
+      continue;
+    }
+    dagNodes.set(node.id, node);
+    if (
+      !scope
+      || scope.status !== 'active'
+      || scope.kind !== node.kind
+      || scopeStage(scope) !== node.stage
+      || !project?.stages?.[node.stage]
+    ) {
+      block('AIH_DAG_NODE_UNKNOWN', '项目 DAG 节点未绑定身份一致的可用 Scope：' + node.id, node.id);
+    }
+    for (const validatorId of node.validators || []) {
+      const validator = commands.get(validatorId);
+      if (
+        !scope?.domain
+        || !validator
+        || validator.domain !== scope.domain
+        || validator.executor?.kind !== 'module'
+      ) {
+        block('AIH_COMMAND_INVALID', '项目 DAG 节点引用的领域 Validator 无效：' + validatorId, node.id);
       }
     }
   }
+
+  const adjacency = new Map([...dagNodes.keys()].map((id) => [id, []]));
+  const edgePairs = new Map();
+  for (const edge of manifest.projectDag.edges) {
+    const location = edge.from + '->' + edge.to;
+    const fromNode = dagNodes.get(edge.from);
+    const toNode = dagNodes.get(edge.to);
+    if (!fromNode || !toNode) {
+      block('AIH_DAG_NODE_UNKNOWN', '项目 DAG 边引用未知节点：' + location, location);
+      continue;
+    }
+    const previous = edgePairs.get(location);
+    if (previous) {
+      block('AIH_DAG_EDGE_CONFLICT', '项目 DAG 对同一节点对声明了重复或冲突边：' + location, location);
+      continue;
+    }
+    edgePairs.set(location, edge.type);
+    adjacency.get(edge.from).push(edge.to);
+    if (toNode.stage === 'architecture-design' && fromNode.stage === 'product-design') {
+      block('AIH_HARNESS_COUPLED', 'Architecture Design DAG 节点不得依赖 Product Design 生命周期节点。', location);
+    }
+  }
+
+  const visitState = new Map();
+  let cycleReported = false;
+  function visitDag(nodeId) {
+    if (visitState.get(nodeId) === 'visited') return;
+    if (visitState.get(nodeId) === 'visiting') {
+      if (!cycleReported) block('AIH_DAG_CYCLE', '项目 DAG 存在依赖环：' + nodeId, nodeId);
+      cycleReported = true;
+      return;
+    }
+    visitState.set(nodeId, 'visiting');
+    for (const consumerId of adjacency.get(nodeId) || []) visitDag(consumerId);
+    visitState.set(nodeId, 'visited');
+  }
+  for (const nodeId of dagNodes.keys()) visitDag(nodeId);
 
   const registry = unique(manifest.artifactRegistry, 'artifact', 'AIH_CONTRACT_INVALID');
   const domains = unique(manifest.domainRegistry, 'domain', 'AIH_DOMAIN_BOUNDARY_INVALID');
@@ -626,11 +706,9 @@ if (manifest && manifestValid) {
         const stageScope = manifest.scopes.find((scope) =>
           scope.selector?.type === 'stage' && scope.selector.stage === stageId,
         );
-        const hasUnreadyUpstream = (stageScope?.dependencies || []).some((dependencyId) => {
+        const hasUnreadyUpstream = dependencyIds(manifest, stageScope?.id).some((dependencyId) => {
           const dependency = manifest.scopes.find((scope) => scope.id === dependencyId);
-          const dependencyStage = ['static', 'workspace', 'domain'].includes(dependency?.selector?.type)
-            ? null
-            : dependency?.selector?.stage;
+          const dependencyStage = scopeStage(dependency);
           return dependencyStage && dependencyStage !== stageId && !stageIsReadable(project.stages?.[dependencyStage]);
         });
         selfChecks.push(hasUnreadyUpstream

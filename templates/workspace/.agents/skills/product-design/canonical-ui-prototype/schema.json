@@ -11,7 +11,7 @@
     "renderAssertions", "sourceParityAssertions", "motions", "traceability", "gaps"
   ],
   "properties": {
-    "version": {"const": "7.0.0"},
+    "version": {"const": "8.0.0"},
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "draft": {"$ref": "#/$defs/draft"},
     "visualPolicy": {"$ref": "#/$defs/visualPolicy"},
@@ -50,6 +50,16 @@
     "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
     "figmaLocation": {"type": "string", "pattern": "^https://(?:www\\.)?figma\\.com/design/[^/?#]+/[^?#]+\\?[^#]*node-id=[0-9]+[-:][0-9]+(?:&[^#]*)?$"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "sourceVersion": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "figma-file-version"}, "value": {"type": "string", "minLength": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "remote-last-modified"}, "value": {"$ref": "#/$defs/timestamp"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "node-fingerprint"}, "value": {"$ref": "#/$defs/sha256"}}}
+      ]
+    },
+    "bounds": {"type": "object", "additionalProperties": false, "required": ["x", "y", "width", "height"], "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number", "exclusiveMinimum": 0}, "height": {"type": "number", "exclusiveMinimum": 0}}},
+    "padding": {"type": "object", "additionalProperties": false, "required": ["top", "right", "bottom", "left"], "properties": {"top": {"type": "integer", "minimum": 0}, "right": {"type": "integer", "minimum": 0}, "bottom": {"type": "integer", "minimum": 0}, "left": {"type": "integer", "minimum": 0}}},
+    "dimensions": {"type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}},
     "inputBinding": {
       "type": "object",
       "additionalProperties": false,
@@ -224,20 +234,45 @@
     "asset": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "path", "kind", "sourceIds", "usageTargetIds"],
+      "required": ["id", "path", "kind", "sourceIds", "sha256", "consumerTargets", "status"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "path": {"type": "string", "pattern": "^public/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+"},
         "kind": {"enum": ["image", "icon", "font", "other"]},
         "sourceIds": {"$ref": "#/$defs/ids"},
-        "usageTargetIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "sourceNodeId": {"$ref": "#/$defs/nodeId"},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+        "strategy": {"const": "asset"},
+        "format": {"enum": ["png", "svg"]},
+        "scale": {"type": "number", "exclusiveMinimum": 0},
+        "cropBounds": {"$ref": "#/$defs/bounds"},
+        "transparentPadding": {"$ref": "#/$defs/padding"},
+        "expectedDimensions": {"$ref": "#/$defs/dimensions"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "downloadOperation": {"type": "string", "pattern": "^figma:[a-z][a-z0-9-]*$"},
+        "consumerTargets": {"$ref": "#/$defs/nonEmptyIds"},
+        "status": {"enum": ["pending", "verified", "blocked"]},
         "alt": {"type": "string"},
         "fontFamily": {"type": "string", "minLength": 1}
       },
       "allOf": [
         {
           "if": {"properties": {"kind": {"const": "font"}}, "required": ["kind"]},
-          "then": {"properties": {"fontFamily": {}}, "required": ["fontFamily"]}
+          "then": {"properties": {"fontFamily": {}}, "required": ["fontFamily"]},
+          "else": {
+            "properties": {
+              "sourceNodeId": {},
+              "sourceVersion": {},
+              "strategy": {},
+              "format": {},
+              "scale": {},
+              "cropBounds": {},
+              "transparentPadding": {},
+              "expectedDimensions": {},
+              "downloadOperation": {}
+            },
+            "required": ["sourceNodeId", "sourceVersion", "strategy", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "downloadOperation"]
+          }
         }
       ]
     },

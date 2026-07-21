@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["version", "sourceId", "kind", "location", "capturedAt", "items"],
   "properties": {
-    "version": {"const": "5.0.0"},
+    "version": {"const": "6.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
     "kind": {"enum": ["figma", "screenshot", "export", "other"]},
     "location": {"type": "string", "minLength": 1},
@@ -28,7 +28,9 @@
             "type": "array",
             "allOf": [
               {"contains": {"type": "object", "properties": {"role": {"const": "design-context"}}, "required": ["role"]}},
-              {"contains": {"type": "object", "properties": {"role": {"const": "screenshot"}}, "required": ["role"]}}
+              {"contains": {"type": "object", "properties": {"role": {"const": "screenshot"}}, "required": ["role"]}},
+              {"contains": {"type": "object", "properties": {"role": {"const": "capture-plan"}}, "required": ["role"]}},
+              {"contains": {"type": "object", "properties": {"role": {"const": "ingest-receipt"}}, "required": ["role"]}}
             ]
           }
         }
@@ -42,6 +44,9 @@
     "figmaLocation": {"type": "string", "pattern": "^https://(?:www\\.)?figma\\.com/design/[^/?#]+/[^?#]+\\?[^#]*node-id=[0-9]+[-:][0-9]+(?:&[^#]*)?$"},
     "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "bounds": {"type": "object", "additionalProperties": false, "required": ["x", "y", "width", "height"], "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number", "exclusiveMinimum": 0}, "height": {"type": "number", "exclusiveMinimum": 0}}},
+    "padding": {"type": "object", "additionalProperties": false, "required": ["top", "right", "bottom", "left"], "properties": {"top": {"type": "integer", "minimum": 0}, "right": {"type": "integer", "minimum": 0}, "bottom": {"type": "integer", "minimum": 0}, "left": {"type": "integer", "minimum": 0}}},
+    "dimensions": {"type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}},
     "sourceVersion": {
       "oneOf": [
         {
@@ -79,18 +84,27 @@
       "required": ["id", "role", "path", "sha256"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "role": {"enum": ["design-context", "screenshot", "variable-definitions", "asset", "code-connect-map"]},
+        "role": {"enum": ["design-context", "screenshot", "variable-definitions", "capture-plan", "ingest-receipt", "asset", "code-connect-map"]},
         "path": {"$ref": "#/$defs/path"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "schema": {"type": "string", "minLength": 1},
         "sourceNodeId": {"$ref": "#/$defs/nodeId"},
         "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
         "captureScope": {"enum": ["layer", "artwork-subtree"]},
-        "containsDynamicContent": {"const": false}
+        "containsDynamicContent": {"const": false},
+        "strategy": {"const": "asset"},
+        "format": {"enum": ["png", "svg"]},
+        "scale": {"type": "number", "exclusiveMinimum": 0},
+        "cropBounds": {"$ref": "#/$defs/bounds"},
+        "transparentPadding": {"$ref": "#/$defs/padding"},
+        "expectedDimensions": {"$ref": "#/$defs/dimensions"},
+        "downloadOperation": {"type": "string", "pattern": "^figma:[a-z][a-z0-9-]*$"},
+        "consumerTargets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "status": {"const": "verified"}
       },
       "allOf": [
         {
-          "if": {"properties": {"role": {"const": "design-context"}}, "required": ["role"]},
+          "if": {"properties": {"role": {"enum": ["design-context", "capture-plan", "ingest-receipt"]}}, "required": ["role"]},
           "then": {"properties": {"schema": {}}, "required": ["schema"]}
         },
         {
@@ -100,9 +114,18 @@
               "sourceNodeId": {},
               "assetKind": {},
               "captureScope": {},
-              "containsDynamicContent": {}
+              "containsDynamicContent": {},
+              "strategy": {},
+              "format": {},
+              "scale": {},
+              "cropBounds": {},
+              "transparentPadding": {},
+              "expectedDimensions": {},
+              "downloadOperation": {},
+              "consumerTargets": {},
+              "status": {}
             },
-            "required": ["sourceNodeId", "assetKind", "captureScope", "containsDynamicContent"]
+            "required": ["sourceNodeId", "assetKind", "captureScope", "containsDynamicContent", "strategy", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "downloadOperation", "consumerTargets", "status"]
           }
         }
       ]

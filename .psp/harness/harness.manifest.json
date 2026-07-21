@@ -1,7 +1,7 @@
 {
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
-  "version": "13.2.0",
+  "version": "13.3.0",
   "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -60,6 +60,7 @@
       "root": "templates/workspace/.agents/skills",
       "required": [
         "apply-repository-harness",
+        "project-consistency",
         "product-design",
         "architecture-design",
         "capture-figma-design-source",

@@ -327,6 +327,74 @@ export async function completeProductFixture(root) {
   const variableDefinitions = JSON.stringify({ variables: [{ name: 'color/accent', value: '#c8f36a' }] }, null, 2) + '\n';
   const screenshot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#fffdf7"/><circle cx="5" cy="5" r="3" fill="#c8f36a"/></svg>\n';
   const asset = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="8" fill="#c8f36a"/><path d="M10 21l6 6 14-15" fill="none" stroke="#15210f" stroke-width="4"/></svg>\n';
+  const assetFacts = {
+    sourceNodeId: '1:3',
+    strategy: 'asset',
+    format: 'svg',
+    scale: 1,
+    cropBounds: { x: 0, y: 0, width: 40, height: 40 },
+    transparentPadding: { top: 0, right: 0, bottom: 0, left: 0 },
+    expectedDimensions: { width: 40, height: 40 },
+    sha256: sha256(asset),
+    downloadOperation: 'figma:export-node',
+    consumerTargets: ['COMPONENT-001'],
+    status: 'verified',
+  };
+  const capturePlan = {
+    version: '1.0.0',
+    sourceId,
+    rootNodeId: '1:2',
+    sourceVersion,
+    scopeConfirmation: {
+      id: 'SCOPE-CONFIRMATION-001',
+      sha256: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    },
+    frozenAt: capturedAt,
+    candidateVisualNodes: [
+      { nodeId: '1:2', name: 'Prototype App Shell Instance', strategy: 'dom-css' },
+      {
+        nodeId: '1:3',
+        name: 'Fixture source icon',
+        strategy: 'asset',
+        consumerTargets: assetFacts.consumerTargets,
+        assetExport: {
+          format: assetFacts.format,
+          scale: assetFacts.scale,
+          cropBounds: assetFacts.cropBounds,
+          transparentPadding: assetFacts.transparentPadding,
+          expectedDimensions: assetFacts.expectedDimensions,
+          targetPath: 'public/assets/DESIGN-SOURCE-001/source.svg',
+          downloadOperation: assetFacts.downloadOperation,
+        },
+      },
+    ],
+  };
+  const capturePlanText = JSON.stringify(capturePlan, null, 2) + '\n';
+  const ingestReceipt = {
+    version: '1.0.0',
+    sourceId,
+    sourceVersion,
+    capturePlan: {
+      path: 'design-sources/DESIGN-SOURCE-001/capture-plan.json',
+      sha256: sha256(capturePlanText),
+    },
+    downloadOperation: assetFacts.downloadOperation,
+    ingestedAt: capturedAt,
+    assets: [{
+      sourceNodeId: assetFacts.sourceNodeId,
+      path: 'public/assets/DESIGN-SOURCE-001/source.svg',
+      format: assetFacts.format,
+      scale: assetFacts.scale,
+      cropBounds: assetFacts.cropBounds,
+      transparentPadding: assetFacts.transparentPadding,
+      expectedDimensions: assetFacts.expectedDimensions,
+      sha256: assetFacts.sha256,
+      consumerTargets: assetFacts.consumerTargets,
+      status: assetFacts.status,
+    }],
+    status: 'PASS',
+  };
+  const ingestReceiptText = JSON.stringify(ingestReceipt, null, 2) + '\n';
   const contextPath = resolve(sourceRoot, 'design-context.json');
   const variablesPath = resolve(sourceRoot, 'variable-definitions.json');
   const screenshotPath = resolve(sourceRoot, 'node-screenshot.svg');
@@ -336,9 +404,11 @@ export async function completeProductFixture(root) {
     writeFile(variablesPath, variableDefinitions),
     writeFile(screenshotPath, screenshot),
     writeFile(assetPath, asset),
+    writeFile(resolve(sourceRoot, 'capture-plan.json'), capturePlanText),
+    writeFile(resolve(sourceRoot, 'ingest-receipt.json'), ingestReceiptText),
   ]);
   const evidence = {
-    version: '5.0.0',
+    version: '6.0.0',
     sourceId,
     kind: 'figma',
     location,
@@ -356,6 +426,20 @@ export async function completeProductFixture(root) {
       { id: 'EVIDENCE-SCREENSHOT-001', role: 'screenshot', path: 'design-sources/DESIGN-SOURCE-001/node-screenshot.svg', sha256: sha256(screenshot) },
       { id: 'EVIDENCE-VARIABLES-001', role: 'variable-definitions', path: 'design-sources/DESIGN-SOURCE-001/variable-definitions.json', sha256: sha256(variableDefinitions) },
       {
+        id: 'EVIDENCE-CAPTURE-PLAN-001',
+        role: 'capture-plan',
+        path: 'design-sources/DESIGN-SOURCE-001/capture-plan.json',
+        sha256: sha256(capturePlanText),
+        schema: 'https://psp.dev/adapters/figma/capture-plan.schema.json',
+      },
+      {
+        id: 'EVIDENCE-INGEST-RECEIPT-001',
+        role: 'ingest-receipt',
+        path: 'design-sources/DESIGN-SOURCE-001/ingest-receipt.json',
+        sha256: sha256(ingestReceiptText),
+        schema: 'https://psp.dev/adapters/figma/ingest-receipt.schema.json',
+      },
+      {
         id: 'EVIDENCE-ASSET-001',
         role: 'asset',
         path: 'public/assets/DESIGN-SOURCE-001/source.svg',
@@ -364,6 +448,15 @@ export async function completeProductFixture(root) {
         assetKind: 'icon',
         captureScope: 'layer',
         containsDynamicContent: false,
+        strategy: assetFacts.strategy,
+        format: assetFacts.format,
+        scale: assetFacts.scale,
+        cropBounds: assetFacts.cropBounds,
+        transparentPadding: assetFacts.transparentPadding,
+        expectedDimensions: assetFacts.expectedDimensions,
+        downloadOperation: assetFacts.downloadOperation,
+        consumerTargets: assetFacts.consumerTargets,
+        status: assetFacts.status,
       },
     ],
   };
@@ -372,7 +465,7 @@ export async function completeProductFixture(root) {
   const allStateIds = ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '7.0.0',
+    version: '8.0.0',
     actor: 'ACTOR-001',
     draft: {
       version: '1.0.0',
@@ -422,7 +515,25 @@ export async function completeProductFixture(root) {
         evidenceItemIds: ['EVIDENCE-CONTEXT-001', 'EVIDENCE-SCREENSHOT-001'],
       }],
     }],
-    assets: [{ id: 'ASSET-001', path: 'public/assets/DESIGN-SOURCE-001/source.svg', kind: 'image', sourceIds: [sourceId], usageTargetIds: ['COMPONENT-001'], alt: 'Fixture source' }],
+    assets: [{
+      id: 'ASSET-001',
+      path: 'public/assets/DESIGN-SOURCE-001/source.svg',
+      kind: 'image',
+      sourceIds: [sourceId],
+      sourceNodeId: assetFacts.sourceNodeId,
+      sourceVersion,
+      strategy: assetFacts.strategy,
+      format: assetFacts.format,
+      scale: assetFacts.scale,
+      cropBounds: assetFacts.cropBounds,
+      transparentPadding: assetFacts.transparentPadding,
+      expectedDimensions: assetFacts.expectedDimensions,
+      sha256: assetFacts.sha256,
+      downloadOperation: assetFacts.downloadOperation,
+      consumerTargets: assetFacts.consumerTargets,
+      status: assetFacts.status,
+      alt: 'Fixture source',
+    }],
     tokens: [{ id: 'TOKEN-COLOR-ACCENT', type: 'color', value: '#c8f36a', sourceIds: [sourceId], targetIds: ['CONTROL-001'], cssProperty: '--accent' }],
     routes: [{ id: 'ROUTE-001', path: '/', screenId: 'SCREEN-001' }],
     screens: [{ id: 'SCREEN-001', title: '规格验证', routeId: 'ROUTE-001', stateIds: ['INT-STATE-001'], componentIds: ['COMPONENT-001'] }],

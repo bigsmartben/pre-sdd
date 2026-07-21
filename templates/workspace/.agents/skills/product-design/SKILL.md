@@ -18,7 +18,7 @@ description: 在 PSP 仓库中编写、审查或验证原子 Use Cases、provide
 - Visual Spec Intake（视觉规格输入）：`visual-spec/contract.yaml`、`visual-spec/schema.json`、`visual-spec/template.yaml`；`visual-spec.yaml` 是提供方中立的机器权威模型，固定 Runtime、Viewport、Page、Rendering、Layout、Typography、Paint、Effect、组件状态 × Variant 完整组合，以及资源路径、来源版本和 SHA-256；`Visual-Spec.md` 是只读用户投影
 - UI HTML：`canonical-ui-prototype/contract.yaml`、`canonical-ui-prototype/schema.json` 与 `canonical-ui-prototype/template/`；`Canonical-UI-Prototypes/<ACTOR-ID>/` 消费同 Actor 的 ready UC 与 ready Visual Spec，并在 `draft.inputs` 固定两者版本和内容哈希。HTML、CSS、组件与资源共同构成用户 Artifact；`canonical-ui.ts` 只保留机器索引和实现映射，不是独立用户 Artifact。`dist`、Review 地址与过程证据由运行器和 Validator 管理，不是新的 SSOT（唯一事实来源）
 - 来源整理：Canonical UI 任务开始时必须读取 `references/input-mapping.md`、`references/source-reconciliation.md` 与 `references/visual-validation.md`
-- 提供方采集：`designSources[].kind` 为 `figma` 时路由到 `$capture-figma-design-source`；本 Skill 校验其 Registration Packet（登记包）并拥有 `canonical-ui.ts` 的来源、资源与使用目标登记，不复制 Figma 连接器操作、节点采集或资源导出步骤
+- 提供方采集：`designSources[].kind` 为 `figma` 时路由到 `$capture-figma-design-source`；本 Skill 校验其 Capture Plan、Ingest Receipt 与 Registration Packet（登记包），并拥有 `canonical-ui.ts` 的来源、Asset Manifest（资源清单）和消费目标登记，不复制 Figma 连接器操作、节点采集或资源下载步骤
 - 组件抽象：Figma 证据包含组件相关节点时，本 Skill 在 `canonical-ui.ts` 中登记 Component Inventory（组件清单）、Figma ↔ Lit Component Mapping（组件映射）与 Variant Coverage Matrix（变体覆盖矩阵）；抽象模型由 `$figma-component-from-design` 提出并经用户确认，最终节点身份只读取重新采集后的本地证据
 - 实现修复：`canonical-ui-repair` 返回 `AIH_VISUAL_REPAIR_REQUIRED` 时路由到 `$repair-canonical-ui-visual`；本 Skill 不复制具体 HTML、CSS 或组件修改算法
 - 可执行能力：渲染器和 Validator 位于 `scripts/`；Canonical UI 专用投影与浏览器能力位于 `canonical-ui-prototype/scripts/`
@@ -33,6 +33,9 @@ description: 在 PSP 仓库中编写、审查或验证原子 Use Cases、provide
 6. 写界面前必须先确定 `visualPolicy.mode`。无视觉输入使用 `autonomous`（自主设计）；用户明确说风格参照、局部参照或只参考部分内容时使用 `guided`（部分参考）；用户提供完整 Figma Frame（画框）、整页截图或明确要求视觉还原时默认使用 `exact`（完全实现），并把 `repairPolicy.enabled` 设为 `true`。`autonomous`、`guided` 与 `unresolved` 必须保持 `repairPolicy.enabled: false`。只有用户明确说“仅作风格参考”才能把完整视觉输入降为 `guided`。视觉输入含义不明确时先确认，保持 `unresolved` 并停止界面写入。
 7. 业务语义始终遵循已就绪的原子 Use Case：目标、权限、业务规则、正式状态和分支来自 `use-cases.yaml`，`UC.md` 只供人类阅读。Visual Spec 必须引用这些稳定 UC 与 Interaction State 身份；缺失或未就绪时以 `AIH_UPSTREAM_NOT_READY` 阻断，不得静默补写。Canonical UI 同时消费当前 `ACTOR-ID` 的 UC、Interaction Flow 和已就绪 Visual Spec；Low-Fi UI Blueprint 只作建议，允许按可用性重组 Screen 与 Control。
 8. 只将 source-backed facts（有来源支撑的事实）和用户刚确认的界面范围写入当前产物。来源可来自 Figma、Design System、资源文件或用户输入，但正式 Visual Spec 必须统一转换为 provider-neutral 结构；每个资源固定 `assets/` 相对路径、来源 ID、来源版本、Role、使用位置和 SHA-256。Figma 来源必须调用 `$capture-figma-design-source` 并校验其登记包，再写入 Visual Spec；连接器字段和节点操作不得泄漏为 Visual Spec 的提供方专用执行协议。上游缺失、来源矛盾、连接器不可用或证据不足时记录 gap，不得补写 Use Cases 或 Interaction Flow。
+   - 首次 UI HTML、CSS 或组件代码写入前，必须验证确认范围内每个视觉候选只有一种 strategy，且全部 `asset` 节点已经通过受控 Ingest。
+   - `canonical-ui.ts.assets` 必须逐项登记 `sourceNodeId`、`sourceVersion`、`strategy`、格式、比例、裁切、透明边距、预期尺寸、SHA-256、下载操作、消费目标和 `verified` 状态，并与 Capture Plan、Ingest Receipt 和来源证据双向闭合。
+   - 未分类、缺少文件、哈希不一致或闭包不完整时分别保留 `AIH_ASSET_CLASSIFICATION_INCOMPLETE`、`AIH_ASSET_MISSING`、`AIH_ASSET_HASH_MISMATCH` 或 `AIH_ASSET_CLOSURE_FAILED`，不得先写代码后补证据。
    - Figma `design-context.components` 中每个节点必须在 `componentInventory` 中得到且只得到一个决定：`shared-component`、`primitive-only` 或 `local-structure`。
    - `shared-component` 必须绑定一个 Canonical Component、一个 Figma ↔ Lit 映射，以及覆盖全部使用中 Instance 的 Variant 覆盖行。
    - 语义职责与复用决定来自用户确认；Component Key、Component Set、Main Component、Instance 与 Variant 属性来自最终 Figma 证据。二者缺一时以 `AIH_COMPONENT_ABSTRACTION_UNRESOLVED` 停止实现。

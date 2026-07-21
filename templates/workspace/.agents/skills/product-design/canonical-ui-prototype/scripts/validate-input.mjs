@@ -115,9 +115,15 @@ try {
   const validateEvidence = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(evidenceSchema);
   const figmaContextSchema = await readJson(root, '.agents/skills/capture-figma-design-source/figma-design-context.schema.json');
   const validateFigmaContext = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(figmaContextSchema);
+  const capturePlanSchema = await readJson(root, '.agents/skills/capture-figma-design-source/capture-plan.schema.json');
+  const validateCapturePlan = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(capturePlanSchema);
+  const ingestReceiptSchema = await readJson(root, '.agents/skills/capture-figma-design-source/ingest-receipt.schema.json');
+  const validateIngestReceipt = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(ingestReceiptSchema);
   const evidenceAssets = new Map();
   const evidenceItems = new Map();
   const figmaContexts = new Map();
+  const capturePlans = new Map();
+  const ingestReceipts = new Map();
   const policy = model.visualPolicy || { mode: 'unresolved', aspects: [], coverage: [] };
 
   if (policy.mode === 'unresolved') {
@@ -179,7 +185,7 @@ try {
 
       const evidenceIds = new Set();
       let figmaContext = null;
-      evidenceAssets.set(source.id, new Set());
+      evidenceAssets.set(source.id, new Map());
       evidenceItems.set(source.id, new Map());
       for (const item of evidence.items) {
         if (evidenceIds.has(item.id)) {
@@ -188,10 +194,19 @@ try {
         }
         evidenceIds.add(item.id);
         evidenceItems.get(source.id).set(item.id, item);
-        if (item.role === 'asset') evidenceAssets.get(source.id).add(item.path);
+        if (item.role === 'asset') evidenceAssets.get(source.id).set(item.path, item);
         const itemPath = areaFile(areaDirectory, item.path);
-        if (await sha256(itemPath) !== item.sha256) {
-          block('AIH_SOURCE_INTEGRITY_FAILED', '设计来源证据文件内容哈希不匹配：' + item.id, item.path);
+        try {
+          if (await sha256(itemPath) !== item.sha256) {
+            block(
+              ['asset', 'capture-plan', 'ingest-receipt'].includes(item.role) ? 'AIH_ASSET_HASH_MISMATCH' : 'AIH_SOURCE_INTEGRITY_FAILED',
+              '设计来源证据文件内容哈希不匹配：' + item.id,
+              item.path,
+            );
+          }
+        } catch (error) {
+          block(item.role === 'asset' ? 'AIH_ASSET_MISSING' : 'AIH_SOURCE_INTEGRITY_FAILED', '设计来源证据文件不可读：' + item.id, item.path);
+          continue;
         }
         if (source.kind === 'figma' && item.role === 'design-context') {
           if (item.schema !== figmaContextSchema.$id) {
@@ -217,6 +232,54 @@ try {
             figmaContext = context;
           } catch (error) {
             block('AIH_VISUAL_SOURCE_INCOMPLETE', '无法解析 Figma design-context：' + error.message, item.path);
+          }
+        }
+        if (source.kind === 'figma' && item.role === 'capture-plan') {
+          if (item.schema !== capturePlanSchema.$id) {
+            block('AIH_ASSET_CLASSIFICATION_INCOMPLETE', 'Capture Plan 未声明规范 Schema：' + item.id, item.path);
+            continue;
+          }
+          try {
+            const plan = JSON.parse(await readFile(itemPath, 'utf8'));
+            if (!validateCapturePlan(plan)) {
+              for (const error of validateCapturePlan.errors || []) {
+                block('AIH_ASSET_CLASSIFICATION_INCOMPLETE', 'Capture Plan 结构无效：' + (error.instancePath || '/') + ' ' + error.message, item.path);
+              }
+              continue;
+            }
+            if (
+              plan.sourceId !== source.id
+              || plan.rootNodeId !== expectedNodeId
+              || !sameSourceVersion(plan.sourceVersion, evidence.sourceVersion)
+            ) {
+              block('AIH_ASSET_CLOSURE_FAILED', 'Capture Plan 的来源身份与证据清单不一致。', item.path);
+            }
+            if (capturePlans.has(source.id)) block('AIH_ASSET_CLASSIFICATION_INCOMPLETE', '同一来源只能登记一个 Capture Plan。', item.path);
+            capturePlans.set(source.id, { item, plan });
+          } catch (error) {
+            block('AIH_ASSET_CLASSIFICATION_INCOMPLETE', '无法解析 Capture Plan：' + error.message, item.path);
+          }
+        }
+        if (source.kind === 'figma' && item.role === 'ingest-receipt') {
+          if (item.schema !== ingestReceiptSchema.$id) {
+            block('AIH_ASSET_CLOSURE_FAILED', 'Ingest Receipt 未声明规范 Schema：' + item.id, item.path);
+            continue;
+          }
+          try {
+            const receipt = JSON.parse(await readFile(itemPath, 'utf8'));
+            if (!validateIngestReceipt(receipt)) {
+              for (const error of validateIngestReceipt.errors || []) {
+                block('AIH_ASSET_CLOSURE_FAILED', 'Ingest Receipt 结构无效：' + (error.instancePath || '/') + ' ' + error.message, item.path);
+              }
+              continue;
+            }
+            if (receipt.sourceId !== source.id || !sameSourceVersion(receipt.sourceVersion, evidence.sourceVersion)) {
+              block('AIH_ASSET_CLOSURE_FAILED', 'Ingest Receipt 的来源身份与证据清单不一致。', item.path);
+            }
+            if (ingestReceipts.has(source.id)) block('AIH_ASSET_CLOSURE_FAILED', '同一来源只能登记一个 Ingest Receipt。', item.path);
+            ingestReceipts.set(source.id, { item, receipt });
+          } catch (error) {
+            block('AIH_ASSET_CLOSURE_FAILED', '无法解析 Ingest Receipt：' + error.message, item.path);
           }
         }
       }
@@ -253,6 +316,78 @@ try {
           }
         }
       }
+      if (source.kind === 'figma') {
+        const capture = capturePlans.get(source.id);
+        const ingested = ingestReceipts.get(source.id);
+        if (!capture) block('AIH_ASSET_CLASSIFICATION_INCOMPLETE', 'Figma 来源缺少正式 Capture Plan。', source.evidence.path);
+        if (!ingested) block('AIH_ASSET_CLOSURE_FAILED', 'Figma 来源缺少正式 Ingest Receipt。', source.evidence.path);
+        if (capture && ingested) {
+          if (
+            ingested.receipt.capturePlan.path !== capture.item.path
+            || ingested.receipt.capturePlan.sha256 !== capture.item.sha256
+          ) {
+            block('AIH_ASSET_HASH_MISMATCH', 'Ingest Receipt 引用的 Capture Plan 路径或哈希不匹配。', ingested.item.path);
+          }
+          const candidates = new Map();
+          for (const candidate of capture.plan.candidateVisualNodes) {
+            if (candidates.has(candidate.nodeId)) {
+              block('AIH_ASSET_CLASSIFICATION_INCOMPLETE', '视觉候选节点存在多个 strategy：' + candidate.nodeId, capture.item.path);
+            }
+            candidates.set(candidate.nodeId, candidate);
+          }
+          const plannedAssets = new Map(
+            capture.plan.candidateVisualNodes
+              .filter((candidate) => candidate.strategy === 'asset')
+              .map((candidate) => [candidate.nodeId, candidate]),
+          );
+          const receiptAssets = new Map();
+          for (const receiptAsset of ingested.receipt.assets) {
+            if (receiptAssets.has(receiptAsset.sourceNodeId)) {
+              block('AIH_ASSET_CLOSURE_FAILED', 'Ingest Receipt 重复登记来源节点：' + receiptAsset.sourceNodeId, ingested.item.path);
+            }
+            receiptAssets.set(receiptAsset.sourceNodeId, receiptAsset);
+            const planned = plannedAssets.get(receiptAsset.sourceNodeId);
+            if (
+              !planned
+              || planned.assetExport.targetPath !== receiptAsset.path
+              || planned.assetExport.format !== receiptAsset.format
+              || planned.assetExport.scale !== receiptAsset.scale
+              || !sameStringRecord(planned.assetExport.cropBounds, receiptAsset.cropBounds)
+              || !sameStringRecord(planned.assetExport.transparentPadding, receiptAsset.transparentPadding)
+              || !sameStringRecord(planned.assetExport.expectedDimensions, receiptAsset.expectedDimensions)
+              || planned.assetExport.downloadOperation !== ingested.receipt.downloadOperation
+              || JSON.stringify(planned.consumerTargets) !== JSON.stringify(receiptAsset.consumerTargets)
+            ) {
+              block('AIH_ASSET_CLOSURE_FAILED', 'Capture Plan 与 Ingest Receipt 的 Asset 事实不一致：' + receiptAsset.sourceNodeId, ingested.item.path);
+            }
+            const evidenceAsset = evidenceAssets.get(source.id)?.get(receiptAsset.path);
+            if (!evidenceAsset) {
+              block('AIH_ASSET_MISSING', 'Ingest Receipt Asset 缺少来源证据项：' + receiptAsset.path, ingested.item.path);
+            } else if (
+              evidenceAsset.sourceNodeId !== receiptAsset.sourceNodeId
+              || evidenceAsset.sha256 !== receiptAsset.sha256
+              || evidenceAsset.format !== receiptAsset.format
+              || evidenceAsset.scale !== receiptAsset.scale
+              || !sameStringRecord(evidenceAsset.cropBounds, receiptAsset.cropBounds)
+              || !sameStringRecord(evidenceAsset.transparentPadding, receiptAsset.transparentPadding)
+              || !sameStringRecord(evidenceAsset.expectedDimensions, receiptAsset.expectedDimensions)
+              || evidenceAsset.downloadOperation !== ingested.receipt.downloadOperation
+              || JSON.stringify(evidenceAsset.consumerTargets) !== JSON.stringify(receiptAsset.consumerTargets)
+              || evidenceAsset.status !== 'verified'
+            ) {
+              block('AIH_ASSET_CLOSURE_FAILED', '来源证据项与 Ingest Receipt 不一致：' + receiptAsset.path, evidenceAsset.path);
+            }
+          }
+          for (const nodeId of plannedAssets.keys()) {
+            if (!receiptAssets.has(nodeId)) block('AIH_ASSET_MISSING', '已分类 asset 未出现在 Ingest Receipt：' + nodeId, capture.item.path);
+          }
+          for (const evidenceAsset of evidenceAssets.get(source.id)?.values() || []) {
+            if (!receiptAssets.has(evidenceAsset.sourceNodeId)) {
+              block('AIH_ASSET_CLOSURE_FAILED', '来源 Asset 证据未出现在 Ingest Receipt：' + evidenceAsset.path, evidenceAsset.path);
+            }
+          }
+        }
+      }
       for (const coverage of source.coverage) {
         for (const evidenceItemId of coverage.evidenceItemIds) {
           if (!evidenceIds.has(evidenceItemId)) {
@@ -270,9 +405,35 @@ try {
   }
 
   for (const asset of model.assets) {
+    if (asset.status !== 'verified') block('AIH_ASSET_MISSING', '正式 Asset 尚未通过 Ingest：' + asset.id, asset.path);
     for (const sourceId of asset.sourceIds) {
-      if (!evidenceAssets.get(sourceId)?.has(asset.path)) {
-        block('AIH_SOURCE_INTEGRITY_FAILED', '资源未出现在对应设计来源的证据清单：' + asset.id + ' / ' + sourceId, asset.path);
+      const source = model.designSources.find((item) => item.id === sourceId);
+      const evidenceAsset = evidenceAssets.get(sourceId)?.get(asset.path);
+      if (!evidenceAsset) {
+        block('AIH_ASSET_MISSING', '资源未出现在对应设计来源的证据清单：' + asset.id + ' / ' + sourceId, asset.path);
+      } else if (source?.kind === 'figma' && (
+        asset.sourceNodeId !== evidenceAsset.sourceNodeId
+        || !sameSourceVersion(asset.sourceVersion, ingestReceipts.get(sourceId)?.receipt.sourceVersion)
+        || asset.strategy !== evidenceAsset.strategy
+        || asset.format !== evidenceAsset.format
+        || asset.scale !== evidenceAsset.scale
+        || !sameStringRecord(asset.cropBounds, evidenceAsset.cropBounds)
+        || !sameStringRecord(asset.transparentPadding, evidenceAsset.transparentPadding)
+        || !sameStringRecord(asset.expectedDimensions, evidenceAsset.expectedDimensions)
+        || asset.sha256 !== evidenceAsset.sha256
+        || asset.downloadOperation !== evidenceAsset.downloadOperation
+        || JSON.stringify(asset.consumerTargets) !== JSON.stringify(evidenceAsset.consumerTargets)
+        || asset.status !== evidenceAsset.status
+      )) {
+        block('AIH_ASSET_CLOSURE_FAILED', 'Asset Manifest 与来源证据项不一致：' + asset.id + ' / ' + sourceId, asset.path);
+      }
+    }
+  }
+  for (const [sourceId, assets] of evidenceAssets) {
+    for (const evidenceAsset of assets.values()) {
+      const consumers = model.assets.filter((asset) => asset.sourceIds.includes(sourceId) && asset.path === evidenceAsset.path);
+      if (consumers.length !== 1) {
+        block('AIH_ASSET_CLOSURE_FAILED', '来源 Asset 必须且只能对应一个 Asset Manifest 记录：' + sourceId + ' / ' + evidenceAsset.path, evidenceAsset.path);
       }
     }
   }

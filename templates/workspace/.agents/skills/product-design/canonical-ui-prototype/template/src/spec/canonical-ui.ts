@@ -1,5 +1,5 @@
 export const canonicalUi = {
-  version: '7.0.0',
+  version: '8.0.0',
   actor: 'ACTOR-001',
   draft: {
     version: '0.1.0',

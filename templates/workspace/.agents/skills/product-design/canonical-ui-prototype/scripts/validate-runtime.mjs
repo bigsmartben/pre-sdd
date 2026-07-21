@@ -768,7 +768,7 @@ async function observeAssets(page, model, base) {
     const expectedUrl = new URL('/' + asset.path.slice('public/'.length), base).href;
     if (resources.has(expectedUrl)) loadedAssets.add(asset.id);
     if (!usedAssetTargets.has(asset.id)) usedAssetTargets.set(asset.id, new Set());
-    for (const targetId of asset.usageTargetIds) {
+    for (const targetId of asset.consumerTargets) {
       const target = locatorForId(page, targetId);
       if (await target.count() === 0) continue;
       const used = await target.first().evaluate((element, input) => {
@@ -1121,9 +1121,11 @@ try {
   }
 
   for (const asset of model.assets) {
-    if (!loadedAssets.has(asset.id)) block('AIH_CANONICAL_UI_ASSET_FAILED', '资源未成功加载：' + asset.path, asset.id);
-    for (const targetId of asset.usageTargetIds) {
-      if (!usedAssetTargets.get(asset.id)?.has(targetId)) block('AIH_CANONICAL_UI_ASSET_FAILED', '资源未在声明目标中实际使用：' + asset.id + ' / ' + targetId, asset.path);
+    if (!loadedAssets.has(asset.id)) block('AIH_ASSET_MISSING', '资源未成功加载：' + asset.path, asset.id);
+    for (const targetId of asset.consumerTargets) {
+      if (!usedAssetTargets.get(asset.id)?.has(targetId)) {
+        block('AIH_ASSET_CSS_BYPASS', '已分类 asset 未在声明目标中实际使用：' + asset.id + ' / ' + targetId, asset.path);
+      }
     }
   }
 } catch (error) {

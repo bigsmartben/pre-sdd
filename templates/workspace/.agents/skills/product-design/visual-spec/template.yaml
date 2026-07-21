@@ -25,4 +25,3 @@ gaps:
   - id: VISUAL-GAP-001
     field: pages
     reason: 尚未根据已就绪的 Use Cases 和正式 Interaction State 形成完整 Visual Spec
-

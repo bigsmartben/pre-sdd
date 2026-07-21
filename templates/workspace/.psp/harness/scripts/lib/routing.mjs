@@ -4,6 +4,7 @@ import {
   joinRepositoryPath,
   normalizeRepositoryPath,
 } from './repository.mjs';
+import { dependencyIds, handoffConsumerIds } from './project-dag.mjs';
 import { stageIsReadable } from './stage-state.mjs';
 
 function catalogBlocker(catalog, code, location, message) {
@@ -188,8 +189,8 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
   const visitedDependencies = new Set();
   function visitDependencies(scope) {
     const downstreamStage = scopeStage(scope);
-    for (const dependencyId of scope.dependencies || []) {
-      const edge = scope.id + '->' + dependencyId;
+    for (const dependencyId of dependencyIds(manifest, scope.id)) {
+      const edge = dependencyId + '->' + scope.id;
       if (visitedDependencies.has(edge)) continue;
       visitedDependencies.add(edge);
       const dependency = scopes.get(dependencyId);
@@ -241,7 +242,7 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
   const downstreamConsumers = [];
   const selectedScopeIds = new Set(selected.map((scope) => scope.id));
   for (const selectedScope of selected) {
-    for (const consumerId of selectedScope.handoffConsumers || []) {
+    for (const consumerId of handoffConsumerIds(manifest, selectedScope.id)) {
       const consumer = scopes.get(consumerId);
       const consumerStage = scopeStage(consumer);
       if (
@@ -250,9 +251,6 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
         || (consumerStage && project.stages?.[consumerStage]?.status === 'unavailable')
       ) continue;
       if (!downstreamConsumers.includes(consumerId)) downstreamConsumers.push(consumerId);
-    }
-    for (const consumer of selectedScope.externalConsumers || []) {
-      if (!downstreamConsumers.includes(consumer)) downstreamConsumers.push(consumer);
     }
   }
 

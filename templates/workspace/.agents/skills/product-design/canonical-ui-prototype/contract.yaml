@@ -2,7 +2,7 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: canonical-ui-prototype
-  version: 7.0.0
+  version: 8.0.0
 spec:
   stage: product-design
   internalModelFormat: typescript
@@ -15,6 +15,7 @@ spec:
     - Use Case 与正式 Interaction Flow 到可执行界面的追溯
     - Component Inventory（组件清单）、Figma ↔ Lit Component Mapping（组件映射）与 Variant Coverage Matrix（变体覆盖矩阵）
     - 设计来源采集、本地证据、内容哈希与覆盖关系
+    - Capture Plan、Acquisition Packet、受控 Asset Ingest、来源版本、导出参数与消费目标双向闭包
     - 用户确认的运行环境、三模式视觉策略、设计令牌、动画、可选无障碍检查、渲染断言、来源一致性断言与追溯事实
     - 完全实现模式的设计截图基线、机器像素比较与固定容差
     - 完全实现模式的 Agent 修复策略、三次尝试上限、可修复阻断码、允许修改路径、Repair Packet 与 Repair Action Report
@@ -36,6 +37,8 @@ spec:
     - executable-browser-prototype
     - design-source-evidence-integrity
     - design-source-ingestion
+    - deterministic-asset-capture-plan
+    - asset-consumption-bidirectional-closure
     - typed-browser-acceptance
     - user-confirmed-runtime-scope
     - workflow-and-component-state-separated

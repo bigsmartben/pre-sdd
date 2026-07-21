@@ -2,8 +2,6 @@ import { access, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } fro
 import { dirname } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 import { executeRegisteredCommand } from './lib/execute-command.mjs';
-import { executeHandoff } from './run-handoff.mjs';
-import { resolveHarness, selectorPatterns } from './lib/routing.mjs';
 import {
   artifactPaths,
   joinRepositoryPath,
@@ -50,44 +48,6 @@ async function rollback(paths, stageRoot, stageRootExisted) {
   }
 }
 
-function readinessPath(scope, project, manifest) {
-  const patterns = selectorPatterns(scope.selector, project, manifest);
-  const concrete = patterns.find((path) => !path.includes('*'));
-  if (!concrete) {
-    throw Object.assign(new Error('上游 Scope 没有可解析的 readiness 路径：' + scope.id), { code: 'AIH_SCOPE_INVALID' });
-  }
-  return concrete;
-}
-
-function executeUpstreamReadiness(project, manifest, scopeIds) {
-  if (!scopeIds?.length) return;
-  const scopes = new Map(manifest.scopes.map((scope) => [scope.id, scope]));
-  const paths = scopeIds.map((scopeId) => {
-    const scope = scopes.get(scopeId);
-    if (!scope || scope.status !== 'active') {
-      throw Object.assign(new Error('阶段初始化引用未知或不可用的上游 Scope：' + scopeId), { code: 'AIH_SCOPE_INVALID' });
-    }
-    return readinessPath(scope, project, manifest);
-  });
-  const resolution = resolveHarness(manifest, project, paths, 'readiness', root);
-  if (resolution.status !== 'READY') {
-    const first = resolution.blockers[0] || { code: 'AIH_UPSTREAM_NOT_READY', message: '上游 readiness 无法解析。' };
-    throw Object.assign(new Error(first.message || first.meaning), { code: first.code });
-  }
-  const commands = new Map(manifest.commands.map((command) => [command.id, command]));
-  for (const commandId of resolution.commandIds) {
-    const command = commands.get(commandId);
-    if (!command) throw Object.assign(new Error('上游 readiness 引用未知命令：' + commandId), { code: 'AIH_COMMAND_INVALID' });
-    const validation = executeRegisteredCommand(root, command);
-    if (validation.status !== 'PASS') {
-      const evidence = validation.stderr || validation.stdout || '';
-      throw Object.assign(new Error('上游 readiness 未通过：' + command.run + (evidence ? '\n' + evidence : '')), {
-        code: validation.blockers[0] || 'AIH_UPSTREAM_NOT_READY',
-      });
-    }
-  }
-}
-
 try {
   if (!operationId) throw Object.assign(new Error('initialize-stage 必须提供 --operation。'), { code: 'AIH_COMMAND_INVALID' });
   const { project, manifest } = await loadProjectAndManifest(root);
@@ -97,15 +57,6 @@ try {
   if (!stage) throw Object.assign(new Error('项目未绑定阶段：' + operation.stage), { code: 'AIH_PROJECT_BINDING_INVALID' });
   if (stage.status === operation.toState) throw Object.assign(new Error('阶段已经初始化：' + operation.stage), { code: 'AIH_STAGE_ALREADY_INITIALIZED' });
   if (stage.status !== operation.fromState) throw Object.assign(new Error('阶段状态不允许初始化：' + stage.status), { code: 'AIH_PROJECT_BINDING_INVALID' });
-
-  if (operation.upstreamHandoff) {
-    const handoff = await executeHandoff(root, operation.upstreamHandoff.from, operation.upstreamHandoff.to);
-    if (handoff.status !== 'PASS') {
-      const first = handoff.blockers[0] || { code: 'AIH_UPSTREAM_NOT_READY' };
-      throw Object.assign(new Error('上游移交门禁未通过：' + first.code), { code: first.code });
-    }
-  }
-  executeUpstreamReadiness(project, manifest, operation.upstreamScopes);
 
   const copies = [];
   const generatedTargets = [];

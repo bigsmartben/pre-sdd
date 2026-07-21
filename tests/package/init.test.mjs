@@ -498,9 +498,21 @@ test('Vite and browser execution are registered in the Product Design domain Ski
   assert.equal(visualApply.kind, 'artifact');
   assert.deepEqual(visualApply.artifacts, ['visual-spec']);
   assert.match(visualApply.executor.path, /^\.agents\/skills\/product-design\//);
+  const assetIngest = manifest.operations.find((item) => item.id === 'ingest-figma-assets');
+  assert.equal(assetIngest.kind, 'ingest');
+  assert.equal(assetIngest.npmScript, 'ingest:figma-assets');
+  assert.equal(assetIngest.artifact, 'canonical-ui-prototype');
+  assert.match(assetIngest.executor.path, /^\.agents\/skills\/capture-figma-design-source\//);
+  assert.deepEqual(Object.keys(assetIngest.packetSchemas).sort(), ['acquisition', 'capturePlan', 'receipt', 'registration']);
   for (const code of [
     'AIH_SOURCE_CAPTURE_BLOCKED',
     'AIH_SOURCE_COVERAGE_FAILED',
+    'AIH_ASSET_CLASSIFICATION_INCOMPLETE',
+    'AIH_ASSET_MISSING',
+    'AIH_ASSET_HASH_MISMATCH',
+    'AIH_ASSET_CLOSURE_FAILED',
+    'AIH_ASSET_CSS_BYPASS',
+    'AIH_ASSET_INGEST_CONFLICT',
     'AIH_COMPONENT_ABSTRACTION_UNRESOLVED',
     'AIH_COMPONENT_MAPPING_INVALID',
     'AIH_COMPONENT_VARIANT_COVERAGE_FAILED',
@@ -559,7 +571,11 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/agents/openai.yaml'));
   assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/figma-design-context.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/capture-plan.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/acquisition-packet.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/ingest-receipt.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/source-registration.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs'));
   assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/scripts/validate-png-assets.mjs'));
   assert.ok(files.has('templates/workspace/.agents/skills/organize-figma-assets/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/figma-component-from-design/SKILL.md'));

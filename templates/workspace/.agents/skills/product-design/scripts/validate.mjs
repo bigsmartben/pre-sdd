@@ -106,6 +106,10 @@ function validateCapabilities(capabilities) {
   return { actorIds, businessRuleIds, useCaseIds, scenarioIds, stepIds };
 }
 
+async function fileSha256(path) {
+  return 'sha256:' + createHash('sha256').update(await readFile(path)).digest('hex');
+}
+
 function validateCapabilitiesReadiness(capabilities) {
   const intentFields = ['productName', 'productConcept', 'problem', 'businessGoal', 'successSignal'];
   for (const field of intentFields) {
@@ -782,11 +786,18 @@ try {
       }
       for (const asset of canonical.assets) {
         requireReferences(asset.sourceIds, designSourceIds, 'canonical.assets.' + asset.id, 'sourceIds');
-        requireReferences(asset.usageTargetIds, targetIds, 'canonical.assets.' + asset.id, 'usageTargetIds');
+        requireReferences(asset.consumerTargets, targetIds, 'canonical.assets.' + asset.id, 'consumerTargets');
         const actor = canonicalActorByAssetId.get(asset.id);
         const canonicalPaths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
         const target = repositoryFile(root, canonicalPaths.authorityRoot + '/' + actor + '/' + asset.path);
-        try { await access(target); } catch { block('AIH_SOURCE_INTEGRITY_FAILED', '资源文件不存在：' + asset.path, 'canonical.assets.' + asset.id); }
+        try {
+          await access(target);
+          if ('sha256' in asset && await fileSha256(target) !== asset.sha256) {
+            block('AIH_ASSET_HASH_MISMATCH', 'Asset Manifest 内容哈希与正式文件不一致：' + asset.path, 'canonical.assets.' + asset.id);
+          }
+        } catch {
+          block('AIH_ASSET_MISSING', '资源文件不存在：' + asset.path, 'canonical.assets.' + asset.id);
+        }
       }
       for (const token of canonical.tokens) {
         requireReferences(token.sourceIds, designSourceIds, 'canonical.tokens.' + token.id, 'sourceIds');

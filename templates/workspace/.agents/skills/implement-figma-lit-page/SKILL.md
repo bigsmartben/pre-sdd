@@ -22,7 +22,7 @@ description: 将 Figma 节点、Frame（画框）或完整页面实现为工作�
 
 Figma 来源尚未形成通过 Schema 校验的本地证据，或证据采集后发生过图层、变量、组件、Variant 或其他 Figma 写入时，停止实现并路由到 `$capture-figma-design-source`。本技能只消费冻结节点的最终证据，不执行 Figma 连接器采集，也不在视觉失败后拥有代码修复循环。
 
-首次代码写入前，所有实现所需资源必须已经存在于最终 `evidence.json`、通过内容哈希校验，并由 Product Design 登记到 `canonical-ui.ts.assets`。缺少资源、来源版本或登记关系时停止实现，返回来源采集或 Product Design 登记步骤；不得边写组件边补采集。
+首次代码写入前，确认范围内全部候选视觉节点必须在正式 Capture Plan 中具有唯一 strategy；所有 `asset` 节点必须已经存在于 Ingest Receipt 与最终 `evidence.json`、通过内容哈希校验，并由 Product Design 完整登记到 `canonical-ui.ts.assets`。缺少分类、资源、来源版本、导出参数或闭包关系时停止实现，返回来源采集或 Product Design 登记步骤；不得边写组件边补采集。
 
 需要详细视觉验证时读取 `references/visual-qa.md`。
 
@@ -67,6 +67,7 @@ Figma 来源尚未形成通过 Schema 校验的本地证据，或证据采集后
    - 校验 `canonical-ui.ts.assets[*].sourceIds`、实际路径、使用目标和证据清单中的 `role: asset` 项一致。
    - 发现缺少 `Export/` 资源、PNG 校验、清单哈希或使用目标时停止当前实现；返回 `$capture-figma-design-source` 或 Product Design 登记步骤完成闭环后，再从首次代码写入前的输入门禁重新开始。
    - 不用整页截图替代可交互页面或可复用组件。
+   - 已分类 `asset` 的每个 `consumerTargets` 必须实际加载并引用对应正式文件；用渐变、伪元素、多层 `div` 或其他 DOM/CSS 近似绕过时以 `AIH_ASSET_CSS_BYPASS` 阻断。
 
 7. 绑定可执行语义。
    - 实际 Screen 和正式 Interaction State 使用 `data-screen-id` 与 `data-state-id`。

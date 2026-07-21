@@ -1,6 +1,7 @@
 ﻿import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendFile, cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -572,26 +573,106 @@ test('Figma source registration packet validates adapter output without owning C
   ));
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
   const packet = {
-    version: '1.0.0',
+    version: '2.0.0',
     sourceId: 'DESIGN-SOURCE-001',
     sourceVersion: { kind: 'figma-file-version', value: 'fixture-version-20260715' },
     evidencePath: 'design-sources/DESIGN-SOURCE-001/evidence.json',
     evidenceSha256: 'sha256:' + 'a'.repeat(64),
+    capturePlan: { path: 'design-sources/DESIGN-SOURCE-001/capture-plan.json', sha256: 'sha256:' + 'b'.repeat(64) },
+    ingestReceipt: { path: 'design-sources/DESIGN-SOURCE-001/ingest-receipt.json', sha256: 'sha256:' + 'c'.repeat(64) },
     assets: [{
       path: 'public/assets/DESIGN-SOURCE-001/source.svg',
       sourceNodeId: '1:3',
       assetKind: 'icon',
-      usageTargetIds: ['COMPONENT-001'],
+      strategy: 'asset',
+      format: 'svg',
+      scale: 1,
+      cropBounds: { x: 0, y: 0, width: 40, height: 40 },
+      transparentPadding: { top: 0, right: 0, bottom: 0, left: 0 },
+      expectedDimensions: { width: 40, height: 40 },
+      sha256: 'sha256:' + 'd'.repeat(64),
+      downloadOperation: 'figma:export-node',
+      consumerTargets: ['COMPONENT-001'],
+      status: 'verified',
     }],
     gaps: [],
   };
   assert.equal(validate(packet), true, JSON.stringify(validate.errors));
   assert.equal(Object.hasOwn(packet.assets[0], 'id'), false);
-  delete packet.assets[0].usageTargetIds;
+  delete packet.assets[0].consumerTargets;
   assert.equal(validate(packet), false);
 });
 
-test('Canonical UI 7.0 rejects every removed legacy structure', async () => {
+test('controlled Figma Asset Ingest validates temporary acquisition before formal writes', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { areaPath } = await canonicalFixture(root);
+  const session = await mkdtemp(resolve(tmpdir(), 'pre-sdd-ingest-test-'));
+  const downloadDirectory = resolve(session, 'downloads');
+  await mkdir(downloadDirectory);
+  const formalPlanPath = resolve(areaPath, 'design-sources/DESIGN-SOURCE-001/capture-plan.json');
+  const formalAssetPath = resolve(areaPath, 'public/assets/DESIGN-SOURCE-001/source.svg');
+  const planContent = await readFile(formalPlanPath);
+  const plan = JSON.parse(planContent.toString('utf8'));
+  const assetContent = await readFile(formalAssetPath);
+  const planPath = resolve(session, 'capture-plan.json');
+  const downloadPath = resolve(downloadDirectory, 'source.svg');
+  await Promise.all([writeFile(planPath, planContent), writeFile(downloadPath, assetContent)]);
+  const assetPlan = plan.candidateVisualNodes.find((item) => item.strategy === 'asset');
+  const acquisition = {
+    version: '1.0.0',
+    sourceId: plan.sourceId,
+    sourceVersion: plan.sourceVersion,
+    capturePlanSha256: sha256(planContent),
+    downloadedAt: plan.frozenAt,
+    downloadOperation: assetPlan.assetExport.downloadOperation,
+    files: [{
+      sourceNodeId: assetPlan.nodeId,
+      path: 'downloads/source.svg',
+      targetPath: assetPlan.assetExport.targetPath,
+      format: assetPlan.assetExport.format,
+      scale: assetPlan.assetExport.scale,
+      cropBounds: assetPlan.assetExport.cropBounds,
+      transparentPadding: assetPlan.assetExport.transparentPadding,
+      dimensions: assetPlan.assetExport.expectedDimensions,
+      sha256: sha256(assetContent),
+    }],
+  };
+  const acquisitionPath = resolve(session, 'acquisition.json');
+  await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
+
+  const ingested = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+    '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
+  ]);
+  assert.equal(ingested.exitCode, 0, JSON.stringify(ingested.output, null, 2));
+  assert.equal(ingested.output.assets[0].status, 'verified');
+
+  acquisition.files[0].sha256 = 'sha256:' + 'f'.repeat(64);
+  await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
+  const mismatched = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+    '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
+  ]);
+  assert.ok(codes(mismatched).has('AIH_ASSET_HASH_MISMATCH'), JSON.stringify(mismatched.output, null, 2));
+
+  const ambiguousPlan = structuredClone(plan);
+  ambiguousPlan.candidateVisualNodes.push({
+    nodeId: assetPlan.nodeId,
+    name: 'Conflicting classification',
+    strategy: 'ignored',
+    reason: 'fixture conflict',
+  });
+  const ambiguousPlanContent = Buffer.from(JSON.stringify(ambiguousPlan, null, 2) + '\n');
+  await writeFile(planPath, ambiguousPlanContent);
+  acquisition.capturePlanSha256 = sha256(ambiguousPlanContent);
+  acquisition.files[0].sha256 = sha256(assetContent);
+  await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
+  const ambiguous = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+    '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
+  ]);
+  assert.ok(codes(ambiguous).has('AIH_ASSET_CLASSIFICATION_INCOMPLETE'), JSON.stringify(ambiguous.output, null, 2));
+});
+
+test('Canonical UI 8.0 rejects every removed legacy structure', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { path, model } = await canonicalFixture(root);
@@ -780,47 +861,30 @@ test('Figma evidence requires normalized parameters and layer-scoped static asse
   assert.ok(codes(invalidAsset).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(invalidAsset.output, null, 2));
 });
 
-test('exported Figma assets pass only after asset evidence and manifest hashes are closed', async () => {
+test('Figma asset closure blocks missing files, hash drift, and manifest drift', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { areaPath, path, model } = await canonicalFixture(root);
-  const assetRelativePath = 'public/assets/DESIGN-SOURCE-001/exported-badge.svg';
+  const assetRelativePath = model.assets[0].path;
   const assetPath = resolve(areaPath, assetRelativePath);
-  const assetContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#c8f36a"/></svg>\n';
-  await writeFile(assetPath, assetContent);
+  const original = await readFile(assetPath);
 
-  const exported = structuredClone(model);
-  exported.assets.push({
-    id: 'ASSET-EXPORTED-001',
-    path: assetRelativePath,
-    kind: 'image',
-    sourceIds: ['DESIGN-SOURCE-001'],
-    usageTargetIds: ['COMPONENT-001'],
-    alt: 'Exported badge',
-  });
-  await writeCanonical(path, exported);
-  const missingEvidence = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
-  assert.ok(codes(missingEvidence).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(missingEvidence.output, null, 2));
+  await rm(assetPath);
+  const missing = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(codes(missing).has('AIH_ASSET_MISSING'), JSON.stringify(missing.output, null, 2));
 
-  const evidencePath = resolve(areaPath, exported.designSources[0].evidence.path);
-  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-  evidence.items.push({
-    id: 'EVIDENCE-ASSET-EXPORTED-001',
-    role: 'asset',
-    path: assetRelativePath,
-    sha256: sha256(assetContent),
-    sourceNodeId: '1:3',
-    assetKind: 'icon',
-    captureScope: 'layer',
-    containsDynamicContent: false,
-  });
-  const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
-  await writeFile(evidencePath, evidenceText);
-  const staleManifestHash = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
-  assert.ok(codes(staleManifestHash).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(staleManifestHash.output, null, 2));
+  await writeFile(assetPath, Buffer.concat([original, Buffer.from('<!-- drift -->\n')]));
+  const hashDrift = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(codes(hashDrift).has('AIH_ASSET_HASH_MISMATCH'), JSON.stringify(hashDrift.output, null, 2));
 
-  exported.designSources[0].evidence.sha256 = sha256(evidenceText);
-  await writeCanonical(path, exported);
+  await writeFile(assetPath, original);
+  const manifestDrift = structuredClone(model);
+  manifestDrift.assets[0].sha256 = 'sha256:' + 'f'.repeat(64);
+  await writeCanonical(path, manifestDrift);
+  const closure = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(codes(closure).has('AIH_ASSET_CLOSURE_FAILED'), JSON.stringify(closure.output, null, 2));
+
+  await writeCanonical(path, model);
   const closed = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
   assert.equal(closed.exitCode, 0, JSON.stringify(closed.output, null, 2));
 });
@@ -1089,7 +1153,7 @@ test('browser validator requires a font asset to be used by the declared target 
   Object.assign(model.assets[0], { kind: 'font', fontFamily: 'FixtureUnusedFont' });
   await writeCanonical(path, model);
   const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
-  assert.ok(codes(result).has('AIH_CANONICAL_UI_ASSET_FAILED'), JSON.stringify(result.output, null, 2));
+  assert.ok(codes(result).has('AIH_ASSET_CSS_BYPASS'), JSON.stringify(result.output, null, 2));
   assert.ok(result.output.blockers.some((item) => item.message.includes('未在声明目标中实际使用')));
   assert.equal(result.output.blockers.some((item) => item.message.includes('资源未成功加载')), false);
 });
@@ -1117,7 +1181,7 @@ test('browser validator separates console, network, visual, accessibility and as
     'AIH_CANONICAL_UI_NETWORK_FAILED',
     'AIH_CANONICAL_UI_VISUAL_FAILED',
     'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED',
-    'AIH_CANONICAL_UI_ASSET_FAILED',
+    'AIH_ASSET_CSS_BYPASS',
   ]) assert.ok(actual.has(expected), JSON.stringify(result.output, null, 2));
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_CONSOLE_FAILED' && item.message.includes('页面异常')));
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_RUNTIME_FAILED' && item.message.includes('事件控件未绑定声明动作')));

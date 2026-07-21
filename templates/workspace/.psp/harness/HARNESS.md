@@ -16,7 +16,7 @@ Harness 与 Agent、领域 Skill 和正式产物之间的完整职责判定规�
 
     node .psp/harness/scripts/resolve-validation.mjs --path <path> --intent change|readiness --json
 
-普通实现使用 change；只有正式 readiness 或交付判断使用 readiness。resolver 返回 BLOCKED 时停止目标写入，只执行 blocker 允许的恢复动作。已登记 Domain Skill 根目录优先归入对应 Domain Scope，宽泛的 repository Scope 只接收未被领域声明的治理路径。`upstreamScopes` 与 `upstreamCommands` 表达机器依赖和门禁；`downstreamConsumers` 只返回 Manifest 显式声明且当前可用的 handoff consumer（移交候选），不代表用户已经选择下一步。
+普通实现使用 change；只有正式 readiness 或交付判断使用 readiness。resolver 返回 BLOCKED 时停止目标写入，只执行 blocker 允许的恢复动作。已登记 Domain Skill 根目录优先归入对应 Domain Scope，宽泛的 repository Scope 只接收未被领域声明的治理路径。`upstreamScopes` 与 `upstreamCommands` 是从 `projectDag` 推导的机器依赖和门禁；`downstreamConsumers` 只返回 DAG 中显式声明且当前可用的 handoff consumer（移交候选），不代表用户已经选择下一步。
 
 ## Change
 
@@ -26,13 +26,13 @@ Harness 与 Agent、领域 Skill 和正式产物之间的完整职责判定规�
 
 纯脚手架使用 manifest 声明的 initialize-workspace operation 初始化工作区：先运行 `npm run init:workspace -- --dry-run`，确认目标后运行 `npm run init:workspace`。该 operation 必须从 psp.project.yaml 派生全部非 unavailable 阶段根目录，只创建 workspace Scope 声明的 `.gitkeep` 标记，并保持所有阶段为 uninitialized；它不得创建任何产品或架构用户实例。该操作可重复执行，但发现 active 阶段或用户文件时必须阻断。
 
-uninitialized 表示目录骨架和路径绑定有效，但用户实例不存在；`.gitkeep` 不属于用户文件，也不得列入用户交付。普通 Harness 变更和 Hook 不得创建用户文件。只有用户明确开始某阶段时，才能执行 Manifest 为该阶段声明的 stage operation。通用 `initialize-stage` 先执行 `upstreamScopes` 声明的 readiness，再复制已登记模板、保护目标路径、执行已登记领域命令并在失败时回滚，不解释模板内容；具体命令、上游依赖、可选 handoff 和模板只能从当前 Manifest 解析，不在协议中硬编码。
+uninitialized 表示目录骨架和路径绑定有效，但用户实例不存在；`.gitkeep` 不属于用户文件，也不得列入用户交付。普通 Harness 变更和 Hook 不得创建用户文件。只有用户明确开始某阶段时，才能执行 Manifest 为该阶段声明的 stage operation。通用 `initialize-stage` 只复制已登记模板、保护目标路径、执行已登记领域命令并在失败时回滚，不解释模板内容，也不自动执行 readiness 或 handoff；具体命令和模板只能从当前 Manifest 解析，不在协议中硬编码。
 
 Product Design 的 UI HTML 完成事件是 Manifest 登记的 Publish operation。Publish 在同一生命周期事务中写入项目绑定的发布凭证并把阶段从 `active` 改为 `published`；凭证锁定范围由领域 Contract 与 Validator 解释。`published` 可执行读取和校验，但 resolver 的 `change`、Artifact operation 与 Repair 必须以 `AIH_STAGE_LOCKED` 阻断。只有 Reopen operation 能把阶段恢复为 `active`，同时保留原发布历史；Reopen、Publish 都返回 `downstreamAction: NOT_RUN`，不得初始化 02 或触发外部移交。
 
 ## Dependency Evidence / 依赖证据
 
-Manifest 使用 `dependencies` 声明 Artifact Scope 的机器依赖，并使用 `handoffConsumers` 声明工作区内部移交边。依赖不自动构成 handoff：Product Design 的内部链是 Use Cases → Visual Spec → UI HTML → Review/Repair → Publish/Lock；Architecture Design 拥有独立生命周期，不依赖 Product Design readiness、发布状态或 handoff。本模板不声明工作区外消费者。Architecture Design 可以在 Package 中选择一个显式、固定版本、只读的 Product Design 输入引用；该引用只用于一致性校验，不形成 Scope dependency、生命周期控制或回写权限。正式内部移交必须执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 Manifest 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
+Manifest 的 `projectDag` 是 Stage/Artifact 关系的唯一事实来源。节点声明 Scope 身份，`dependency` 与 `handoff` 边声明方向及 `sourceReadiness` 前置条件；Resolver 按入边拓扑推导依赖顺序，只有 `handoff` 边构成合法移交。Product Design 的内部链是 Use Cases → Visual Spec → UI HTML → Review/Repair → Publish/Lock；Architecture Design 拥有独立生命周期，不依赖 Product Design readiness、发布状态或 handoff。本模板不声明工作区外消费者。Architecture Design 可以在 Package 中选择一个显式、固定版本、只读的 Product Design 输入引用；该引用只用于一致性校验，不形成 DAG 边、生命周期控制或回写权限。正式内部移交必须由用户明确请求并执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 DAG 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
 
 ## Verify
 

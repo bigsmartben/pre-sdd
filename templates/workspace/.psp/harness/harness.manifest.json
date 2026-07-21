@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "15.0.0",
+  "version": "17.0.0",
   "runtime": {
     "protocol": "pre-sdd-harness/v2",
     "authority": "generated-workspace-local",
@@ -30,6 +30,7 @@
     ],
     "repositorySkills": [
       ".agents/skills/apply-repository-harness/SKILL.md",
+      ".agents/skills/project-consistency/SKILL.md",
       ".agents/skills/product-design/SKILL.md",
       ".agents/skills/architecture-design/SKILL.md",
       ".agents/skills/capture-figma-design-source/SKILL.md",
@@ -134,6 +135,141 @@
       "renderer": "technical-validation-markdown"
     }
   ],
+  "projectDag": {
+    "nodes": [
+      {
+        "id": "product-design",
+        "kind": "stage",
+        "stage": "product-design",
+        "validators": [
+          "product-structure"
+        ]
+      },
+      {
+        "id": "use-cases",
+        "kind": "artifact",
+        "stage": "product-design",
+        "validators": [
+          "use-cases-strict"
+        ]
+      },
+      {
+        "id": "visual-spec",
+        "kind": "artifact",
+        "stage": "product-design",
+        "validators": [
+          "visual-spec-strict"
+        ]
+      },
+      {
+        "id": "canonical-ui-prototype",
+        "kind": "artifact",
+        "stage": "product-design",
+        "validators": [
+          "product-structure",
+          "canonical-ui-input"
+        ]
+      },
+      {
+        "id": "architecture-design",
+        "kind": "stage",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-structure"
+        ]
+      },
+      {
+        "id": "system-boundary",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-system-boundary"
+        ]
+      },
+      {
+        "id": "conceptual-model",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-conceptual-model"
+        ]
+      },
+      {
+        "id": "technical-validation",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-technical-validation"
+        ]
+      },
+      {
+        "id": "architecture-package",
+        "kind": "artifact",
+        "stage": "architecture-design",
+        "validators": [
+          "architecture-package-readiness"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "use-cases",
+        "to": "visual-spec",
+        "type": "handoff",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "use-cases",
+        "to": "canonical-ui-prototype",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "visual-spec",
+        "to": "canonical-ui-prototype",
+        "type": "handoff",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "system-boundary",
+        "to": "conceptual-model",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "system-boundary",
+        "to": "technical-validation",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "conceptual-model",
+        "to": "architecture-package",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      },
+      {
+        "from": "technical-validation",
+        "to": "architecture-package",
+        "type": "dependency",
+        "conditions": {
+          "sourceReadiness": "required"
+        }
+      }
+    ]
+  },
   "operations": [
     {
       "id": "initialize-workspace",
@@ -252,6 +388,28 @@
       ]
     },
     {
+      "id": "ingest-figma-assets",
+      "kind": "ingest",
+      "npmScript": "ingest:figma-assets",
+      "run": "npm run ingest:figma-assets",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs",
+        "args": [
+          "--json"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "packetSchemas": {
+        "capturePlan": ".agents/skills/capture-figma-design-source/capture-plan.schema.json",
+        "acquisition": ".agents/skills/capture-figma-design-source/acquisition-packet.schema.json",
+        "receipt": ".agents/skills/capture-figma-design-source/ingest-receipt.schema.json",
+        "registration": ".agents/skills/capture-figma-design-source/source-registration.schema.json"
+      }
+    },
+    {
       "id": "canonical-ui-repair",
       "kind": "repair",
       "npmScript": "repair:canonical-ui",
@@ -331,6 +489,17 @@
   ],
   "commands": [
     {
+      "id": "project-consistency",
+      "npmScript": "check:project-consistency",
+      "run": "npm run check:project-consistency",
+      "purpose": "仅在用户显式调用时按项目 DAG 只读检查节点、边与领域产物一致性",
+      "blocking": true,
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/project-consistency/scripts/check.mjs"
+      }
+    },
+    {
       "id": "harness",
       "npmScript": "validate:harness",
       "run": "npm run validate:harness",
@@ -364,7 +533,8 @@
       "executor": {
         "kind": "node-test",
         "paths": [
-          ".psp/harness/tests/harness/*.test.mjs"
+          ".psp/harness/tests/harness/*.test.mjs",
+          ".agents/skills/project-consistency/tests/*.test.mjs"
         ]
       }
     },
@@ -429,7 +599,7 @@
       "id": "canonical-ui-input",
       "npmScript": "validate:canonical-ui-input",
       "run": "npm run validate:canonical-ui-input",
-      "purpose": "校验 Canonical UI Prototype 上游输入、设计来源证据清单、内容哈希与覆盖关系",
+      "purpose": "校验 Canonical UI Prototype 上游输入、Capture Plan、Ingest Receipt、Asset Manifest、内容哈希与消费闭包",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -992,10 +1162,7 @@
       },
       "defaultProfile": "use-cases-readiness",
       "readinessProfile": "use-cases-readiness",
-      "uninitializedProfile": "product-uninitialized",
-      "handoffConsumers": [
-        "visual-spec"
-      ]
+      "uninitializedProfile": "product-uninitialized"
     },
     {
       "id": "visual-spec",
@@ -1013,13 +1180,7 @@
       },
       "defaultProfile": "visual-spec-readiness",
       "readinessProfile": "visual-spec-readiness",
-      "uninitializedProfile": "product-uninitialized",
-      "dependencies": [
-        "use-cases"
-      ],
-      "handoffConsumers": [
-        "canonical-ui-prototype"
-      ]
+      "uninitializedProfile": "product-uninitialized"
     },
     {
       "id": "canonical-ui-prototype",
@@ -1040,12 +1201,7 @@
       },
       "defaultProfile": "canonical-ui-prototype",
       "readinessProfile": "product-delivery",
-      "uninitializedProfile": "product-uninitialized",
-      "dependencies": [
-        "use-cases",
-        "visual-spec"
-      ],
-      "handoffConsumers": []
+      "uninitializedProfile": "product-uninitialized"
     },
     {
       "id": "architecture-design",
@@ -1096,9 +1252,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "conceptual-model-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "system-boundary"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -1120,9 +1273,6 @@
       "defaultProfile": "technical-validation",
       "readinessProfile": "technical-validation-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "system-boundary"
-      ],
       "domain": "architecture-design"
     },
     {
@@ -1141,10 +1291,6 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "architecture-package-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "dependencies": [
-        "conceptual-model",
-        "technical-validation"
-      ],
       "domain": "architecture-design"
     }
   ],
@@ -1187,6 +1333,48 @@
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "规格内容仍是 draft、存在 gap 或未满足严格门禁",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_CLASSIFICATION_INCOMPLETE",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "确认范围内的视觉候选节点缺少唯一 asset、dom-css、dynamic 或 ignored 策略",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_MISSING",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "已分类 asset 缺少 Acquisition Packet 文件、正式文件或来源证据",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_HASH_MISMATCH",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Capture Plan、Acquisition Packet、正式 Asset 或 Asset Manifest 的 SHA-256 不一致",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_CLOSURE_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "视觉候选、来源证据、正式 Asset 与消费目标未形成双向闭包",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_CSS_BYPASS",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "已分类 asset 的消费目标没有加载并使用正式 Asset，疑似以 DOM/CSS 近似旁路",
+      "domain": "product-design"
+    },
+    {
+      "code": "AIH_ASSET_INGEST_CONFLICT",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "受控 Ingest 目标已存在不同内容且没有匹配 previousSha256",
       "domain": "product-design"
     },
     {
@@ -1419,10 +1607,28 @@
       "meaning": "领域注册路径缺失、越界或被 Harness 垂直解释"
     },
     {
-      "code": "AIH_HANDOFF_EDGE_INVALID",
+      "code": "AIH_DAG_NODE_UNKNOWN",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "请求的移交边未在 Manifest 中双向一致声明"
+      "meaning": "项目 DAG 节点未绑定已知且身份一致的 Stage 或 Artifact Scope"
+    },
+    {
+      "code": "AIH_DAG_EDGE_CONFLICT",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "项目 DAG 对同一节点对声明了重复或冲突边"
+    },
+    {
+      "code": "AIH_DAG_CYCLE",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "项目 DAG 存在依赖环，无法推导稳定执行顺序"
+    },
+    {
+      "code": "AIH_HANDOFF_UNREACHABLE",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "请求的来源与目标之间没有可执行的显式 handoff 边"
     },
     {
       "code": "AIH_CANONICAL_UI_RUNTIME_FAILED",
