@@ -169,7 +169,7 @@ function argumentValue(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 
-export async function executeArtifactTransaction({ stageId, prepareOutputs }) {
+export async function executeArtifactTransaction({ stageId, prepareOutputs, prepareCandidate = null }) {
   const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
   const json = process.argv.includes('--json');
   const dryRun = process.argv.includes('--dry-run');
@@ -200,9 +200,23 @@ export async function executeArtifactTransaction({ stageId, prepareOutputs }) {
     const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
     const validate = ajv.compile(schema);
     const collection = paths.authorityKind === 'internal-model-set';
-    const members = collection
+    let members = collection
       ? await readCandidateSet(inputArgument, paths, registry.format)
       : [{ actor: null, data: parseCandidate(await readCandidate(inputArgument), registry.format) }];
+    if (prepareCandidate) {
+      const prepared = await prepareCandidate({
+        root,
+        project,
+        manifest,
+        stageId,
+        artifactId,
+        data: collection ? null : members[0].data,
+        members,
+        inputArgument,
+        argumentValue,
+      });
+      if (!collection && prepared) members = [{ actor: null, data: prepared }];
+    }
     for (const member of members) {
       if (!validate(member.data)) {
         const detail = (validate.errors || []).map((error) => (error.instancePath || '/') + ' ' + error.message).join('; ');

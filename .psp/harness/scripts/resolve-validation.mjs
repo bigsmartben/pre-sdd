@@ -14,8 +14,8 @@ const root = resolve(process.env.PSP_REPOSITORY_ROOT || process.cwd());
 let result;
 
 try {
-  if (paths.length === 0 || !['change', 'readiness'].includes(intent)) {
-    throw Object.assign(new Error('必须提供至少一个 --path，且 --intent 只能是 change 或 readiness。'), { code: 'AIH_PATH_INVALID' });
+  if (paths.length === 0 || !['change', 'checkpoint', 'readiness'].includes(intent)) {
+    throw Object.assign(new Error('必须提供至少一个 --path，且 --intent 只能是 change、checkpoint 或 readiness。'), { code: 'AIH_PATH_INVALID' });
   }
   const project = await readYaml(root, 'psp.project.yaml');
   if (project.kind !== 'PSPScaffoldProject') {
@@ -29,6 +29,8 @@ try {
     const resolved = resolvedProfiles(manifest, selection.scopes, intent);
     result = {
       status: 'READY',
+      intent,
+      completionEligible: intent === 'readiness',
       scopes: selection.scopes.map((scope) => scope.id),
       upstreamScopes: [],
       downstreamConsumers: [],

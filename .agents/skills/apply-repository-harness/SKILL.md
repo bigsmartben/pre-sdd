@@ -12,11 +12,12 @@ description: 在 pre-sdd 脚手架源仓库中实施或审查模板、运行时�
 3. 保留无关用户改动，收集全部预计变更的仓库相对 POSIX 路径。
 4. 运行：
 
-       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --intent change|readiness --json
+       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --intent change|checkpoint|readiness --json
 
 5. resolver 返回 `BLOCKED` 时停止对应写入；否则只实施用户要求的脚手架工程变更。
-6. 对全部实际变更路径重新解析，按返回顺序执行每条验证命令。
-7. 只报告脚手架工程门禁，不运行产品或架构 handoff。
+6. 编辑循环使用 `change`；一个任务或 Issue 的实现形成稳定检查点时使用 `checkpoint`；PR、合并或发布前使用 `readiness`。
+7. 对全部实际变更路径重新解析，按返回顺序执行每条验证命令。只有 `readiness` PASS 可以形成 `validated-scaffold-change`；其他意图通过只表示当前影响范围通过。
+8. 只报告脚手架工程门禁，不运行产品或架构 handoff。
 
 ## 证据
 

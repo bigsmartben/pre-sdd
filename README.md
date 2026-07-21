@@ -107,7 +107,14 @@ pre-sdd harness <npm-script> [-- <参数>]
 
 3. 只修改本次任务需要的文件。不要在 `templates/workspace/` 原位创建用户实例、`node_modules`、构建输出或浏览器证据。
 
-4. 对全部实际变更路径重新运行 Resolver，并按返回顺序执行每条命令。下面是可能出现的最大门禁集合，不是每次都固定执行四项。
+4. 编辑过程中以 `change` 获得快速反馈；任务或 Issue 完成时以 `checkpoint` 运行定向临时工作区测试；PR、合并或发布前以 `readiness` 执行完整门禁。只有 `readiness` PASS 可以形成 `validated-scaffold-change`。
+
+   ```bash
+   node .psp/harness/scripts/resolve-validation.mjs --path <实际路径> --intent checkpoint --json
+   node .psp/harness/scripts/resolve-validation.mjs --path <实际路径> --intent readiness --json
+   ```
+
+5. 对全部实际变更路径重新运行 Resolver，并按返回顺序执行每条命令。下面是 `readiness` 可能出现的最大门禁集合，不是编辑循环固定执行的四项。
 
    ```bash
    npm run validate:harness
@@ -116,16 +123,17 @@ pre-sdd harness <npm-script> [-- <参数>]
    npm run pack:check
    ```
 
-Resolver 会按实际路径缩小命令集合。例如，只改根 README 时通常运行前两项；同时修改工作区模板时会运行全部四项。
+Resolver 会按实际路径和意图缩小命令集合。例如，修改 Product Design Skill 时，`change` 只运行根结构校验和临时模板副本中的高信号 Product Design 测试，`checkpoint` 再运行临时生成工作区的完整领域套件；`readiness` 仍运行全部四项。
 
 ### 变更范围与门禁
 
-| 修改内容 | 常见路径 | Resolver 选择的工程门禁 |
-|---|---|---|
-| 根治理与开发者文档 | `README.md`、`.psp/harness/**` | Harness 校验、Harness 回归测试 |
-| 运行时与命令行入口 | `bin/**`、`runtime/**`、`package.json` | 上述两项，再加发布包行为测试 |
-| 工作区模板 | `templates/workspace/**` | 全部门禁，包括发布清单检查 |
-| 发布包测试 | `tests/package/**` | 全部门禁，包括发布清单检查 |
+| 修改内容 | 常见路径 | `change` / `checkpoint` | `readiness` |
+|---|---|---|---|
+| 根治理与开发者文档 | `README.md`、`.psp/harness/**` | Harness 结构与治理回归 | 完整发布门禁 |
+| 运行时与命令行入口 | `bin/**`、`runtime/**`、`package.json` | Harness 回归 / 包行为检查 | 完整发布门禁 |
+| Product Design 模板 | `templates/workspace/.agents/skills/product-design/**` | 临时模板副本 / 临时生成工作区 Product Design 测试 | 完整发布门禁 |
+| Architecture Design 模板 | `templates/workspace/.agents/skills/architecture-design/**` | 临时模板副本 / 临时生成工作区 Architecture Design 测试 | 完整发布门禁 |
+| 共享工作区模板 | `templates/workspace/**` | 三个临时模板副本 / 三个临时生成工作区定向套件 | 完整发布门禁 |
 
 这里的 `PASS` 只表示脚手架工程门禁通过，不表示任何产品或架构内容已经就绪。
 
@@ -144,7 +152,7 @@ Resolver 会按实际路径缩小命令集合。例如，只改根 README 时通
 
 ### 持续集成与发布检查
 
-持续集成（Continuous Integration）工作流只调用 `.psp/harness/scripts/run-ci-validation.mjs`。该执行器读取 Manifest、让 Resolver 覆盖仓库路径，再按返回顺序执行全部工程门禁。只查看本地执行计划时运行：
+持续集成（Continuous Integration）工作流只调用 `.psp/harness/scripts/run-ci-validation.mjs`。该执行器读取 Manifest、让 Resolver 以 `readiness` 覆盖仓库路径，再按返回顺序执行全部工程门禁。只查看本地执行计划时运行：
 
 ```bash
 node .psp/harness/scripts/run-ci-validation.mjs --plan --json

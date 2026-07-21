@@ -19,11 +19,11 @@ export function repositoryPaths(root) {
   return result.stdout.split('\0').filter(Boolean);
 }
 
-export function resolveRepositoryValidation(root, paths) {
+export function resolveRepositoryValidation(root, paths, intent = 'readiness') {
   const resolver = '.psp/harness/scripts/resolve-validation.mjs';
   const args = [resolver];
   for (const path of paths) args.push('--path', path);
-  args.push('--intent', 'change', '--json');
+  args.push('--intent', intent, '--json');
   const result = execute(process.execPath, args, { cwd: root });
   let receipt;
   try {
@@ -34,6 +34,12 @@ export function resolveRepositoryValidation(root, paths) {
   if (result.status !== 0 || receipt.status !== 'READY') {
     const details = (receipt.blockers || []).map((item) => '[' + item.code + '] ' + item.message).join('\n');
     throw Object.assign(new Error(details || 'Resolver 未返回 READY。'), { code: receipt.blockers?.[0]?.code || 'AIH_VALIDATION_FAILED', receipt });
+  }
+  if (receipt.intent !== intent || (intent === 'readiness' && receipt.completionEligible !== true)) {
+    throw Object.assign(new Error('Resolver 返回的验证意图或完成资格与请求不一致。'), {
+      code: 'AIH_CI_POLICY_INVALID',
+      receipt,
+    });
   }
   return receipt;
 }
@@ -72,7 +78,7 @@ export function runValidationCommands(root, receipt) {
 
 export function planContinuousIntegration(root = process.cwd()) {
   const paths = repositoryPaths(root);
-  const receipt = resolveRepositoryValidation(root, paths);
+  const receipt = resolveRepositoryValidation(root, paths, 'readiness');
   return { ...receipt, repositoryPathCount: paths.length };
 }
 

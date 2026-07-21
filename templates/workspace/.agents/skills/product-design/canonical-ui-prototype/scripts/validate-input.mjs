@@ -78,10 +78,10 @@ try {
   const { project, manifest } = await loadProjectAndManifest(root);
   const stage = project.stages?.['product-design'];
   if (stage?.status !== 'active') throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
-  for (const artifactId of ['capabilities', 'interactions']) {
+  for (const artifactId of ['capabilities']) {
     const registry = manifest.artifactRegistry.find((item) => item.id === artifactId);
     const paths = artifactPaths(project, artifactId, 'product-design');
-    const authorityPath = paths.authorityKind === 'internal-model-set' ? artifactMemberPath(paths, requestedActor) : paths.authorityPath;
+    const authorityPath = paths.authorityPath;
     const model = await readStructured(root, authorityPath, registry.format);
     if (model.metadata?.status !== 'ready' || model.gaps?.length > 0 || model.gates?.some((gate) => gate.checked !== true)) {
       block('AIH_UPSTREAM_NOT_READY', '上游产物未达到严格就绪：' + artifactId, authorityPath);

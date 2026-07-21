@@ -13,20 +13,6 @@ stages:
           - path: UC.md
             role: user-artifact
             projection: use-cases-document
-      interactions:
-        internalModelSet:
-          root: .psp/models/wireflows
-          member: wireflow-mid.yaml
-          partitionKey: metadata.actor
-        outputs:
-          - path: wireflows/README.md
-            role: user-artifact
-            projection: wireflow-index
-        memberOutputs:
-          - root: wireflows
-            member: wireflow-mid.md
-            role: user-artifact
-            projection: interactions-markdown
       canonical-ui-prototype:
         authority:
           kind: area-set

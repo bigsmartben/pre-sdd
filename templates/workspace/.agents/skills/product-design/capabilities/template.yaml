@@ -15,7 +15,10 @@ productScope:
   excluded: []
 businessRules: []
 useCases: []
+interactionStates: []
+interactionFlows: []
+lowFiUiBlueprints: []
 gaps:
   - id: GAP-001
     field: useCases
-    reason: 尚未形成可供 Wireflow 消费的稳定 Use Case 行为目录
+    reason: 尚未形成包含产品行为、正式交互流程与 Low-Fi UI Blueprint 决定的稳定 Use Case 规格

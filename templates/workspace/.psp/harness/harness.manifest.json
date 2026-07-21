@@ -64,26 +64,6 @@
       ]
     },
     {
-      "id": "interactions",
-      "stage": "product-design",
-      "domain": "product-design",
-      "authorityKind": "internal-model-set",
-      "format": "yaml",
-      "contract": ".agents/skills/product-design/interactions/contract.yaml",
-      "schema": ".agents/skills/product-design/interactions/schema.json",
-      "template": ".agents/skills/product-design/interactions/template.yaml",
-      "projections": [
-        {
-          "id": "wireflow-index",
-          "renderer": "wireflow-index"
-        },
-        {
-          "id": "interactions-markdown",
-          "renderer": "interactions-markdown"
-        }
-      ]
-    },
-    {
       "id": "canonical-ui-prototype",
       "stage": "product-design",
       "domain": "product-design",
@@ -214,8 +194,7 @@
       "domain": "product-design",
       "stage": "product-design",
       "artifacts": [
-        "capabilities",
-        "interactions"
+        "capabilities"
       ]
     },
     {
@@ -351,7 +330,7 @@
       "id": "use-cases-strict",
       "npmScript": "validate:use-cases",
       "run": "npm run validate:use-cases",
-      "purpose": "校验 Use Cases 是否可移交给 Wireflow",
+      "purpose": "校验原子 Use Case 规格的产品行为、正式交互流程与 Low-Fi UI Blueprint 是否完整",
       "blocking": true,
       "domain": "product-design",
       "executor": {
@@ -360,22 +339,6 @@
         "args": [
           "--step",
           "use-cases"
-        ]
-      }
-    },
-    {
-      "id": "wireflow-strict",
-      "npmScript": "validate:wireflow",
-      "run": "npm run validate:wireflow",
-      "purpose": "校验按参与者拆分的 Wireflow 集合、全局标识与 Use Case 覆盖是否可移交给独立 Canonical UI 应用",
-      "blocking": true,
-      "domain": "product-design",
-      "executor": {
-        "kind": "module",
-        "path": ".agents/skills/product-design/scripts/validate.mjs",
-        "args": [
-          "--step",
-          "wireflow"
         ]
       }
     },
@@ -679,13 +642,6 @@
       ]
     },
     {
-      "id": "wireflow-readiness",
-      "commands": [
-        "harness",
-        "wireflow-strict"
-      ]
-    },
-    {
       "id": "product-framework",
       "commands": [
         "harness",
@@ -920,30 +876,6 @@
       "readinessProfile": "use-cases-readiness",
       "uninitializedProfile": "product-uninitialized",
       "handoffConsumers": [
-        "wireflow"
-      ]
-    },
-    {
-      "id": "wireflow",
-      "kind": "artifact",
-      "domain": "product-design",
-      "selectionGroup": "product-design",
-      "priority": 350,
-      "status": "active",
-      "selector": {
-        "type": "artifact",
-        "stage": "product-design",
-        "artifacts": [
-          "interactions"
-        ]
-      },
-      "defaultProfile": "wireflow-readiness",
-      "readinessProfile": "wireflow-readiness",
-      "uninitializedProfile": "product-uninitialized",
-      "dependencies": [
-        "use-cases"
-      ],
-      "handoffConsumers": [
         "canonical-ui-prototype"
       ]
     },
@@ -968,7 +900,7 @@
       "readinessProfile": "product-delivery",
       "uninitializedProfile": "product-uninitialized",
       "dependencies": [
-        "wireflow"
+        "use-cases"
       ],
       "handoffConsumers": []
     },

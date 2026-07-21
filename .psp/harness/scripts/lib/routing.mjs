@@ -30,7 +30,11 @@ export function matchingScopes(manifest, paths, root) {
 export function resolvedProfiles(manifest, scopes, intent) {
   const ids = [];
   for (const scope of scopes) {
-    const id = intent === 'readiness' ? scope.readinessProfile : scope.defaultProfile;
+    const id = intent === 'readiness'
+      ? scope.readinessProfile
+      : intent === 'checkpoint'
+        ? scope.checkpointProfile
+        : scope.defaultProfile;
     if (!ids.includes(id)) ids.push(id);
   }
   const profiles = ids.map((id) => manifest.validationProfiles.find((profile) => profile.id === id)).filter(Boolean);

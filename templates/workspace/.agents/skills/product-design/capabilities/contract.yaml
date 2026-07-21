@@ -2,32 +2,39 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: capabilities
-  version: 5.0.0
+  version: 6.0.0
 spec:
   stage: product-design
   internalModelFormat: yaml
   outputRole: user-artifact
-  purpose: 维护稳定的产品行为目录，定义 Actor、产品范围、业务规则及可被 Wireflow 消费的 Use Case 场景；详细功能验收不由本产物拥有。
+  purpose: 以单一 Use Case 规格原子维护产品行为、正式交互流程与内部 Low-Fi UI Blueprint，并确定性生成 UC.md。
   owns:
-    - 产品名称与产品意图
-    - Actor 及其目标
-    - 产品范围内外
-    - 稳定的 Use Case 目标、价值、触发、前置条件与结果保证
-    - 主场景及备选或异常场景的稳定步骤标识
-    - 业务规则与 Use Case 关系
+    - 产品名称、产品意图、Actor 与产品范围
+    - 稳定 Use Case 的目标、触发、前置条件、结果保证、主场景及备选或异常场景
+    - Use Case 步骤到 Interaction State 与 Transition 的正式追溯
+    - 用户动作、系统响应、失败、重试、恢复与返回路径
+    - UI 用例的内部信息架构、Screen、Region、Layout 与 Control 建议
+    - 非 UI 用例的显式 not-applicable 决定
   excludes:
     - 详细 Given、When、Then 功能验收规格（由后续 spec.md 拥有）
-    - 页面与导航
-    - Screen、Control 与交互状态
-    - 组件与视觉规则
-    - 系统或子系统架构边界
-    - 软件架构
+    - Visual Spec、视觉 Token 与最终组件规则
+    - 对 UI HTML 页面结构或像素布局的约束
+    - HTML、CSS、JavaScript 与生产实现细节
+    - 系统、子系统或软件架构边界
+    - 独立 Wireflow 权威模型、投影、readiness 与 handoff
   domainRules:
     - unique-identifiers
     - capability-actor-references
     - use-case-scenario-integrity
     - use-case-business-rule-integrity
     - use-case-relationship-integrity
+    - interaction-flow-scenario-coverage
+    - interaction-flow-step-traceability
+    - interaction-state-transition-integrity
+    - interaction-failure-retry-recovery-return-explicit
+    - ui-applicability-explicit
+    - low-fi-blueprint-complete-for-ui-use-cases
+    - low-fi-blueprint-advisory-only
     - product-scope-complete
     - use-cases-projection-deterministic
   projections:
@@ -40,6 +47,9 @@ spec:
         - productScope
         - businessRules
         - useCases
+        - interactionStates
+        - interactionFlows
+        - lowFiUiBlueprints
         - gaps
   readiness:
     requiredStatus: ready

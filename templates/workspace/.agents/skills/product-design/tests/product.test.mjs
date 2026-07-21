@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { appendFile, cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -88,26 +88,21 @@ test('uninitialized product stage is a valid empty scaffold but cannot pass read
   assert.ok(codes(strict).has('AIH_STAGE_UNINITIALIZED'));
 });
 
-test('generic initialization creates empty actor collections without inventing product instances', async () => {
+test('generic initialization creates one atomic UC model without an independent Wireflow collection', async () => {
   const root = await temporaryRepository();
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
   assert.equal(stage.status, 'active');
-  assert.deepEqual(Object.keys(stage.artifacts), ['capabilities', 'interactions', 'canonical-ui-prototype']);
+  assert.deepEqual(Object.keys(stage.artifacts), ['capabilities', 'canonical-ui-prototype']);
   assert.equal(stage.areas['canonical-ui-prototypes'].root, 'Canonical-UI-Prototypes');
   assert.equal(stage.artifacts['html-mock'], undefined);
-  const interactionBinding = stage.artifacts.interactions;
-  assert.deepEqual(interactionBinding.internalModelSet, {
-    root: '.psp/models/wireflows',
-    member: 'wireflow-mid.yaml',
-    partitionKey: 'metadata.actor',
-  });
-  assert.deepEqual(await readdir(resolve(root, stage.root, interactionBinding.internalModelSet.root)), []);
-  const initialWireflow = await readFile(resolve(root, stage.root, interactionBinding.outputs[0].path), 'utf8');
-  assert.match(initialWireflow, /# Wireflow 参与者索引/);
-  assert.doesNotMatch(initialWireflow, /ACTOR-[0-9]{3}/);
+  const initialUseCases = await readFile(resolve(root, stage.root, stage.artifacts.capabilities.outputs[0].path), 'utf8');
+  assert.match(initialUseCases, /Product Behavior/);
+  assert.match(initialUseCases, /Interaction Flow/);
+  assert.match(initialUseCases, /Low-Fi UI Blueprint/);
+  assert.equal(await stat(resolve(root, stage.root, stage.artifacts.capabilities.internalModel)).then(() => true), true);
   const prototypeRoot = resolve(root, stage.root, stage.areas['canonical-ui-prototypes'].root);
   assert.deepEqual(await readdir(prototypeRoot), []);
   const templateRoot = resolve(root, '.agents/skills/product-design/canonical-ui-prototype/template');
@@ -140,7 +135,7 @@ test('generic initialization creates empty actor collections without inventing p
   assert.ok((await stat(resolve(templateRoot, 'public/vendor/html2canvas-1.4.1.min.js'))).isFile());
 });
 
-test('streamlined Use Cases candidate keeps simple human views concise', async () => {
+test.skip('legacy streamlined Use Cases projection is replaced by the atomic UC projection', async () => {
   const root = await temporaryRepository();
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
@@ -269,7 +264,77 @@ test('Use Cases readiness detects drift in UC.md', async () => {
   assert.ok(codes(result).has('AIH_GENERATED_DRIFT'));
 });
 
-test('Interactions v7 renders Sitemap, User Flow, and Wireframe as a human view distinct from YAML', async () => {
+test('atomic UC readiness covers behavior, flow, Low-Fi, failure recovery, and deterministic projection', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const markdown = await readFile(resolve(root, stage.root, stage.artifacts.capabilities.outputs[0].path), 'utf8');
+  assert.match(markdown, /Product Behavior（产品行为）/);
+  assert.match(markdown, /Interaction Flow（正式交互流程）/);
+  assert.match(markdown, /Low-Fi UI Blueprints/);
+  assert.match(markdown, /失败、重试、恢复与返回/);
+  assert.match(markdown, /UC-001-EXC-01-STEP-01/);
+  assert.match(markdown, /LF-SCREEN-001/);
+  const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+  assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
+  const check = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--check', '--json']);
+  assert.equal(check.exitCode, 0, JSON.stringify(check.output, null, 2));
+});
+
+test('atomic UC readiness blocks incomplete flow, traceability, blueprint, and exception recovery', async () => {
+  const cases = [
+    {
+      mutate(data) { data.interactionFlows = []; },
+      message: /UI Use Case 必须且只能有一个正式 Interaction Flow/,
+    },
+    {
+      mutate(data) { data.interactionFlows[0].transitions[0].useCaseStepRefs = ['UC-001-EXC-01-STEP-01']; },
+      message: /Use Case step 引用不存在|Use Case 步骤未追溯到 Transition/,
+    },
+    {
+      mutate(data) { data.lowFiUiBlueprints = []; },
+      message: /UI Use Case 缺少 Low-Fi UI Blueprint/,
+    },
+    {
+      mutate(data) { data.interactionFlows[0].transitions[1].failureResponse = null; },
+      message: /异常场景必须正式声明失败、重试、恢复与返回决定/,
+    },
+  ];
+  for (const invalidCase of cases) {
+    const root = await temporaryRepository();
+    await completeProductFixture(root);
+    const project = await fixtureProject(root);
+    const stage = project.stages['product-design'];
+    const artifact = await readArtifact(root, stage, stage.artifacts.capabilities);
+    invalidCase.mutate(artifact.data);
+    await writeArtifact(artifact);
+    const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+    assert.notEqual(result.exitCode, 0, JSON.stringify(result.output, null, 2));
+    assert.match(result.output.blockers.map((item) => item.message).join('\n'), invalidCase.message);
+  }
+});
+
+test('non-UI Use Case is explicit and requires neither flow nor Low-Fi blueprint', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const artifact = await readArtifact(root, stage, stage.artifacts.capabilities);
+  artifact.data.useCases[0].uiApplicability = { mode: 'not-applicable', reason: '该用例由离线批处理完成，不提供用户界面。' };
+  artifact.data.interactionStates = [];
+  artifact.data.interactionFlows = [];
+  artifact.data.lowFiUiBlueprints = [];
+  await writeArtifact(artifact);
+  const render = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--json']);
+  assert.equal(render.exitCode, 0, JSON.stringify(render.output, null, 2));
+  const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+  assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
+  const markdown = await readFile(resolve(root, stage.root, stage.artifacts.capabilities.outputs[0].path), 'utf8');
+  assert.match(markdown, /不适用（该用例由离线批处理完成，不提供用户界面。/);
+});
+
+test.skip('independent Interactions projection was removed by the atomic UC model', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const project = await fixtureProject(root);
@@ -292,7 +357,7 @@ test('Interactions v7 renders Sitemap, User Flow, and Wireframe as a human view 
     action: null,
   });
   interactionArtifact.data.interactionStates.push({
-    id: 'WF-STATE-004',
+    id: 'INT-STATE-004',
     screen: 'SCREEN-001',
     type: 'validation',
     condition: '等待人工复核',
@@ -305,16 +370,16 @@ test('Interactions v7 renders Sitemap, User Flow, and Wireframe as a human view 
     },
     terminal: true,
   });
-  interactionArtifact.data.wireflows[0].completionStates.push('WF-STATE-004');
+  interactionArtifact.data.wireflows[0].completionStates.push('INT-STATE-004');
   interactionArtifact.data.wireflows[0].steps.push({
     id: 'WF-001-STEP-03',
     scenarioRef: 'main',
     useCaseStepRefs: ['UC-001-STEP-01'],
-    from: { screen: 'SCREEN-001', state: 'WF-STATE-001' },
+    from: { screen: 'SCREEN-001', state: 'INT-STATE-001' },
     trigger: { event: 'manual-review-required', control: null },
     guard: '需要人工复核',
     branchLabel: '待确认',
-    to: { screen: 'SCREEN-001', state: 'WF-STATE-004' },
+    to: { screen: 'SCREEN-001', state: 'INT-STATE-004' },
   });
   const interactionCandidate = resolve(root, '.psp/candidate-interactions');
   await mkdir(resolve(interactionCandidate, 'ACTOR-001'), { recursive: true });
@@ -365,14 +430,14 @@ test('Interactions v7 renders Sitemap, User Flow, and Wireframe as a human view 
   assert.deepEqual([...new Set(visualWidths)], [90], '中英文混排时线框应保持右边界对齐');
   assert.doesNotMatch(markdown, /\| 用户目标 \||\| Actor 动作 \||\| 系统响应 \||\| 可见反馈 \|/);
   assert.doesNotMatch(markdown, /规格作者选择运行验证|执行检查并汇总通过证据|结果区显示通过状态和证据/);
-  assert.doesNotMatch(markdown, /<!-- OFFICIAL|^---$|generated:|artifactRole|internalModel|^status:|^version:|## Gates|GAP-[0-9]|siteMap:|wireflows:|interactionStates:|SCREEN-001|WF-STATE-001|CONTROL-001/mi);
+  assert.doesNotMatch(markdown, /<!-- OFFICIAL|^---$|generated:|artifactRole|internalModel|^status:|^version:|## Gates|GAP-[0-9]|siteMap:|wireflows:|interactionStates:|SCREEN-001|INT-STATE-001|CONTROL-001/mi);
   const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'wireflow', '--json']);
   assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
   const useCasesOnly = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
   assert.equal(useCasesOnly.exitCode, 0, JSON.stringify(useCasesOnly.output, null, 2));
 });
 
-test('Interactions v7 blocks Sitemap gaps, layout drift, invalid UC step references, duplicate branch labels, arbitrary gates, and unavailable trigger controls', async () => {
+test.skip('independent Interactions validation was removed by the atomic UC model', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const project = await fixtureProject(root);
@@ -386,7 +451,7 @@ test('Interactions v7 blocks Sitemap gaps, layout drift, invalid UC step referen
     id: 'WF-001-STEP-03',
     guard: '另一项成功结果',
   });
-  interactions.data.wireflows[0].steps[1].from = { screen: 'SCREEN-001', state: 'WF-STATE-003' };
+  interactions.data.wireflows[0].steps[1].from = { screen: 'SCREEN-001', state: 'INT-STATE-003' };
   interactions.data.interactionStates[0].stateDelta.enable = [];
   interactions.data.gates[0].id = interactions.data.gates[1].id;
   await writeArtifact(interactions);
@@ -399,11 +464,11 @@ test('Interactions v7 blocks Sitemap gaps, layout drift, invalid UC step referen
   assert.match(messages, /useCaseStepRefs 引用不存在：UC-001-STEP-99/);
   assert.match(messages, /同一判断的 branchLabel 必须唯一：WF-001 \/ 成功/);
   assert.match(messages, /触发 Control 在起始状态未启用：WF-001-STEP-01 \/ CONTROL-001/);
-  assert.match(messages, /完成状态无法从 Wireflow 入口到达：WF-001 \/ WF-STATE-003/);
+  assert.match(messages, /完成状态无法从 Wireflow 入口到达：WF-001 \/ INT-STATE-003/);
   assert.ok(codes(result).has('AIH_ARTIFACT_SCHEMA_FAILED'));
 });
 
-test('Wireflow actor collection writes one YAML and Markdown per participant and removes stale partitions', async () => {
+test.skip('independent Wireflow collection transaction was removed by the atomic UC model', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const project = await fixtureProject(root);
@@ -426,10 +491,10 @@ test('Wireflow actor collection writes one YAML and Markdown per participant and
 
   let second = JSON.stringify(firstInteraction.data);
   for (const [from, to] of [
-    ['ACTOR-001', 'ACTOR-002'], ['UC-001', 'UC-002'], ['WF-001', 'WF-002'], ['SCREEN-001', 'SCREEN-002'],
+    ['ACTOR-001', 'ACTOR-002'], ['UC-001', 'UC-002'], ['IF-001', 'WF-002'], ['SCREEN-001', 'SCREEN-002'],
     ['REGION-001', 'REGION-004'], ['REGION-002', 'REGION-005'], ['REGION-003', 'REGION-006'],
     ['CONTROL-001', 'CONTROL-005'], ['CONTROL-002', 'CONTROL-006'],
-    ['WF-STATE-001', 'WF-STATE-005'], ['WF-STATE-002', 'WF-STATE-006'], ['WF-STATE-003', 'WF-STATE-007'],
+    ['INT-STATE-001', 'INT-STATE-005'], ['INT-STATE-002', 'INT-STATE-006'], ['INT-STATE-003', 'INT-STATE-007'],
   ]) second = second.replaceAll(from, to);
   const secondInteraction = JSON.parse(second);
   const candidateRoot = resolve(root, '.psp/candidate-wireflow-set');
@@ -468,7 +533,7 @@ test('Wireflow actor collection writes one YAML and Markdown per participant and
   assert.ok(missing.output.blockers.some((item) => item.message.includes('ACTOR-002')));
 });
 
-test('Canonical UI rejects Wireflow and workflow-state references owned by another actor', async () => {
+test.skip('legacy Canonical UI Wireflow references were replaced by direct Interaction Flow references', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const project = await fixtureProject(root);
@@ -486,10 +551,10 @@ test('Canonical UI rejects Wireflow and workflow-state references owned by anoth
 
   let secondText = JSON.stringify(firstInteraction.data);
   for (const [from, to] of [
-    ['ACTOR-001', 'ACTOR-002'], ['UC-001', 'UC-002'], ['WF-001', 'WF-002'], ['SCREEN-001', 'SCREEN-002'],
+    ['ACTOR-001', 'ACTOR-002'], ['UC-001', 'UC-002'], ['IF-001', 'WF-002'], ['SCREEN-001', 'SCREEN-002'],
     ['REGION-001', 'REGION-004'], ['REGION-002', 'REGION-005'], ['REGION-003', 'REGION-006'],
     ['CONTROL-001', 'CONTROL-005'], ['CONTROL-002', 'CONTROL-006'],
-    ['WF-STATE-001', 'WF-STATE-005'], ['WF-STATE-002', 'WF-STATE-006'], ['WF-STATE-003', 'WF-STATE-007'],
+    ['INT-STATE-001', 'INT-STATE-005'], ['INT-STATE-002', 'INT-STATE-006'], ['INT-STATE-003', 'INT-STATE-007'],
   ]) secondText = secondText.replaceAll(from, to);
   const secondPath = resolve(
     root,
@@ -504,14 +569,14 @@ test('Canonical UI rejects Wireflow and workflow-state references owned by anoth
   const { path, model } = await canonicalFixture(root);
   const crossActorModel = JSON.parse(
     JSON.stringify(model)
-      .replaceAll('WF-STATE-001', 'WF-STATE-005')
-      .replaceAll('WF-001', 'WF-002'),
+      .replaceAll('INT-STATE-001', 'INT-STATE-005')
+      .replaceAll('IF-001', 'WF-002'),
   );
   await writeCanonical(path, crossActorModel);
 
   const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--json']);
   const messages = result.output.blockers.map((item) => item.message).join('\n');
-  assert.match(messages, /同参与者 Wireflow workflow state 引用不存在：WF-STATE-005/);
+  assert.match(messages, /同参与者 Wireflow workflow state 引用不存在：INT-STATE-005/);
   assert.match(messages, /同参与者 Wireflow 场景 引用不存在：WF-002/);
   assert.match(messages, /同参与者 Wireflow 追溯 引用不存在：WF-002/);
 });
@@ -716,7 +781,7 @@ test('guided partial sources are valid while blocked and incomplete exact source
   const missingCoverage = structuredClone(model);
   missingCoverage.visualPolicy.mode = 'exact';
   missingCoverage.visualPolicy.aspects = ['layout', 'dimensions', 'typography', 'color', 'spacing', 'shape', 'shadow', 'assets', 'visual-hierarchy'];
-  missingCoverage.designSources[0].coverage[0].stateIds = ['WF-STATE-001'];
+  missingCoverage.designSources[0].coverage[0].stateIds = ['INT-STATE-001'];
   await writeCanonical(path, missingCoverage);
   assert.ok(codes(runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json'])).has('AIH_SOURCE_COVERAGE_FAILED'));
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cp, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { runScript } from './fixture.mjs';
@@ -40,12 +40,6 @@ export async function completeProductFixture(root) {
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
   const capabilities = await readArtifact(root, stage, stage.artifacts.capabilities);
-  const interactionBinding = stage.artifacts.interactions;
-  const interactionPath = resolve(root, stage.root, interactionBinding.internalModelSet.root, 'ACTOR-001', interactionBinding.internalModelSet.member);
-  await mkdir(resolve(interactionPath, '..'), { recursive: true });
-  await copyFile(resolve(root, '.agents/skills/product-design/interactions/template.yaml'), interactionPath);
-  const interactions = await readArtifact(root, stage, stage.artifacts.interactions);
-
   markReady(capabilities.data);
   capabilities.data.intent = {
     productName: '示例产品',
@@ -78,6 +72,7 @@ export async function completeProductFixture(root) {
     preconditions: ['Package 已包含待验证的规格内容'],
     successOutcome: '显示可交付状态及对应证据',
     minimumGuarantee: '保留原始规格并显示可定位错误',
+    uiApplicability: { mode: 'required', reason: null },
     mainScenario: [{
       id: 'UC-001-STEP-01',
       initiator: 'actor',
@@ -101,135 +96,89 @@ export async function completeProductFixture(root) {
     businessRules: ['BR-001'],
     relationships: [],
   }];
-
-  markReady(interactions.data);
-  interactions.data.metadata.actor = 'ACTOR-001';
-  interactions.data.siteMap = {
-    entryScreen: 'SCREEN-001',
-    nodes: [{ screen: 'SCREEN-001', parent: null }],
-  };
-  interactions.data.screens = [{
-    id: 'SCREEN-001',
+  capabilities.data.interactionStates = [
+    { id: 'INT-STATE-001', name: '等待验证', type: 'entry', description: '规格作者可以提交验证请求', terminal: false },
+    { id: 'INT-STATE-002', name: '验证通过', type: 'success', description: '系统显示可交付状态和证据', terminal: true },
+    { id: 'INT-STATE-003', name: '验证失败', type: 'failure', description: '系统显示失败状态和可定位错误', terminal: true },
+  ];
+  capabilities.data.interactionFlows = [{
+    id: 'IF-001',
+    useCase: 'UC-001',
+    name: '验证规格',
+    coveredScenarios: ['main', 'UC-001-EXC-01'],
+    entryState: 'INT-STATE-001',
+    completionStates: ['INT-STATE-002', 'INT-STATE-003'],
+    transitions: [{
+      id: 'IF-001-TRANS-01', scenarioRef: 'main', useCaseStepRefs: ['UC-001-STEP-01'],
+      from: 'INT-STATE-001', to: 'INT-STATE-002', userAction: '提交 Package 验证请求',
+      systemResponse: '完成检查并展示通过状态和证据', guard: '结构与引用全部有效', branchLabel: '成功', failureResponse: null,
+    }, {
+      id: 'IF-001-TRANS-02', scenarioRef: 'UC-001-EXC-01', useCaseStepRefs: ['UC-001-EXC-01-STEP-01'],
+      from: 'INT-STATE-001', to: 'INT-STATE-003', userAction: '提交 Package 验证请求',
+      systemResponse: '停止交付判定并展示可定位错误', guard: '存在无法解析的引用', branchLabel: '失败',
+      failureResponse: { failure: 'Package 引用无效', retry: '修复引用后重新提交', recovery: '保留原始规格并定位错误', returnToState: 'INT-STATE-001' },
+    }],
+  }];
+  capabilities.data.lowFiUiBlueprints = [{
+    id: 'BLUEPRINT-001',
+    actor: 'ACTOR-001',
+    useCases: ['UC-001'],
+    informationArchitecture: { entryScreen: 'LF-SCREEN-001', nodes: [{ screen: 'LF-SCREEN-001', parent: null }] },
+    screens: [{
+    id: 'LF-SCREEN-001',
     name: '规格检查页',
     purpose: '发起 Package 验证并展示可审阅结果',
     useCases: ['UC-001'],
     layoutTree: {
       type: 'vertical',
       children: [
-        { type: 'region', region: 'REGION-001' },
+        { type: 'region', region: 'LF-REGION-001' },
         {
           type: 'horizontal',
           children: [
-            { type: 'region', region: 'REGION-002' },
-            { type: 'region', region: 'REGION-003' },
+            { type: 'region', region: 'LF-REGION-002' },
+            { type: 'region', region: 'LF-REGION-003' },
           ],
         },
       ],
     },
     regions: [{
-      id: 'REGION-001',
+      id: 'LF-REGION-001',
       name: '页面标题',
       purpose: '标识当前页面和验证状态',
       content: ['规格检查', '当前验证状态'],
       controls: [],
     }, {
-      id: 'REGION-002',
+      id: 'LF-REGION-002',
       name: '验证工作区',
       purpose: '发起 Package 验证',
       content: ['Package 摘要', '验证动作'],
       controls: [{
-        id: 'CONTROL-001',
+        id: 'LF-CONTROL-001',
         type: 'action',
         label: '运行验证',
         purpose: '提交当前 Package 验证请求',
-        dataBinding: null,
         action: 'validate-package',
       }],
     }, {
-      id: 'REGION-003',
+      id: 'LF-REGION-003',
       name: '验证结果',
       purpose: '展示验证状态、错误和证据',
       content: ['验证状态', '错误位置', '验证证据'],
       controls: [{
-        id: 'CONTROL-002',
+        id: 'LF-CONTROL-002',
         type: 'display',
         label: '验证结果',
         purpose: '展示验证状态、blocker 和证据',
-        dataBinding: 'validationResult',
         action: null,
       }],
     }],
-  }];
-  interactions.data.interactionStates = [
-    {
-      id: 'WF-STATE-001',
-      screen: 'SCREEN-001',
-      type: 'default',
-      condition: '尚未运行验证',
-      stateDelta: {
-        show: ['REGION-001', 'REGION-002', 'REGION-003'],
-        hide: ['CONTROL-002'],
-        enable: ['CONTROL-001'],
-        disable: [],
-        content: [{ target: 'REGION-003', value: '尚未运行验证' }],
-      },
-      terminal: false,
-    },
-    {
-      id: 'WF-STATE-002',
-      screen: 'SCREEN-001',
-      type: 'success',
-      condition: '所有结构、引用和门禁检查通过',
-      stateDelta: {
-        show: ['REGION-001', 'REGION-002', 'REGION-003', 'CONTROL-002'],
-        hide: [],
-        enable: ['CONTROL-001'],
-        disable: [],
-        content: [{ target: 'CONTROL-002', value: '通过状态和验证证据' }],
-      },
-      terminal: true,
-    },
-    {
-      id: 'WF-STATE-003',
-      screen: 'SCREEN-001',
-      type: 'error',
-      condition: '存在无法解析的引用',
-      stateDelta: {
-        show: ['REGION-001', 'REGION-002', 'REGION-003', 'CONTROL-002'],
-        hide: [],
-        enable: ['CONTROL-001'],
-        disable: [],
-        content: [{ target: 'CONTROL-002', value: '失败状态、错误位置和 blocker code' }],
-      },
-      terminal: true,
-    },
-  ];
-  interactions.data.wireflows = [{
-    id: 'WF-001',
-    useCase: 'UC-001',
-    name: '验证规格',
-    coveredScenarios: ['main', 'UC-001-EXC-01'],
-    entry: { screen: 'SCREEN-001', state: 'WF-STATE-001' },
-    completionStates: ['WF-STATE-002', 'WF-STATE-003'],
-    steps: [{
-      id: 'WF-001-STEP-01',
-      scenarioRef: 'main',
-      useCaseStepRefs: ['UC-001-STEP-01'],
-      from: { screen: 'SCREEN-001', state: 'WF-STATE-001' },
-      trigger: { event: 'validate-package', control: 'CONTROL-001' },
-      guard: null,
-      branchLabel: '成功',
-      to: { screen: 'SCREEN-001', state: 'WF-STATE-002' },
-    }, {
-      id: 'WF-001-STEP-02',
-      scenarioRef: 'UC-001-EXC-01',
-      useCaseStepRefs: ['UC-001-EXC-01-STEP-01'],
-      from: { screen: 'SCREEN-001', state: 'WF-STATE-001' },
-      trigger: { event: 'validate-package', control: 'CONTROL-001' },
-      guard: 'Package 中存在无法解析的引用',
-      branchLabel: '失败',
-      to: { screen: 'SCREEN-001', state: 'WF-STATE-003' },
     }],
+    statePresentations: [
+      { interactionState: 'INT-STATE-001', screen: 'LF-SCREEN-001', suggestion: '显示验证入口与未运行提示' },
+      { interactionState: 'INT-STATE-002', screen: 'LF-SCREEN-001', suggestion: '显示通过状态与证据' },
+      { interactionState: 'INT-STATE-003', screen: 'LF-SCREEN-001', suggestion: '显示错误位置、恢复与重试入口' },
+    ],
   }];
 
   const prototypeRoot = stage.areas['canonical-ui-prototypes'].root;
@@ -362,10 +311,10 @@ export async function completeProductFixture(root) {
   };
   const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
   await writeFile(resolve(sourceRoot, 'evidence.json'), evidenceText);
-  const allStateIds = ['WF-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
+  const allStateIds = ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '5.0.0',
+    version: '6.0.0',
     actor: 'ACTOR-001',
     visualPolicy: {
       mode: 'guided',
@@ -411,7 +360,7 @@ export async function completeProductFixture(root) {
     assets: [{ id: 'ASSET-001', path: 'public/assets/DESIGN-SOURCE-001/source.svg', kind: 'image', sourceIds: [sourceId], usageTargetIds: ['COMPONENT-001'], alt: 'Fixture source' }],
     tokens: [{ id: 'TOKEN-COLOR-ACCENT', type: 'color', value: '#c8f36a', sourceIds: [sourceId], targetIds: ['CONTROL-001'], cssProperty: '--accent' }],
     routes: [{ id: 'ROUTE-001', path: '/', screenId: 'SCREEN-001' }],
-    screens: [{ id: 'SCREEN-001', title: '规格验证', routeId: 'ROUTE-001', stateIds: ['WF-STATE-001'], componentIds: ['COMPONENT-001'] }],
+    screens: [{ id: 'SCREEN-001', title: '规格验证', routeId: 'ROUTE-001', stateIds: ['INT-STATE-001'], componentIds: ['COMPONENT-001'] }],
     components: [{ id: 'COMPONENT-001', name: '验证状态', controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
     componentInventory: [{
       id: 'COMPONENT-INVENTORY-001',
@@ -454,7 +403,7 @@ export async function completeProductFixture(root) {
     }],
     controls: [{ id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' }, { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' }],
     states: [
-      { id: 'WF-STATE-001', scope: 'workflow', ownerId: 'SCREEN-001', label: '等待验证' },
+      { id: 'INT-STATE-001', scope: 'workflow', ownerId: 'SCREEN-001', label: '等待验证' },
       { id: 'COMPONENT-STATE-DEFAULT', scope: 'component', ownerId: 'COMPONENT-001', label: '默认' },
       { id: 'COMPONENT-STATE-LOADING', scope: 'component', ownerId: 'COMPONENT-001', label: '加载' },
       { id: 'COMPONENT-STATE-SUCCESS', scope: 'component', ownerId: 'COMPONENT-001', label: '成功' },
@@ -463,8 +412,8 @@ export async function completeProductFixture(root) {
     events: [{ id: 'EVENT-001', name: 'submit-success', controlId: 'CONTROL-001' }, { id: 'EVENT-002', name: 'submit-error', controlId: 'CONTROL-002' }],
     actions: [{ id: 'ACTION-001', name: 'request-success', eventId: 'EVENT-001', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS'] }, { id: 'ACTION-002', name: 'request-error', eventId: 'EVENT-002', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'] }],
     scenarios: [
-      { id: 'SCENARIO-001', useCaseId: 'UC-001', wireflowIds: ['WF-001'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: allViewportIds },
-      { id: 'SCENARIO-002', useCaseId: 'UC-001', wireflowIds: ['WF-001'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: allViewportIds },
+      { id: 'SCENARIO-001', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: allViewportIds },
+      { id: 'SCENARIO-002', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: allViewportIds },
     ],
     mockBehaviors: [{ id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] }],
     viewports: [{ id: 'VIEWPORT-MOBILE', width: 390, height: 844 }, { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 }],
@@ -490,7 +439,7 @@ export async function completeProductFixture(root) {
     ],
     motions: [{ id: 'MOTION-001', targetId: 'COMPONENT-001', trigger: 'loading', durationMs: 160, reducedMotion: true }],
     accessibility: { standard: 'Web Content Accessibility Guidelines 2.2 AA', checks: ['automated-rules', 'keyboard-operation', 'visible-focus', 'accessible-name', 'target-size'] },
-    traceability: [{ useCaseId: 'UC-001', wireflowIds: ['WF-001'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
+    traceability: [{ useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
     gaps: [],
   };
   await writeFile(resolve(areaPath, 'src/spec/canonical-ui.ts'), 'export const canonicalUi = ' + JSON.stringify(canonical, null, 2) + ' as const;\n');
@@ -498,7 +447,7 @@ export async function completeProductFixture(root) {
   const app = await readFile(appPath, 'utf8');
   await writeFile(appPath, app
     .replaceAll('UC-NNN', 'UC-001')
-    .replaceAll('WF-STATE-NNN', 'WF-STATE-001')
+    .replaceAll('INT-STATE-NNN', 'INT-STATE-001')
     .replace(' class="card state-card" data-component-id="COMPONENT-001"', ' class="card state-card"')
     .replace('<h2>交互状态实验台</h2>', '<h2>交互状态实验台</h2>\n            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />'));
   const indexPath = resolve(areaPath, 'index.html');
@@ -508,10 +457,7 @@ export async function completeProductFixture(root) {
     index.replace('<psp-app></psp-app>', '<psp-app mode="default" data-component-id="COMPONENT-001" data-figma-instance-id="1:2"></psp-app>'),
   );
 
-  await Promise.all([
-    writeArtifact(capabilities),
-    writeArtifact(interactions),
-  ]);
+  await writeArtifact(capabilities);
   const render = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--json']);
   assert.equal(render.exitCode, 0, JSON.stringify(render.output, null, 2));
 }

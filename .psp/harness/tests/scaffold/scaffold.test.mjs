@@ -85,16 +85,58 @@ test('root and generated-workspace instructions are distinct contexts', async ()
   assert.match(workspaceInstructions, /Generated Workspace/);
 });
 
-test('resolver applies package gates to workspace-template changes', () => {
+test('resolver separates change, checkpoint, and readiness gates for Product Design changes', () => {
   const execution = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.deepEqual(result.scopes, ['workspace-template']);
+  assert.equal(result.intent, 'change');
+  assert.equal(result.completionEligible, false);
+  assert.deepEqual(result.scopes, ['workspace-product']);
   assert.deepEqual(result.commands, [
+    'npm run validate:harness',
+    'npm run test:template:product',
+  ]);
+
+  const checkpoint = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md'], 'checkpoint');
+  assert.equal(checkpoint.status, 0, checkpoint.stderr);
+  const checkpointResult = JSON.parse(checkpoint.stdout);
+  assert.equal(checkpointResult.intent, 'checkpoint');
+  assert.equal(checkpointResult.completionEligible, false);
+  assert.deepEqual(checkpointResult.commands, [
+    'npm run validate:harness',
+    'npm run test:workspace:product',
+  ]);
+
+  const readiness = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md'], 'readiness');
+  assert.equal(readiness.status, 0, readiness.stderr);
+  const readinessResult = JSON.parse(readiness.stdout);
+  assert.equal(readinessResult.intent, 'readiness');
+  assert.equal(readinessResult.completionEligible, true);
+  assert.deepEqual(readinessResult.commands, [
     'npm run validate:harness',
     'npm run test:harness',
     'npm run test:package',
     'npm run pack:check',
+  ]);
+});
+
+test('resolver uses targeted generated-workspace suites for shared template checkpoints', () => {
+  const change = resolvePaths(['templates/workspace/package.json']);
+  assert.equal(change.status, 0, change.stderr);
+  assert.deepEqual(JSON.parse(change.stdout).commands, [
+    'npm run validate:harness',
+    'npm run test:template:harness',
+    'npm run test:template:product',
+    'npm run test:template:architecture',
+  ]);
+
+  const checkpoint = resolvePaths(['templates/workspace/package.json'], 'checkpoint');
+  assert.equal(checkpoint.status, 0, checkpoint.stderr);
+  assert.deepEqual(JSON.parse(checkpoint.stdout).commands, [
+    'npm run validate:harness',
+    'npm run test:workspace:harness',
+    'npm run test:workspace:product',
+    'npm run test:workspace:architecture',
   ]);
 });
 
@@ -115,6 +157,8 @@ test('continuous-integration plan comes from Resolver commands', () => {
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
   assert.equal(result.status, 'READY');
+  assert.equal(result.intent, 'readiness');
+  assert.equal(result.completionEligible, true);
   assert.deepEqual(result.commands, [
     'npm run validate:harness',
     'npm run test:harness',
@@ -139,6 +183,19 @@ test('resolver blocks unmanaged and invalid paths', () => {
     assert.notEqual(execution.status, 0);
     assert.match(execution.stderr + execution.stdout, /AIH_(SCOPE_UNRESOLVED|PATH_INVALID|PATH_OUTSIDE_ROOT)/);
   }
+  const invalidIntent = resolvePaths(['README.md'], 'publish');
+  assert.notEqual(invalidIntent.status, 0);
+  assert.match(invalidIntent.stderr + invalidIntent.stdout, /AIH_PATH_INVALID/);
+});
+
+test('targeted workspace test runner rejects unknown suites before creating a workspace', () => {
+  const execution = spawnSync(process.execPath, ['.psp/harness/scripts/run-workspace-suite.mjs', '--suite', 'unknown'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  assert.notEqual(execution.status, 0);
+  assert.match(execution.stderr + execution.stdout, /AIH_COMMAND_INVALID/);
 });
 
 test('Codex SessionStart hook reports the scaffold Harness as PASS', () => {

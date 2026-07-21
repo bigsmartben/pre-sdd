@@ -1,5 +1,5 @@
 export const canonicalUi = {
-  version: '5.0.0',
+  version: '6.0.0',
   actor: 'ACTOR-001',
   visualPolicy: {
     mode: 'unresolved',
@@ -33,7 +33,7 @@ export const canonicalUi = {
       id: 'SCREEN-001',
       title: 'Canonical UI Prototype 起始页',
       routeId: 'ROUTE-001',
-      stateIds: ['WF-STATE-NNN'],
+      stateIds: ['INT-STATE-NNN'],
       componentIds: ['COMPONENT-001'],
     },
   ],
@@ -53,7 +53,7 @@ export const canonicalUi = {
     { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' },
   ],
   states: [
-    { id: 'WF-STATE-NNN', scope: 'workflow', ownerId: 'SCREEN-001', label: '待替换的 Wireflow 状态' },
+    { id: 'INT-STATE-NNN', scope: 'workflow', ownerId: 'SCREEN-001', label: '待替换的正式 Interaction State' },
     { id: 'COMPONENT-STATE-DEFAULT', scope: 'component', ownerId: 'COMPONENT-001', label: '默认' },
     { id: 'COMPONENT-STATE-LOADING', scope: 'component', ownerId: 'COMPONENT-001', label: '加载' },
     { id: 'COMPONENT-STATE-SUCCESS', scope: 'component', ownerId: 'COMPONENT-001', label: '成功' },
@@ -68,8 +68,8 @@ export const canonicalUi = {
     { id: 'ACTION-002', name: 'request-error', eventId: 'EVENT-002', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'] },
   ],
   scenarios: [
-    { id: 'SCENARIO-001', useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: [] },
-    { id: 'SCENARIO-002', useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], routeId: 'ROUTE-001', initialStateIds: ['WF-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: [] },
+    { id: 'SCENARIO-001', useCaseId: 'UC-NNN', interactionFlowIds: ['IF-NNN'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: [] },
+    { id: 'SCENARIO-002', useCaseId: 'UC-NNN', interactionFlowIds: ['IF-NNN'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: [] },
   ],
   mockBehaviors: [
     { id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] },
@@ -82,7 +82,7 @@ export const canonicalUi = {
     { id: 'MOTION-001', targetId: 'COMPONENT-001', trigger: 'loading', durationMs: 160, reducedMotion: true },
   ],
   traceability: [
-    { useCaseId: 'UC-NNN', wireflowIds: ['WF-STATE-NNN'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] },
+    { useCaseId: 'UC-NNN', interactionFlowIds: ['IF-NNN'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] },
   ],
   gaps: [
     { id: 'GAP-001', description: '先让用户选择界面运行环境，再用实际产品事实替换所有 NNN 占位标识并补充设计来源。', owner: 'product-design' },

@@ -45,7 +45,7 @@ export class PspApp extends LitElement {
   protected render() {
     const traceability: ReadonlyArray<{
       useCaseId: string;
-      wireflowIds: readonly string[];
+      interactionFlowIds: readonly string[];
       screenIds: readonly string[];
     }> = canonicalUi.traceability;
     return html`
@@ -60,16 +60,16 @@ export class PspApp extends LitElement {
       <main id="main">
         <section class="hero" aria-labelledby="hero-title">
           <p class="eyebrow">03 · CANONICAL UI PROTOTYPE</p>
-          <h1 id="hero-title">把中保真 Wireflow 变成<br />可运行的体验证据。</h1>
+          <h1 id="hero-title">把正式 Interaction Flow 变成<br />可运行的体验证据。</h1>
           <p class="lead">
-            这是产品无关的起始原型。替换本页内容时，让每个 Use Case 场景、Wireflow Screen 与可见状态都能实际操作和审阅。
+            这是产品无关的起始原型。替换本页内容时，让每个 Use Case 场景、正式交互状态与可见反馈都能实际操作和审阅。
           </p>
           <div class="pipeline" aria-label="产品设计交付流水线">
-            <span>UC-NNN</span><b>→</b><span>WF-STATE-NNN</span><b>→</b><span>SCREEN-001</span>
+            <span>UC-NNN</span><b>→</b><span>IF-NNN</span><b>→</b><span>SCREEN-001</span>
           </div>
         </section>
 
-        <section class="grid" aria-label="Canonical UI Prototype 验证区" data-screen-id="SCREEN-001" data-state-id="WF-STATE-NNN">
+        <section class="grid" aria-label="Canonical UI Prototype 验证区" data-screen-id="SCREEN-001" data-state-id="INT-STATE-NNN">
           <article class="card trace-card">
             <p class="card-index">01 / TRACEABILITY</p>
             <h2>规格追溯</h2>
@@ -82,7 +82,7 @@ export class PspApp extends LitElement {
               : html`<ul>
                   ${traceability.map(
                     (link) => html`<li>
-                      ${link.useCaseId} → ${link.wireflowIds.join(', ')} → ${link.screenIds.join(', ')}
+                      ${link.useCaseId} → ${link.interactionFlowIds.join(', ')} → ${link.screenIds.join(', ')}
                     </li>`,
                   )}
                 </ul>`}
@@ -127,10 +127,10 @@ export class PspApp extends LitElement {
             <p class="card-index">03 / DELIVERY GATE</p>
             <h2>进入 Specify 前</h2>
             <ul class="checklist">
-              <li><span>1</span>每个 Wireflow Screen 有可定位 DOM</li>
+              <li><span>1</span>每个正式 Interaction Flow 有可执行界面入口</li>
               <li><span>2</span>主场景与显式分支均可实际触发</li>
               <li><span>3</span>Mock 行为产生规格声明的可见状态</li>
-              <li><span>4</span>Use Case → Wireflow → Canonical UI Prototype 追溯完整</li>
+              <li><span>4</span>Use Case → Interaction Flow → Canonical UI Prototype 追溯完整</li>
             </ul>
           </article>
         </section>

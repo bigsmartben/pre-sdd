@@ -2,15 +2,16 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: canonical-ui-prototype
-  version: 5.0.0
+  version: 6.0.0
 spec:
   stage: product-design
   internalModelFormat: typescript
   outputRole: user-artifact
-  purpose: 按关键参与者定义彼此独立、可执行且具备完整界面语义的 Canonical UI Prototype；每个 ACTOR-ID 应用只消费同参与者 Wireflow，并以自己的静态语义入口作为界面规格唯一事实来源。
+  purpose: 按关键参与者定义彼此独立、可执行且具备完整界面语义的 Canonical UI Prototype；每个 ACTOR-ID 应用直接消费同参与者 UC 的正式 Interaction Flow，并以自己的静态语义入口作为界面规格唯一事实来源；Low-Fi UI Blueprint 仅作内部建议，不要求结构或像素一致。
   owns:
     - 可执行界面、路由、交互与状态
     - Screen、Component、Control、Event、Action 语义
+    - Use Case 与正式 Interaction Flow 到可执行界面的追溯
     - Component Inventory（组件清单）、Figma ↔ Lit Component Mapping（组件映射）与 Variant Coverage Matrix（变体覆盖矩阵）
     - 设计来源采集、本地证据、内容哈希与覆盖关系
     - 用户确认的运行环境、三模式视觉策略、设计令牌、动画、可选无障碍检查、渲染断言、来源一致性断言与追溯事实
@@ -22,6 +23,7 @@ spec:
     - Figma 回写与 Code Connect 模板创建
     - 下游代码生成规则
     - 用户审批、阶段推进或移交决策
+    - 对 Low-Fi UI Blueprint 的结构或像素复刻
     - 用户未确认的多设备、响应式、横竖屏或无障碍范围
     - Validator 直接修改实现代码、自动放宽视觉容差或修改设计来源与业务语义
     - 可重新生成的 dist 构建输出、会话级 HTTP 评审地址与临时运行证据；这些由运行器和 Validator 管理

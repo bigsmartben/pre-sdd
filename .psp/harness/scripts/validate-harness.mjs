@@ -200,7 +200,9 @@ export async function validateScaffold(rootInput = process.cwd()) {
   const scopeIds = manifest.scopes.map((scope) => scope.id);
   if (new Set(scopeIds).size !== scopeIds.length) issue(issues, 'AIH_SCOPE_INVALID', 'Scope id 重复。');
   for (const scope of manifest.scopes) {
-    if (!knownProfiles.has(scope.defaultProfile) || !knownProfiles.has(scope.readinessProfile)) {
+    if (!knownProfiles.has(scope.defaultProfile)
+      || !knownProfiles.has(scope.checkpointProfile)
+      || !knownProfiles.has(scope.readinessProfile)) {
       issue(issues, 'AIH_SCOPE_INVALID', 'Scope 引用未知 Profile：' + scope.id);
     }
   }

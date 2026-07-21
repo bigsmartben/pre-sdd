@@ -11,7 +11,7 @@
     "renderAssertions", "sourceParityAssertions", "motions", "traceability", "gaps"
   ],
   "properties": {
-    "version": {"const": "5.0.0"},
+    "version": {"const": "6.0.0"},
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "visualPolicy": {"$ref": "#/$defs/visualPolicy"},
     "repairPolicy": {"$ref": "#/$defs/repairPolicy"},
@@ -383,11 +383,11 @@
     "scenario": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "useCaseId", "wireflowIds", "routeId", "initialStateIds", "eventIds", "expectedStateIds", "viewportIds"],
+      "required": ["id", "useCaseId", "interactionFlowIds", "routeId", "initialStateIds", "eventIds", "expectedStateIds", "viewportIds"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "useCaseId": {"$ref": "#/$defs/id"},
-        "wireflowIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "interactionFlowIds": {"$ref": "#/$defs/nonEmptyIds"},
         "routeId": {"$ref": "#/$defs/id"},
         "initialStateIds": {"$ref": "#/$defs/nonEmptyIds"},
         "eventIds": {"$ref": "#/$defs/nonEmptyIds"},
@@ -470,7 +470,7 @@
         }
       }
     },
-    "trace": {"type": "object", "additionalProperties": false, "required": ["useCaseId", "wireflowIds", "screenIds", "controlIds", "stateIds"], "properties": {"useCaseId": {"$ref": "#/$defs/id"}, "wireflowIds": {"$ref": "#/$defs/nonEmptyIds"}, "screenIds": {"$ref": "#/$defs/nonEmptyIds"}, "controlIds": {"$ref": "#/$defs/nonEmptyIds"}, "stateIds": {"$ref": "#/$defs/nonEmptyIds"}}},
+    "trace": {"type": "object", "additionalProperties": false, "required": ["useCaseId", "interactionFlowIds", "screenIds", "controlIds", "stateIds"], "properties": {"useCaseId": {"$ref": "#/$defs/id"}, "interactionFlowIds": {"$ref": "#/$defs/nonEmptyIds"}, "screenIds": {"$ref": "#/$defs/nonEmptyIds"}, "controlIds": {"$ref": "#/$defs/nonEmptyIds"}, "stateIds": {"$ref": "#/$defs/nonEmptyIds"}}},
     "gap": {"type": "object", "additionalProperties": false, "required": ["id", "description", "owner"], "properties": {"id": {"$ref": "#/$defs/id"}, "description": {"type": "string", "minLength": 1}, "owner": {"type": "string", "minLength": 1}, "sourceIds": {"$ref": "#/$defs/nonEmptyIds"}}}
   },
   "allOf": [

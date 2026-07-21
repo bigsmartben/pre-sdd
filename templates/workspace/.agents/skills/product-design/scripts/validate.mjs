@@ -23,7 +23,7 @@ const readinessStep = process.argv.includes('--strict')
   : stepIndex >= 0 ? process.argv[stepIndex + 1] : null;
 const strict = readinessStep !== null;
 const json = process.argv.includes('--json');
-const validSteps = new Set(['use-cases', 'wireflow', 'canonical-ui-prototype']);
+const validSteps = new Set(['use-cases', 'canonical-ui-prototype']);
 const blockers = [];
 const warnings = [];
 
@@ -118,10 +118,6 @@ function validateCapabilitiesReadiness(capabilities) {
   if ((capabilities?.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 仍有待确认问题。', 'capabilities.gaps');
 }
 
-function endpointKey(endpoint) {
-  return endpoint?.screen + '::' + endpoint?.state;
-}
-
 function layoutRegionReferences(node, result = []) {
   if (!node) return result;
   if (node.type === 'region') result.push(node.region);
@@ -129,43 +125,38 @@ function layoutRegionReferences(node, result = []) {
   return result;
 }
 
-function intersection(left, right) {
-  const rightSet = new Set(right || []);
-  return (left || []).filter((value) => rightSet.has(value));
-}
-
-function validateSiteMap(interactions, screenIds) {
-  const siteMap = interactions?.siteMap || { entryScreen: null, nodes: [] };
+function validateInformationArchitecture(blueprint, screenIds) {
+  const siteMap = blueprint.informationArchitecture;
   const siteMapScreenIds = new Set();
   for (const node of siteMap.nodes || []) {
     if (siteMapScreenIds.has(node.screen)) {
-      block('AIH_REFERENCE_UNRESOLVED', 'Sitemap 重复放置 Screen：' + node.screen, 'interactions.siteMap.nodes');
+      block('AIH_REFERENCE_UNRESOLVED', 'Low-Fi IA 重复放置 Screen：' + node.screen, 'capabilities.lowFiUiBlueprints.' + blueprint.id);
     }
     siteMapScreenIds.add(node.screen);
   }
-  requireReferences([...siteMapScreenIds], screenIds, 'interactions.siteMap.nodes', 'Screen');
-  if (siteMap.entryScreen) requireReferences([siteMap.entryScreen], siteMapScreenIds, 'interactions.siteMap.entryScreen', 'Sitemap node');
+  requireReferences([...siteMapScreenIds], screenIds, 'capabilities.lowFiUiBlueprints.' + blueprint.id, 'Low-Fi Screen');
+  requireReferences([siteMap.entryScreen], siteMapScreenIds, 'capabilities.lowFiUiBlueprints.' + blueprint.id, 'IA node');
 
   for (const screenId of screenIds) {
     if (!siteMapScreenIds.has(screenId)) {
-      block('AIH_ARTIFACT_INCOMPLETE', 'Sitemap 未覆盖 Screen：' + screenId, 'interactions.siteMap.nodes');
+      block('AIH_ARTIFACT_INCOMPLETE', 'Low-Fi IA 未覆盖 Screen：' + screenId, 'capabilities.lowFiUiBlueprints.' + blueprint.id);
     }
   }
 
   const roots = (siteMap.nodes || []).filter((node) => node.parent === null);
   if ((siteMap.nodes || []).length > 0 && roots.length !== 1) {
-    block('AIH_ARTIFACT_INCOMPLETE', 'Sitemap 必须且只能有一个根页面，实际为 ' + roots.length + ' 个。', 'interactions.siteMap.nodes');
+    block('AIH_ARTIFACT_INCOMPLETE', 'Low-Fi IA 必须且只能有一个根页面，实际为 ' + roots.length + ' 个。', 'capabilities.lowFiUiBlueprints.' + blueprint.id);
   }
   if (roots.length === 1 && siteMap.entryScreen !== roots[0].screen) {
-    block('AIH_REFERENCE_UNRESOLVED', 'Sitemap 入口必须是根页面：' + siteMap.entryScreen, 'interactions.siteMap.entryScreen');
+    block('AIH_REFERENCE_UNRESOLVED', 'Low-Fi IA 入口必须是根页面：' + siteMap.entryScreen, 'capabilities.lowFiUiBlueprints.' + blueprint.id);
   }
 
   const children = new Map();
   for (const node of siteMap.nodes || []) {
     if (node.parent === null) continue;
-    requireReferences([node.parent], siteMapScreenIds, 'interactions.siteMap.nodes.' + node.screen, 'parent');
+    requireReferences([node.parent], siteMapScreenIds, 'capabilities.lowFiUiBlueprints.' + blueprint.id, 'parent');
     if (node.parent === node.screen) {
-      block('AIH_REFERENCE_UNRESOLVED', 'Sitemap 页面不能以自身为父页面：' + node.screen, 'interactions.siteMap.nodes.' + node.screen);
+      block('AIH_REFERENCE_UNRESOLVED', 'Low-Fi IA 页面不能以自身为父页面：' + node.screen, 'capabilities.lowFiUiBlueprints.' + blueprint.id);
     }
     if (!children.has(node.parent)) children.set(node.parent, []);
     children.get(node.parent).push(node.screen);
@@ -181,32 +172,14 @@ function validateSiteMap(interactions, screenIds) {
   }
   for (const screenId of siteMapScreenIds) {
     if (!reachable.has(screenId)) {
-      block('AIH_ARTIFACT_INCOMPLETE', 'Sitemap 页面无法从入口沿层级到达：' + screenId, 'interactions.siteMap.nodes');
+      block('AIH_ARTIFACT_INCOMPLETE', 'Low-Fi IA 页面无法从入口沿层级到达：' + screenId, 'capabilities.lowFiUiBlueprints.' + blueprint.id);
     }
   }
-}
-
-function validateInteractionsReadiness(interactions) {
-  const requiredSections = [
-    ['Sitemap', interactions?.siteMap?.nodes],
-    ['User Flow', interactions?.wireflows],
-    ['Wireframe', interactions?.screens],
-    ['交互状态', interactions?.interactionStates],
-  ];
-  for (const [label, value] of requiredSections) {
-    if (!Array.isArray(value) || value.length === 0) {
-      block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 缺少可评审的 ' + label + ' 内容。', 'interactions');
-    }
-  }
-  if (interactions?.metadata?.status !== 'ready') block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 状态不是 ready。', 'interactions.metadata.status');
-  if ((interactions?.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 仍有待确认问题。', 'interactions.gaps');
-  if ((interactions?.gates || []).some((gate) => gate.checked !== true)) block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 仍有未通过门禁。', 'interactions.gates');
 }
 
 function readinessArtifacts(step) {
   if (step === 'use-cases') return new Set(['capabilities']);
-  if (step === 'wireflow') return new Set(['capabilities', 'interactions']);
-  return new Set(['capabilities', 'interactions', 'canonical-ui-prototype']);
+  return new Set(['capabilities', 'canonical-ui-prototype']);
 }
 
 function aggregateMembers(members) {
@@ -217,6 +190,140 @@ function aggregateMembers(members) {
     if (Array.isArray(first[key])) result[key] = members.flatMap((member) => member.data[key] || []);
   }
   return result;
+}
+
+function validateAtomicUseCases(capabilities, base) {
+  const useCasesById = new Map((capabilities?.useCases || []).map((item) => [item.id, item]));
+  const statesById = new Map((capabilities?.interactionStates || []).map((item) => [item.id, item]));
+  const stateIds = ids(capabilities?.interactionStates, 'capabilities.interactionStates');
+  const flowIds = ids(capabilities?.interactionFlows, 'capabilities.interactionFlows');
+  const transitionIds = ids((capabilities?.interactionFlows || []).flatMap((flow) => flow.transitions || []), 'capabilities.interactionFlows.transitions');
+  const flowsByUseCase = new Map();
+
+  for (const flow of capabilities?.interactionFlows || []) {
+    const location = 'capabilities.interactionFlows.' + flow.id;
+    if (!flow.id || !(flow.transitions || []).every((transition) => transition.id.startsWith(flow.id + '-TRANS-'))) {
+      block('AIH_REFERENCE_UNRESOLVED', 'Transition ID 必须属于当前 Interaction Flow：' + flow.id, location + '.transitions');
+    }
+    requireReferences([flow.useCase], base.useCaseIds, location + '.useCase', 'Use Case');
+    if (!flowsByUseCase.has(flow.useCase)) flowsByUseCase.set(flow.useCase, []);
+    flowsByUseCase.get(flow.useCase).push(flow);
+    const useCase = useCasesById.get(flow.useCase);
+    if (useCase?.uiApplicability?.mode !== 'required') {
+      block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得声明 Interaction Flow：' + flow.useCase, location);
+    }
+    const scenarioSteps = new Map();
+    if (useCase) {
+      scenarioSteps.set('main', new Set(useCase.mainScenario.map((step) => step.id)));
+      for (const scenario of useCase.alternateScenarios) scenarioSteps.set(scenario.id, new Set(scenario.steps.map((step) => step.id)));
+    }
+    requireReferences(flow.coveredScenarios, new Set(scenarioSteps.keys()), location + '.coveredScenarios', 'Use Case scenario');
+    requireReferences([flow.entryState, ...flow.completionStates], stateIds, location, 'Interaction State');
+    if (statesById.get(flow.entryState)?.terminal) block('AIH_ARTIFACT_INCOMPLETE', 'Interaction Flow 入口不能是终态：' + flow.entryState, location + '.entryState');
+    for (const stateId of flow.completionStates) {
+      if (statesById.has(stateId) && !statesById.get(stateId).terminal) block('AIH_ARTIFACT_INCOMPLETE', '完成状态必须是终态：' + stateId, location + '.completionStates');
+    }
+    for (const transition of flow.transitions || []) {
+      const transitionLocation = location + '.transitions.' + transition.id;
+      if (!flow.coveredScenarios.includes(transition.scenarioRef)) block('AIH_REFERENCE_UNRESOLVED', 'Transition 场景未列入 coveredScenarios：' + transition.scenarioRef, transitionLocation);
+      requireReferences(transition.useCaseStepRefs, scenarioSteps.get(transition.scenarioRef) || new Set(), transitionLocation, 'Use Case step');
+      requireReferences([transition.from, transition.to], stateIds, transitionLocation, 'Interaction State');
+      if (statesById.get(transition.from)?.terminal) block('AIH_ARTIFACT_INCOMPLETE', 'Transition 不能从终态发起：' + transition.id, transitionLocation + '.from');
+      if (transition.failureResponse?.returnToState) requireReferences([transition.failureResponse.returnToState], stateIds, transitionLocation, 'returnToState');
+    }
+    for (const [scenarioRef, steps] of scenarioSteps) {
+      if (!flow.coveredScenarios.includes(scenarioRef)) block('AIH_ARTIFACT_INCOMPLETE', 'Interaction Flow 未覆盖场景：' + flow.useCase + ' / ' + scenarioRef, location + '.coveredScenarios');
+      const traced = new Set(flow.transitions.filter((item) => item.scenarioRef === scenarioRef).flatMap((item) => item.useCaseStepRefs));
+      for (const stepId of steps) if (!traced.has(stepId)) block('AIH_ARTIFACT_INCOMPLETE', 'Use Case 步骤未追溯到 Transition：' + stepId, location + '.transitions');
+      const scenario = useCase?.alternateScenarios.find((item) => item.id === scenarioRef);
+      if (scenario?.type === 'exception' && !flow.transitions.some((item) => item.scenarioRef === scenarioRef && item.failureResponse)) {
+        block('AIH_ARTIFACT_INCOMPLETE', '异常场景必须正式声明失败、重试、恢复与返回决定：' + scenarioRef, location + '.transitions');
+      }
+    }
+    const groups = new Map();
+    for (const transition of flow.transitions || []) {
+      const key = transition.from + '\u0000' + (transition.userAction || 'system');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(transition);
+    }
+    for (const transitions of groups.values()) {
+      if (transitions.length === 1 && !transitions[0].guard) continue;
+      const labels = new Set();
+      for (const transition of transitions) {
+        if (!transition.branchLabel) block('AIH_ARTIFACT_INCOMPLETE', '判断分支缺少 branchLabel：' + transition.id, location + '.transitions');
+        else if (labels.has(transition.branchLabel)) block('AIH_ARTIFACT_INCOMPLETE', '同一判断的 branchLabel 必须唯一：' + transition.branchLabel, location + '.transitions');
+        else labels.add(transition.branchLabel);
+      }
+    }
+    const reachable = new Set([flow.entryState]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const transition of flow.transitions || []) if (reachable.has(transition.from) && !reachable.has(transition.to)) {
+        reachable.add(transition.to);
+        changed = true;
+      }
+    }
+    for (const transition of flow.transitions || []) if (!reachable.has(transition.from)) block('AIH_ARTIFACT_INCOMPLETE', 'Transition 起点无法从入口到达：' + transition.id, location + '.transitions');
+    for (const stateId of flow.completionStates) if (!reachable.has(stateId)) block('AIH_ARTIFACT_INCOMPLETE', '完成状态无法从入口到达：' + stateId, location + '.completionStates');
+  }
+
+  const blueprintIds = ids(capabilities?.lowFiUiBlueprints, 'capabilities.lowFiUiBlueprints');
+  const allScreenIds = new Set();
+  const allRegionIds = new Set();
+  const allControlIds = new Set();
+  const blueprintUseCases = new Set();
+  for (const blueprint of capabilities?.lowFiUiBlueprints || []) {
+    const location = 'capabilities.lowFiUiBlueprints.' + blueprint.id;
+    requireReferences([blueprint.actor], base.actorIds, location + '.actor', 'Actor');
+    requireReferences(blueprint.useCases, base.useCaseIds, location + '.useCases', 'Use Case');
+    const localScreenIds = new Set();
+    const localRegionIds = new Set();
+    for (const useCaseId of blueprint.useCases) {
+      blueprintUseCases.add(useCaseId);
+      const useCase = useCasesById.get(useCaseId);
+      if (useCase?.actor !== blueprint.actor) block('AIH_REFERENCE_UNRESOLVED', 'Low-Fi Blueprint 引用了其他 Actor 的 Use Case：' + useCaseId, location);
+      if (useCase?.uiApplicability?.mode !== 'required') block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得进入 Low-Fi Blueprint：' + useCaseId, location);
+    }
+    for (const screen of blueprint.screens || []) {
+      addUniqueId(screen.id, allScreenIds, location + '.screens');
+      localScreenIds.add(screen.id);
+      requireReferences(screen.useCases, new Set(blueprint.useCases), location + '.screens.' + screen.id, 'Blueprint Use Case');
+      const declaredRegions = new Set();
+      for (const region of screen.regions || []) {
+        addUniqueId(region.id, allRegionIds, location + '.screens.' + screen.id + '.regions');
+        declaredRegions.add(region.id);
+        localRegionIds.add(region.id);
+        for (const control of region.controls || []) addUniqueId(control.id, allControlIds, location + '.screens.' + screen.id + '.controls');
+      }
+      const layoutRegions = layoutRegionReferences(screen.layoutTree);
+      requireReferences(layoutRegions, declaredRegions, location + '.screens.' + screen.id + '.layoutTree', 'Region');
+      for (const regionId of declaredRegions) if (layoutRegions.filter((id) => id === regionId).length !== 1) block('AIH_ARTIFACT_INCOMPLETE', 'Layout 必须且只能放置一次 Region：' + regionId, location + '.screens.' + screen.id + '.layoutTree');
+    }
+    validateInformationArchitecture(blueprint, localScreenIds);
+    const presentedStates = new Set();
+    for (const presentation of blueprint.statePresentations || []) {
+      requireReferences([presentation.interactionState], stateIds, location + '.statePresentations', 'Interaction State');
+      requireReferences([presentation.screen], localScreenIds, location + '.statePresentations', 'Low-Fi Screen');
+      presentedStates.add(presentation.interactionState);
+    }
+    const relevantStates = new Set((capabilities?.interactionFlows || [])
+      .filter((flow) => blueprint.useCases.includes(flow.useCase))
+      .flatMap((flow) => [flow.entryState, ...flow.completionStates, ...flow.transitions.flatMap((transition) => [transition.from, transition.to])]));
+    for (const stateId of relevantStates) if (!presentedStates.has(stateId)) block('AIH_ARTIFACT_INCOMPLETE', 'Low-Fi Blueprint 未给出正式状态的呈现建议：' + stateId, location + '.statePresentations');
+  }
+
+  for (const useCase of capabilities?.useCases || []) {
+    const flows = flowsByUseCase.get(useCase.id) || [];
+    if (useCase.uiApplicability?.mode === 'required') {
+      if (flows.length !== 1) block('AIH_ARTIFACT_INCOMPLETE', 'UI Use Case 必须且只能有一个正式 Interaction Flow：' + useCase.id, 'capabilities.interactionFlows');
+      if (!blueprintUseCases.has(useCase.id)) block('AIH_ARTIFACT_INCOMPLETE', 'UI Use Case 缺少 Low-Fi UI Blueprint：' + useCase.id, 'capabilities.lowFiUiBlueprints');
+    } else {
+      if (flows.length > 0) block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得有 Interaction Flow：' + useCase.id, 'capabilities.interactionFlows');
+      if (blueprintUseCases.has(useCase.id)) block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得有 Low-Fi UI Blueprint：' + useCase.id, 'capabilities.lowFiUiBlueprints');
+    }
+  }
+  return { useCasesById, stateIds, flowIds, transitionIds, flowsByUseCase, blueprintIds };
 }
 
 if (strict && !validSteps.has(readinessStep)) block('AIH_COMMAND_INVALID', '未知产品步骤：' + readinessStep, 'step');
@@ -274,230 +381,36 @@ try {
     }
 
     const capabilities = models.get('capabilities');
-    const interactionMembers = models.get('interactions') || [];
     const canonicalMembers = models.get('canonical-ui-prototype') || [];
-    const interactions = aggregateMembers(interactionMembers);
     const canonical = aggregateMembers(canonicalMembers);
-    const { useCaseIds } = validateCapabilities(capabilities);
-    const useCasesById = new Map((capabilities?.useCases || []).map((useCase) => [useCase.id, useCase]));
+    const base = validateCapabilities(capabilities);
+    const { useCaseIds } = base;
+    const { useCasesById, stateIds: interactionStateIds, flowIds: interactionFlowIds } = validateAtomicUseCases(capabilities, base);
     const actorIds = new Set((capabilities?.actors || []).map((actor) => actor.id));
-    const expectedActors = new Set((capabilities?.useCases || []).map((useCase) => useCase.actor));
-    const interactionActors = new Set();
-    for (const member of interactionMembers) {
-      const actor = member.data.metadata.actor;
-      if (interactionActors.has(actor)) block('AIH_REFERENCE_UNRESOLVED', '参与者存在多份 Wireflow：' + actor, member.authorityPath);
-      interactionActors.add(actor);
-      requireReferences([actor], actorIds, member.authorityPath, 'Actor');
-      const localScreens = new Set((member.data.screens || []).map((screen) => screen.id));
-      validateSiteMap(member.data, localScreens);
-      for (const flow of member.data.wireflows || []) {
-        const useCase = useCasesById.get(flow.useCase);
-        if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Wireflow 引用了其他参与者的 Use Case：' + flow.useCase, member.authorityPath);
-        requireReferences([flow.entry?.screen, ...(flow.steps || []).flatMap((step) => [step.from?.screen, step.to?.screen])], localScreens, member.authorityPath, '同参与者 Screen');
-      }
-      for (const state of member.data.interactionStates || []) requireReferences([state.screen], localScreens, member.authorityPath, '同参与者 Screen');
-      for (const screen of member.data.screens || []) for (const useCaseId of screen.useCases || []) {
-        const useCase = useCasesById.get(useCaseId);
-        if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Screen 引用了其他参与者的 Use Case：' + useCaseId, member.authorityPath);
-      }
-    }
-    if (selected.has('interactions')) for (const actor of expectedActors) {
-      if (!interactionActors.has(actor)) block('AIH_ARTIFACT_INCOMPLETE', '关键参与者缺少独立 Wireflow 模型：' + actor, 'interactions');
-    }
-    const wireflowIds = ids(interactions?.wireflows, 'interactions.wireflows');
-    const wireflowStateIds = ids(interactions?.interactionStates, 'interactions.interactionStates');
-    const wireflowScreenIds = ids(interactions?.screens, 'interactions.screens');
-    const wireflowStepIds = ids((interactions?.wireflows || []).flatMap((flow) => flow.steps || []), 'interactions.wireflows.steps');
-    const wireflowRegionIds = ids((interactions?.screens || []).flatMap((screen) => screen.regions || []), 'interactions.screens.regions');
-    const wireflowControlIds = ids(
-      (interactions?.screens || []).flatMap((screen) => (screen.regions || []).flatMap((region) => region.controls || [])),
-      'interactions.screens.regions.controls',
-    );
-    const screensById = new Map((interactions?.screens || []).map((screen) => [screen.id, screen]));
-    const statesById = new Map((interactions?.interactionStates || []).map((state) => [state.id, state]));
-    const screenRegions = new Map((interactions?.screens || []).map((screen) => [
-      screen.id,
-      new Set((screen.regions || []).map((region) => region.id)),
-    ]));
-    const screenControls = new Map((interactions?.screens || []).map((screen) => [
-      screen.id,
-      new Set((screen.regions || []).flatMap((region) => (region.controls || []).map((control) => control.id))),
-    ]));
-
-    for (const screen of interactions?.screens || []) {
-      requireReferences(screen.useCases, useCaseIds, 'interactions.screens.' + screen.id, 'useCases');
-      const declaredRegions = screenRegions.get(screen.id) || new Set();
-      const layoutRegions = layoutRegionReferences(screen.layoutTree);
-      requireReferences(layoutRegions, declaredRegions, 'interactions.screens.' + screen.id + '.layoutTree', 'region');
-      const layoutCounts = new Map();
-      for (const regionId of layoutRegions) layoutCounts.set(regionId, (layoutCounts.get(regionId) || 0) + 1);
-      for (const regionId of declaredRegions) {
-        const count = layoutCounts.get(regionId) || 0;
-        if (count !== 1) {
-          block(
-            'AIH_ARTIFACT_INCOMPLETE',
-            '布局树必须且只能放置一次 Region：' + screen.id + ' / ' + regionId + '，实际为 ' + count + ' 次。',
-            'interactions.screens.' + screen.id + '.layoutTree',
-          );
-        }
-      }
-    }
-
-    for (const state of interactions?.interactionStates || []) {
-      requireReferences([state.screen], wireflowScreenIds, 'interactions.interactionStates.' + state.id, 'screen');
-      const localRegions = screenRegions.get(state.screen) || new Set();
-      const localControls = screenControls.get(state.screen) || new Set();
-      const localTargets = new Set([...localRegions, ...localControls]);
-      const delta = state.stateDelta || { show: [], hide: [], enable: [], disable: [], content: [] };
-      requireReferences(delta.show, localTargets, 'interactions.interactionStates.' + state.id + '.stateDelta', 'show');
-      requireReferences(delta.hide, localTargets, 'interactions.interactionStates.' + state.id + '.stateDelta', 'hide');
-      requireReferences(delta.enable, localControls, 'interactions.interactionStates.' + state.id + '.stateDelta', 'enable');
-      requireReferences(delta.disable, localControls, 'interactions.interactionStates.' + state.id + '.stateDelta', 'disable');
-      requireReferences((delta.content || []).map((item) => item.target), localTargets, 'interactions.interactionStates.' + state.id + '.stateDelta', 'content.target');
-      if ((delta.show?.length || 0) + (delta.hide?.length || 0) + (delta.enable?.length || 0) + (delta.disable?.length || 0) + (delta.content?.length || 0) === 0) {
-        block('AIH_ARTIFACT_INCOMPLETE', '交互状态必须声明至少一项可见状态差量：' + state.id, 'interactions.interactionStates.' + state.id + '.stateDelta');
-      }
-      for (const target of intersection(delta.show, delta.hide)) {
-        block('AIH_ARTIFACT_INCOMPLETE', '同一状态不能同时 show 和 hide：' + state.id + ' / ' + target, 'interactions.interactionStates.' + state.id + '.stateDelta');
-      }
-      for (const controlId of intersection(delta.enable, delta.disable)) {
-        block('AIH_ARTIFACT_INCOMPLETE', '同一状态不能同时 enable 和 disable：' + state.id + ' / ' + controlId, 'interactions.interactionStates.' + state.id + '.stateDelta');
-      }
-    }
-
-    for (const flow of interactions?.wireflows || []) {
-      const location = 'interactions.wireflows.' + flow.id;
-      const useCase = useCasesById.get(flow.useCase);
-      if ((strict || useCaseIds.size > 0) && !useCase) block('AIH_REFERENCE_UNRESOLVED', 'Wireflow 引用未知 Use Case：' + flow.useCase, location);
-      const scenarioSteps = new Map();
-      if (useCase) {
-        scenarioSteps.set('main', new Set(useCase.mainScenario.map((step) => step.id)));
-        for (const scenario of useCase.alternateScenarios) scenarioSteps.set(scenario.id, new Set(scenario.steps.map((step) => step.id)));
-      }
-      requireReferences(flow.coveredScenarios, new Set(scenarioSteps.keys()), location, 'coveredScenarios');
-      requireReferences([flow.entry?.screen], wireflowScreenIds, location + '.entry', 'screen');
-      requireReferences([flow.entry?.state], wireflowStateIds, location + '.entry', 'state');
-      const entryState = statesById.get(flow.entry?.state);
-      if (entryState && entryState.screen !== flow.entry.screen) block('AIH_REFERENCE_UNRESOLVED', '入口 Screen 与 State 归属不一致：' + flow.id, location + '.entry');
-      if (entryState?.terminal) block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 入口不能是终态：' + flow.id + ' / ' + entryState.id, location + '.entry');
-      requireReferences(flow.completionStates, wireflowStateIds, 'interactions.wireflows.' + flow.id, 'completionStates');
-      for (const stateId of flow.completionStates || []) {
-        const state = statesById.get(stateId);
-        if (state && !state.terminal) block('AIH_ARTIFACT_INCOMPLETE', '完成状态必须是终态：' + flow.id + ' / ' + stateId, location + '.completionStates');
-      }
-
-      for (const step of flow.steps || []) {
-        const stepLocation = location + '.steps.' + step.id;
-        if (!flow.coveredScenarios?.includes(step.scenarioRef)) block('AIH_REFERENCE_UNRESOLVED', '步骤场景未列入 coveredScenarios：' + step.scenarioRef, stepLocation);
-        const availableSteps = scenarioSteps.get(step.scenarioRef) || new Set();
-        requireReferences(step.useCaseStepRefs, availableSteps, stepLocation, 'useCaseStepRefs');
-        for (const [label, endpoint] of [['from', step.from], ['to', step.to]]) {
-          requireReferences([endpoint?.screen], wireflowScreenIds, stepLocation + '.' + label, 'screen');
-          requireReferences([endpoint?.state], wireflowStateIds, stepLocation + '.' + label, 'state');
-          const state = statesById.get(endpoint?.state);
-          if (state && state.screen !== endpoint.screen) block('AIH_REFERENCE_UNRESOLVED', label + ' Screen 与 State 归属不一致：' + step.id, stepLocation + '.' + label);
-        }
-        const triggerControl = step.trigger?.control;
-        const fromState = statesById.get(step.from?.state);
-        if (fromState?.terminal) block('AIH_ARTIFACT_INCOMPLETE', '迁移不能从终态发起：' + step.id + ' / ' + fromState.id, stepLocation + '.from');
-        if (triggerControl) {
-          requireReferences([triggerControl], screenControls.get(step.from?.screen) || new Set(), stepLocation + '.trigger', 'control');
-          if (fromState && !fromState.stateDelta?.enable?.includes(triggerControl)) {
-            block('AIH_ARTIFACT_INCOMPLETE', '触发 Control 在起始状态未启用：' + step.id + ' / ' + triggerControl, stepLocation + '.trigger');
-          }
-        }
-      }
-
-      const transitionGroups = new Map();
-      for (const step of flow.steps || []) {
-        const triggerKey = step.trigger?.control || 'system:' + step.trigger?.event;
-        const groupKey = step.from?.state + '\u0000' + triggerKey;
-        if (!transitionGroups.has(groupKey)) transitionGroups.set(groupKey, []);
-        transitionGroups.get(groupKey).push(step);
-      }
-      for (const steps of transitionGroups.values()) {
-        const requiresDecision = steps.length > 1 || steps.some((step) => step.guard);
-        if (!requiresDecision) continue;
-        const labels = new Set();
-        for (const step of steps) {
-          const label = step.branchLabel?.trim();
-          if (!label) {
-            block('AIH_ARTIFACT_INCOMPLETE', '判断分支缺少简短 branchLabel：' + step.id, location + '.steps.' + step.id + '.branchLabel');
-            continue;
-          }
-          if (labels.has(label)) {
-            block('AIH_ARTIFACT_INCOMPLETE', '同一判断的 branchLabel 必须唯一：' + flow.id + ' / ' + label, location + '.steps');
-          }
-          labels.add(label);
-        }
-      }
-
-      for (const scenarioId of flow.coveredScenarios || []) {
-        if (!(flow.steps || []).some((step) => step.scenarioRef === scenarioId)) {
-          block('AIH_ARTIFACT_INCOMPLETE', 'coveredScenarios 中的场景缺少 Wireflow 步骤：' + flow.id + ' / ' + scenarioId, location + '.steps');
-        }
-      }
-
-      const reachable = new Set([endpointKey(flow.entry)]);
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const step of flow.steps || []) {
-          if (reachable.has(endpointKey(step.from)) && !reachable.has(endpointKey(step.to))) {
-            reachable.add(endpointKey(step.to));
-            changed = true;
-          }
-        }
-      }
-      for (const step of flow.steps || []) {
-        if (!reachable.has(endpointKey(step.from))) block('AIH_ARTIFACT_INCOMPLETE', '迁移起点无法从 Wireflow 入口到达：' + step.id, location + '.steps.' + step.id + '.from');
-      }
-      for (const stateId of flow.completionStates || []) {
-        const state = statesById.get(stateId);
-        if (state && !reachable.has(endpointKey({ screen: state.screen, state: state.id }))) {
-          block('AIH_ARTIFACT_INCOMPLETE', '完成状态无法从 Wireflow 入口到达：' + flow.id + ' / ' + stateId, location + '.completionStates');
-        }
-      }
-    }
-
-    for (const useCase of interactions ? (capabilities?.useCases || []) : []) {
-      const expectedScenarios = new Set(['main', ...useCase.alternateScenarios.map((scenario) => scenario.id)]);
-      const coveredScenarios = new Set((interactions?.wireflows || [])
-        .filter((flow) => flow.useCase === useCase.id)
-        .flatMap((flow) => flow.coveredScenarios || []));
-      for (const scenarioId of expectedScenarios) {
-        if (!coveredScenarios.has(scenarioId)) block('AIH_ARTIFACT_INCOMPLETE', 'Use Case 场景未被 Wireflow 覆盖：' + useCase.id + ' / ' + scenarioId, 'interactions.wireflows');
-      }
-    }
-
+    const expectedUiActors = new Set((capabilities?.useCases || []).filter((useCase) => useCase.uiApplicability?.mode === 'required').map((useCase) => useCase.actor));
     const canonicalActors = new Set();
     const canonicalActorByAssetId = new Map();
-    const interactionByActor = new Map(interactionMembers.map((member) => [member.actor, member.data]));
     for (const member of canonicalMembers) {
       const actor = member.data.actor;
       if (canonicalActors.has(actor)) block('AIH_REFERENCE_UNRESOLVED', '参与者存在多个 Canonical UI 独立应用：' + actor, member.authorityPath);
       canonicalActors.add(actor);
-      if (!interactionByActor.has(actor)) block('AIH_REFERENCE_UNRESOLVED', 'Canonical UI 没有同参与者 Wireflow：' + actor, member.authorityPath);
-      const localInteractions = interactionByActor.get(actor);
-      const localScreens = new Set((localInteractions?.screens || []).map((screen) => screen.id));
-      const localControls = new Set((localInteractions?.screens || []).flatMap((screen) => screen.regions || []).flatMap((region) => region.controls || []).map((control) => control.id));
-      const localWireflowIds = new Set((localInteractions?.wireflows || []).map((flow) => flow.id));
-      const localWireflowStateIds = new Set((localInteractions?.interactionStates || []).map((state) => state.id));
-      const localWireflowReferences = new Set([...localWireflowIds, ...localWireflowStateIds]);
-      requireReferences((member.data.screens || []).map((screen) => screen.id), localScreens, member.authorityPath, '同参与者 Wireflow screen');
-      requireReferences((member.data.controls || []).map((control) => control.id), localControls, member.authorityPath, '同参与者 Wireflow control');
+      requireReferences([actor], actorIds, member.authorityPath, 'Actor');
+      const localUseCaseIds = new Set((capabilities?.useCases || []).filter((useCase) => useCase.actor === actor && useCase.uiApplicability?.mode === 'required').map((useCase) => useCase.id));
+      const localFlows = (capabilities?.interactionFlows || []).filter((flow) => localUseCaseIds.has(flow.useCase));
+      const localFlowIds = new Set(localFlows.map((flow) => flow.id));
+      const localInteractionStateIds = new Set(localFlows.flatMap((flow) => [flow.entryState, ...flow.completionStates, ...flow.transitions.flatMap((transition) => [transition.from, transition.to])]));
       for (const state of member.data.states || []) if (state.scope === 'workflow') {
-        requireReferences([state.id], localWireflowStateIds, member.authorityPath, '同参与者 Wireflow workflow state');
+        requireReferences([state.id], localInteractionStateIds, member.authorityPath, '同参与者 Interaction State');
       }
       for (const scenario of member.data.scenarios || []) {
         const useCase = useCasesById.get(scenario.useCaseId);
         if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Canonical UI 场景引用了其他参与者的 Use Case：' + scenario.useCaseId, member.authorityPath);
-        requireReferences(scenario.wireflowIds, localWireflowReferences, member.authorityPath, '同参与者 Wireflow 场景');
+        requireReferences(scenario.interactionFlowIds, localFlowIds, member.authorityPath, '同参与者 Interaction Flow');
       }
       for (const trace of member.data.traceability || []) {
         const useCase = useCasesById.get(trace.useCaseId);
         if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Canonical UI 追溯了其他参与者的 Use Case：' + trace.useCaseId, member.authorityPath);
-        requireReferences(trace.wireflowIds, localWireflowReferences, member.authorityPath, '同参与者 Wireflow 追溯');
+        requireReferences(trace.interactionFlowIds, localFlowIds, member.authorityPath, '同参与者 Interaction Flow 追溯');
       }
       for (const asset of member.data.assets || []) canonicalActorByAssetId.set(asset.id, actor);
       if (strict && readinessStep === 'canonical-ui-prototype') {
@@ -506,8 +419,8 @@ try {
       }
     }
     if (strict && readinessStep === 'canonical-ui-prototype') {
-      for (const actor of interactionActors) if (!canonicalActors.has(actor)) {
-        block('AIH_ARTIFACT_INCOMPLETE', 'Wireflow 缺少一对一 Canonical UI 独立应用：' + actor, 'canonical-ui-prototype');
+      for (const actor of expectedUiActors) if (!canonicalActors.has(actor)) {
+        block('AIH_ARTIFACT_INCOMPLETE', 'UI Actor 缺少一对一 Canonical UI 独立应用：' + actor, 'canonical-ui-prototype');
       }
     }
 
@@ -531,9 +444,6 @@ try {
       ids(canonical.motions, 'canonical.motions');
       const targetIds = new Set([...screenIds, ...componentIds, ...controlIds, ...stateIds]);
       const gapSourceIds = new Set(canonical.gaps.flatMap((item) => item.sourceIds || []));
-
-      if (strict || wireflowScreenIds.size > 0) requireReferences(screenIds, wireflowScreenIds, 'canonical.screens', 'Wireflow screen');
-      if (strict || wireflowControlIds.size > 0) requireReferences(controlIds, wireflowControlIds, 'canonical.controls', 'Wireflow control');
 
       for (const source of canonical.designSources) {
         if (source.status === 'blocked' && !gapSourceIds.has(source.id)) {
@@ -631,8 +541,8 @@ try {
       for (const state of canonical.states) {
         const owners = state.scope === 'workflow' ? screenIds : componentIds;
         requireReferences([state.ownerId], owners, 'canonical.states.' + state.id, 'ownerId');
-        if (state.scope === 'workflow' && (strict || wireflowStateIds.size > 0) && !wireflowStateIds.has(state.id)) {
-          block('AIH_REFERENCE_UNRESOLVED', 'workflow state 未追溯到 Wireflow：' + state.id, 'canonical.states.' + state.id);
+        if (state.scope === 'workflow' && (strict || interactionStateIds.size > 0) && !interactionStateIds.has(state.id)) {
+          block('AIH_REFERENCE_UNRESOLVED', 'workflow state 未追溯到正式 Interaction State：' + state.id, 'canonical.states.' + state.id);
         }
       }
       for (const event of canonical.events) requireReferences([event.controlId], controlIds, 'canonical.events.' + event.id, 'controlId');
@@ -642,7 +552,7 @@ try {
       }
       for (const scenario of canonical.scenarios) {
         if (strict || useCaseIds.size > 0) requireReferences([scenario.useCaseId], useCaseIds, 'canonical.scenarios.' + scenario.id, 'useCaseId');
-        if (strict || wireflowIds.size + wireflowStateIds.size > 0) requireReferences(scenario.wireflowIds, new Set([...wireflowIds, ...wireflowStateIds]), 'canonical.scenarios.' + scenario.id, 'wireflowIds');
+        if (strict || interactionFlowIds.size > 0) requireReferences(scenario.interactionFlowIds, interactionFlowIds, 'canonical.scenarios.' + scenario.id, 'interactionFlowIds');
         requireReferences([scenario.routeId], routeIds, 'canonical.scenarios.' + scenario.id, 'routeId');
         requireReferences(scenario.initialStateIds, stateIds, 'canonical.scenarios.' + scenario.id, 'initialStateIds');
         requireReferences(scenario.eventIds, eventIds, 'canonical.scenarios.' + scenario.id, 'eventIds');
@@ -685,7 +595,7 @@ try {
       }
       for (const trace of canonical.traceability) {
         if (strict || useCaseIds.size > 0) requireReferences([trace.useCaseId], useCaseIds, 'canonical.traceability.' + trace.useCaseId, 'useCaseId');
-        if (strict || wireflowIds.size + wireflowStateIds.size > 0) requireReferences(trace.wireflowIds, new Set([...wireflowIds, ...wireflowStateIds]), 'canonical.traceability.' + trace.useCaseId, 'wireflowIds');
+        if (strict || interactionFlowIds.size > 0) requireReferences(trace.interactionFlowIds, interactionFlowIds, 'canonical.traceability.' + trace.useCaseId, 'interactionFlowIds');
         requireReferences(trace.screenIds, screenIds, 'canonical.traceability.' + trace.useCaseId, 'screenIds');
         requireReferences(trace.controlIds, controlIds, 'canonical.traceability.' + trace.useCaseId, 'controlIds');
         requireReferences(trace.stateIds, stateIds, 'canonical.traceability.' + trace.useCaseId, 'stateIds');
@@ -775,10 +685,6 @@ try {
         const model = models.get(artifactId);
         if (artifactId === 'capabilities') {
           validateCapabilitiesReadiness(model);
-          continue;
-        }
-        if (artifactId === 'interactions') {
-          for (const member of model || []) validateInteractionsReadiness(member.data);
           continue;
         }
       }

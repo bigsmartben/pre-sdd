@@ -466,7 +466,7 @@ async function verifyBaseSemantics(page, model, route) {
   }
   for (const stateId of screen.stateIds) {
     if (await page.locator('[data-state-id="' + stateId + '"]').count() === 0) {
-      block('AIH_CANONICAL_UI_RUNTIME_FAILED', '缺少 Wireflow data-state-id：' + stateId, route.path);
+      block('AIH_CANONICAL_UI_RUNTIME_FAILED', '缺少正式 Interaction State data-state-id：' + stateId, route.path);
     }
   }
   for (const componentId of screen.componentIds) {

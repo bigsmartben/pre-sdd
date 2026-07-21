@@ -211,7 +211,7 @@
     "scope": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "selectionGroup", "priority", "status", "selector", "defaultProfile", "readinessProfile"],
+      "required": ["id", "kind", "selectionGroup", "priority", "status", "selector", "defaultProfile", "checkpointProfile", "readinessProfile"],
       "properties": {
         "id": {"$ref": "#/$defs/identifier"},
         "kind": {"enum": ["repository", "runtime", "template", "tests"]},
@@ -228,6 +228,7 @@
           }
         },
         "defaultProfile": {"$ref": "#/$defs/identifier"},
+        "checkpointProfile": {"$ref": "#/$defs/identifier"},
         "readinessProfile": {"$ref": "#/$defs/identifier"}
       }
     },

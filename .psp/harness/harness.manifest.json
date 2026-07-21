@@ -1,7 +1,7 @@
 {
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
-  "version": "13.0.0",
+  "version": "13.1.0",
   "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -121,6 +121,12 @@
       "validate:harness",
       "harness:resolve",
       "test:harness",
+      "test:template:harness",
+      "test:template:product",
+      "test:template:architecture",
+      "test:workspace:harness",
+      "test:workspace:product",
+      "test:workspace:architecture",
       "test:package",
       "test",
       "check",
@@ -164,6 +170,48 @@
       "blocking": true
     },
     {
+      "id": "test-workspace-harness",
+      "npmScript": "test:workspace:harness",
+      "run": "npm run test:workspace:harness",
+      "purpose": "在临时生成工作区运行 User Harness 回归测试",
+      "blocking": true
+    },
+    {
+      "id": "test-template-harness",
+      "npmScript": "test:template:harness",
+      "run": "npm run test:template:harness",
+      "purpose": "在操作系统临时目录的模板副本运行 User Harness 快速测试",
+      "blocking": true
+    },
+    {
+      "id": "test-template-product",
+      "npmScript": "test:template:product",
+      "run": "npm run test:template:product",
+      "purpose": "在操作系统临时目录的模板副本运行 Product Design 快速测试",
+      "blocking": true
+    },
+    {
+      "id": "test-template-architecture",
+      "npmScript": "test:template:architecture",
+      "run": "npm run test:template:architecture",
+      "purpose": "在操作系统临时目录的模板副本运行 Architecture Design 快速测试",
+      "blocking": true
+    },
+    {
+      "id": "test-workspace-product",
+      "npmScript": "test:workspace:product",
+      "run": "npm run test:workspace:product",
+      "purpose": "在临时生成工作区运行 Product Design 领域回归测试",
+      "blocking": true
+    },
+    {
+      "id": "test-workspace-architecture",
+      "npmScript": "test:workspace:architecture",
+      "run": "npm run test:workspace:architecture",
+      "purpose": "在临时生成工作区运行 Architecture Design 领域回归测试",
+      "blocking": true
+    },
+    {
       "id": "test-package",
       "npmScript": "test:package",
       "run": "npm run test:package",
@@ -179,7 +227,16 @@
     }
   ],
   "validationProfiles": [
+    {"id": "scaffold-structure", "commands": ["harness"]},
     {"id": "scaffold-governance", "commands": ["harness", "test-harness"]},
+    {"id": "template-harness", "commands": ["harness", "test-template-harness"]},
+    {"id": "template-product", "commands": ["harness", "test-template-product"]},
+    {"id": "template-architecture", "commands": ["harness", "test-template-architecture"]},
+    {"id": "template-shared-change", "commands": ["harness", "test-template-harness", "test-template-product", "test-template-architecture"]},
+    {"id": "workspace-harness", "commands": ["harness", "test-workspace-harness"]},
+    {"id": "workspace-product", "commands": ["harness", "test-workspace-product"]},
+    {"id": "workspace-architecture", "commands": ["harness", "test-workspace-architecture"]},
+    {"id": "workspace-template-checkpoint", "commands": ["harness", "test-workspace-harness", "test-workspace-product", "test-workspace-architecture"]},
     {"id": "scaffold-runtime", "commands": ["harness", "test-harness", "test-package"]},
     {"id": "scaffold-package", "commands": ["harness", "test-harness", "test-package", "pack-check"]}
   ],
@@ -192,10 +249,11 @@
       "status": "active",
       "selector": {
         "type": "static",
-        "paths": ["AGENTS.md", "README.md", "QUICKSTART.md", "psp.project.yaml", ".gitignore", ".agents/skills/**", ".codex/**", ".github/**", ".psp/harness/**"]
+        "paths": ["AGENTS.md", "README.md", "QUICKSTART.md", "psp.project.yaml", ".gitignore", ".agents/skills/**", ".codegraph/**", ".codex/**", ".github/**", ".psp/harness/**"]
       },
       "defaultProfile": "scaffold-governance",
-      "readinessProfile": "scaffold-governance"
+      "checkpointProfile": "scaffold-governance",
+      "readinessProfile": "scaffold-package"
     },
     {
       "id": "scaffold-runtime",
@@ -204,8 +262,42 @@
       "priority": 100,
       "status": "active",
       "selector": {"type": "static", "paths": ["package.json", "package-lock.json", "bin/**", "runtime/**"]},
-      "defaultProfile": "scaffold-runtime",
-      "readinessProfile": "scaffold-runtime"
+      "defaultProfile": "scaffold-governance",
+      "checkpointProfile": "scaffold-runtime",
+      "readinessProfile": "scaffold-package"
+    },
+    {
+      "id": "workspace-product",
+      "kind": "template",
+      "selectionGroup": "workspace-template",
+      "priority": 300,
+      "status": "active",
+      "selector": {"type": "static", "paths": ["templates/workspace/.agents/skills/product-design/**", "templates/workspace/.agents/skills/capture-figma-design-source/**", "templates/workspace/.agents/skills/organize-figma-assets/**", "templates/workspace/.agents/skills/figma-component-from-design/**", "templates/workspace/.agents/skills/implement-figma-lit-page/**", "templates/workspace/.agents/skills/repair-canonical-ui-visual/**"]},
+      "defaultProfile": "template-product",
+      "checkpointProfile": "workspace-product",
+      "readinessProfile": "scaffold-package"
+    },
+    {
+      "id": "workspace-architecture",
+      "kind": "template",
+      "selectionGroup": "workspace-template",
+      "priority": 300,
+      "status": "active",
+      "selector": {"type": "static", "paths": ["templates/workspace/.agents/skills/architecture-design/**"]},
+      "defaultProfile": "template-architecture",
+      "checkpointProfile": "workspace-architecture",
+      "readinessProfile": "scaffold-package"
+    },
+    {
+      "id": "workspace-user-harness",
+      "kind": "template",
+      "selectionGroup": "workspace-template",
+      "priority": 300,
+      "status": "active",
+      "selector": {"type": "static", "paths": ["templates/workspace/.psp/harness/**", "templates/workspace/.agents/skills/apply-repository-harness/**"]},
+      "defaultProfile": "template-harness",
+      "checkpointProfile": "workspace-template-checkpoint",
+      "readinessProfile": "scaffold-package"
     },
     {
       "id": "workspace-template",
@@ -214,7 +306,8 @@
       "priority": 100,
       "status": "active",
       "selector": {"type": "static", "paths": ["templates/workspace/**"]},
-      "defaultProfile": "scaffold-package",
+      "defaultProfile": "template-shared-change",
+      "checkpointProfile": "workspace-template-checkpoint",
       "readinessProfile": "scaffold-package"
     },
     {
@@ -224,7 +317,8 @@
       "priority": 100,
       "status": "active",
       "selector": {"type": "static", "paths": ["tests/package/**"]},
-      "defaultProfile": "scaffold-package",
+      "defaultProfile": "scaffold-runtime",
+      "checkpointProfile": "scaffold-runtime",
       "readinessProfile": "scaffold-package"
     }
   ],
