@@ -6,6 +6,8 @@ stages:
   product-design:
     status: uninitialized
     root: 01-product-design
+    publication:
+      receipt: .psp/publications/product-design.json
     artifacts:
       capabilities:
         internalModel: .psp/models/use-cases.yaml
@@ -13,6 +15,13 @@ stages:
           - path: UC.md
             role: user-artifact
             projection: use-cases-document
+      visual-spec:
+        inputRoot: inputs/visual-spec
+        internalModel: .psp/models/visual-spec.yaml
+        outputs:
+          - path: Visual-Spec.md
+            role: user-artifact
+            projection: visual-spec-document
       canonical-ui-prototype:
         authority:
           kind: area-set

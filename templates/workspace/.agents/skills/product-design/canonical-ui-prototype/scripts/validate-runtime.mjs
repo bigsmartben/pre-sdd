@@ -22,6 +22,7 @@ if (!requestedActor) {
   const aggregateBlockers = [];
   const aggregateEvidence = [];
   const evidenceRoots = [];
+  const reviewAddresses = [];
   for (const member of members) {
     const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json'], { cwd: root, encoding: 'utf8', env: process.env, windowsHide: true });
     try {
@@ -29,12 +30,13 @@ if (!requestedActor) {
       aggregateBlockers.push(...(result.blockers || []));
       aggregateEvidence.push(...(result.evidence || []).map((item) => ({ actor: member.actor, ...item })));
       if (result.evidenceRoot) evidenceRoots.push({ actor: member.actor, path: result.evidenceRoot });
+      if (result.reviewAddress) reviewAddresses.push({ actor: member.actor, address: result.reviewAddress });
     } catch {
       aggregateBlockers.push({ code: 'AIH_VALIDATION_FAILED', message: child.stderr || '参与者运行时校验没有返回 JSON。', location: member.actor });
     }
   }
   if (members.length === 0) aggregateBlockers.push({ code: 'AIH_ARTIFACT_INCOMPLETE', message: '尚未创建参与者 Canonical UI 应用。', location: paths.authorityRoot });
-  const aggregate = { status: aggregateBlockers.length === 0 ? 'PASS' : 'BLOCKED', actors: members.map((member) => member.actor), blockers: aggregateBlockers, evidence: aggregateEvidence, evidenceRoots };
+  const aggregate = { status: aggregateBlockers.length === 0 ? 'PASS' : 'BLOCKED', actors: members.map((member) => member.actor), blockers: aggregateBlockers, evidence: aggregateEvidence, evidenceRoots, reviewAddresses };
   if (json) console.log(JSON.stringify(aggregate, null, 2));
   else if (aggregate.status === 'PASS') console.log('[PASS] 全部参与者 Canonical UI 浏览器验收通过。');
   else for (const item of aggregateBlockers) console.error('[' + item.code + '] ' + item.message);
@@ -48,6 +50,7 @@ const usedAssetTargets = new Map();
 let server;
 let browser;
 let evidenceRoot;
+let reviewAddress;
 
 function block(code, message, location) {
   const key = [code, message, location || ''].join('|');
@@ -968,6 +971,7 @@ try {
   await server.listen();
   const address = server.httpServer.address();
   const base = 'http://127.0.0.1:' + address.port;
+  reviewAddress = base + '/';
   browser = await chromium.launch({ headless: true });
 
   if (model.viewports[0] && model.routes[0]) {
@@ -1129,7 +1133,7 @@ try {
   if (server) await server.close();
 }
 
-const result = { status: blockers.length === 0 ? 'PASS' : 'BLOCKED', blockers, evidence, ...(evidenceRoot ? { evidenceRoot } : {}) };
+const result = { status: blockers.length === 0 ? 'PASS' : 'BLOCKED', blockers, evidence, ...(evidenceRoot ? { evidenceRoot } : {}), ...(reviewAddress ? { reviewAddress } : {}) };
 if (json) console.log(JSON.stringify(result, null, 2));
 else if (result.status === 'PASS') console.log('[PASS] Canonical UI Prototype 浏览器验收通过；证据位于操作系统临时目录。');
 else for (const item of blockers) console.error('[' + item.code + '] ' + item.message);

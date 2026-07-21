@@ -77,8 +77,9 @@ function sameStringRecord(left, right) {
 try {
   const { project, manifest } = await loadProjectAndManifest(root);
   const stage = project.stages?.['product-design'];
-  if (stage?.status !== 'active') throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
-  for (const artifactId of ['capabilities']) {
+  if (!['active', 'published'].includes(stage?.status)) throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
+  const upstreamFacts = {};
+  for (const artifactId of ['capabilities', 'visual-spec']) {
     const registry = manifest.artifactRegistry.find((item) => item.id === artifactId);
     const paths = artifactPaths(project, artifactId, 'product-design');
     const authorityPath = paths.authorityPath;
@@ -86,12 +87,28 @@ try {
     if (model.metadata?.status !== 'ready' || model.gaps?.length > 0 || model.gates?.some((gate) => gate.checked !== true)) {
       block('AIH_UPSTREAM_NOT_READY', '上游产物未达到严格就绪：' + artifactId, authorityPath);
     }
+    upstreamFacts[artifactId] = {
+      version: model.metadata?.version,
+      contentHash: await sha256(repositoryFile(root, authorityPath)),
+      authorityPath,
+    };
   }
 
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const authorityPath = artifactMemberPath(paths, requestedActor);
   const model = await extractCanonicalUi(root, authorityPath);
   if (model.actor !== requestedActor) block('AIH_REFERENCE_UNRESOLVED', '应用 actor 与目录参与者不一致。', authorityPath);
+  for (const [artifactId, bindingName] of [['capabilities', 'useCases'], ['visual-spec', 'visualSpec']]) {
+    const expected = upstreamFacts[artifactId];
+    const actual = model.draft?.inputs?.[bindingName];
+    if (!actual || actual.version !== expected.version || actual.contentHash !== expected.contentHash) {
+      block(
+        'AIH_CANONICAL_UI_INPUT_DRIFT',
+        'UI HTML Draft 未固定当前 ready 上游的版本与内容哈希：' + artifactId,
+        'draft.inputs.' + bindingName,
+      );
+    }
+  }
   const areaPath = paths.authorityRoot + '/' + requestedActor;
   const areaDirectory = repositoryFile(root, areaPath);
   const evidenceSchema = await readJson(root, '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json');

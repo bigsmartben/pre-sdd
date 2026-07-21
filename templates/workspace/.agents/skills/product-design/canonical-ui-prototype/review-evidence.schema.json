@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/domains/product-design/canonical-ui-review-evidence.schema.json",
+  "title": "Canonical UI HTML Review Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "status", "reviewId", "createdAt", "stage", "actors", "validation", "markers"],
+  "properties": {
+    "version": {"const": "1.0.0"},
+    "status": {"const": "PASS"},
+    "reviewId": {"type": "string", "pattern": "^review-[a-f0-9]{64}$"},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "stage": {"const": "product-design"},
+    "actors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/actor"}},
+    "validation": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/validation"}},
+    "markers": {"type": "array", "items": {"$ref": "#/$defs/marker"}}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "draftVersion", "implementationHash", "buildInputHash", "reviewAddress", "screenshots"],
+      "properties": {
+        "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+        "draftVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "implementationHash": {"$ref": "#/$defs/hash"},
+        "buildInputHash": {"$ref": "#/$defs/hash"},
+        "reviewAddress": {"type": "string", "pattern": "^http://127\\.0\\.0\\.1:[0-9]+/"},
+        "screenshots": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {"id": {"type": "string", "minLength": 1}, "status": {"enum": ["PASS", "FAIL", "NOT_RUN"]}, "blockers": {"type": "array", "items": {"type": "string"}}}
+    },
+    "marker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "pageKey", "category", "routedTo", "description"],
+      "properties": {
+        "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+        "pageKey": {"type": "string", "minLength": 1},
+        "category": {"enum": ["behavior", "visual-input", "implementation"]},
+        "routedTo": {"enum": ["use-cases", "visual-spec", "canonical-ui-prototype"]},
+        "description": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

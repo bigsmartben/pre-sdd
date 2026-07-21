@@ -1,5 +1,6 @@
 import { loadProjectAndManifest, repositoryRootFrom } from './lib/repository.mjs';
 import { executeRegisteredCommand } from './lib/execute-command.mjs';
+import { stageIsReadable } from './lib/stage-state.mjs';
 import { pathToFileURL } from 'node:url';
 
 const root = repositoryRootFrom(import.meta.dirname);
@@ -55,8 +56,8 @@ export async function executeHandoff(rootDirectory, from, to, options = {}) {
     if (scope.status !== 'active') {
       return receiptFailure(from, to, profile, scope.blockerCode || 'AIH_UPSTREAM_NOT_READY', 'Scope 不可消费：' + scopeId);
     }
-    if (stageId && project.stages?.[stageId]?.status !== 'active') {
-      return receiptFailure(from, to, profile, 'AIH_STAGE_UNINITIALIZED', '移交来源或上游阶段尚未 active：' + stageId);
+    if (stageId && !stageIsReadable(project.stages?.[stageId])) {
+      return receiptFailure(from, to, profile, 'AIH_STAGE_UNINITIALIZED', '移交来源或上游阶段尚未 active 或 published：' + stageId);
     }
   }
 

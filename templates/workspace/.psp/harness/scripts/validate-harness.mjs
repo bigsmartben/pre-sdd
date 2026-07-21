@@ -13,6 +13,7 @@ import {
   repositoryFile,
   repositoryRootFrom,
 } from './lib/repository.mjs';
+import { stageIsReadable } from './lib/stage-state.mjs';
 
 const root = repositoryRootFrom(import.meta.dirname);
 const json = process.argv.includes('--json');
@@ -44,6 +45,7 @@ const REQUIRED_CODES = [
   'AIH_USER_CHANGE_COLLISION',
   'AIH_WORKSPACE_NOT_EMPTY',
   'AIH_STAGE_UNINITIALIZED',
+  'AIH_STAGE_LOCKED',
   'AIH_PARTIAL_INITIALIZATION',
   'AIH_STAGE_ALREADY_INITIALIZED',
   'AIH_DOMAIN_BOUNDARY_INVALID',
@@ -278,7 +280,7 @@ if (manifest && manifestValid) {
     }
     if (operation.kind === 'workspace' || operation.kind === 'handoff') continue;
     const stage = project?.stages?.[operation.stage];
-    if (!stage || !['uninitialized', 'active'].includes(stage.status)) {
+    if (!stage || !['uninitialized', 'active', 'published'].includes(stage.status)) {
       block('AIH_PROJECT_BINDING_INVALID', 'Operation 引用不可执行阶段：' + operation.stage, operation.id);
     }
     if (operation.kind === 'artifact') {
@@ -306,6 +308,25 @@ if (manifest && manifestValid) {
         || !stage?.artifacts?.[operation.artifact]
       ) {
         block('AIH_CONTRACT_INVALID', '修复 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+      }
+      continue;
+    }
+    if (['review', 'publish', 'reopen'].includes(operation.kind)) {
+      const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+      if (
+        !registered
+        || registered.stage !== operation.stage
+        || registered.domain !== operation.domain
+        || !['area', 'area-set'].includes(registered.authorityKind)
+        || !stage?.artifacts?.[operation.artifact]
+      ) {
+        block('AIH_CONTRACT_INVALID', 'UI HTML 生命周期 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+      }
+      if (operation.profile && !profiles.has(operation.profile)) {
+        block('AIH_PROFILE_INVALID', 'UI HTML 生命周期 operation 引用未知 Profile：' + operation.profile, operation.id);
+      }
+      if (operation.receipt && operation.receipt !== stage?.publication?.receipt) {
+        block('AIH_PROJECT_BINDING_INVALID', '发布凭证路径与项目绑定不一致：' + operation.id, operation.id);
       }
       continue;
     }
@@ -428,7 +449,7 @@ if (manifest && manifestValid) {
       }
     }
   }
-  for (const operation of manifest.operations.filter((item) => item.kind === 'artifact' || item.kind === 'repair')) {
+  for (const operation of manifest.operations.filter((item) => ['artifact', 'repair', 'review', 'publish', 'reopen'].includes(item.kind))) {
     const domain = domains.get(operation.domain);
     if (!domain || operation.executor.kind !== 'module' || !operation.executor.path.startsWith(domain.root + '/')) {
       block('AIH_DOMAIN_BOUNDARY_INVALID', '领域 Operation 执行器越出已注册 Domain Skill：' + operation.id, operation.id);
@@ -467,7 +488,7 @@ if (manifest && manifestValid) {
         }
         continue;
       }
-      const requireUserFiles = stage.status === 'active';
+      const requireUserFiles = stageIsReadable(stage);
       await requireDirectory(stage.root, 'stages.' + stageId + '.root');
       const expected = new Set([...registry.values()].filter((item) => item.stage === stageId).map((item) => item.id));
       const actual = new Set(Object.keys(stage.artifacts));
@@ -490,6 +511,12 @@ if (manifest && manifestValid) {
       }
       for (const [areaId, area] of Object.entries(stage.areas || {})) {
         if (requireUserFiles) await requirePath(stage.root + '/' + area.root, stageId + '.areas.' + areaId);
+      }
+      if (stage.publication?.receipt) {
+        const owner = occupied.get(stage.publication.receipt);
+        if (owner) block('AIH_PROJECT_BINDING_INVALID', '发布凭证路径重复：' + stage.publication.receipt, stageId);
+        else occupied.set(stage.publication.receipt, stageId + '.publication');
+        if (stage.status === 'published') await requirePath(stage.publication.receipt, stageId + '.publication.receipt');
       }
     }
   }
@@ -549,11 +576,22 @@ if (manifest && manifestValid) {
       }
     }
     for (const [stageId, stage] of Object.entries(project.stages)) {
-      if (stage.status === 'active') {
+      if (stageIsReadable(stage)) {
         const firstId = Object.keys(stage.artifacts)[0];
-        selfChecks.push([artifactPaths(project, firstId, stageId).authorityPath, 'change', 'READY']);
+        selfChecks.push([
+          artifactPaths(project, firstId, stageId).authorityPath,
+          'change',
+          stage.status === 'published' ? 'BLOCKED' : 'READY',
+          stage.status === 'published' ? 'AIH_STAGE_LOCKED' : undefined,
+        ]);
+        selfChecks.push([artifactPaths(project, firstId, stageId).authorityPath, 'readiness', 'READY']);
         for (const area of Object.values(stage.areas || {})) {
-          selfChecks.push([stage.root + '/' + area.root, 'change', 'READY']);
+          selfChecks.push([
+            stage.root + '/' + area.root,
+            'change',
+            stage.status === 'published' ? 'BLOCKED' : 'READY',
+            stage.status === 'published' ? 'AIH_STAGE_LOCKED' : undefined,
+          ]);
         }
       } else if (stage.status === 'uninitialized') {
         const firstId = Object.keys(stage.artifacts)[0];
@@ -566,7 +604,7 @@ if (manifest && manifestValid) {
           const dependencyStage = ['static', 'workspace', 'domain'].includes(dependency?.selector?.type)
             ? null
             : dependency?.selector?.stage;
-          return dependencyStage && dependencyStage !== stageId && project.stages?.[dependencyStage]?.status !== 'active';
+          return dependencyStage && dependencyStage !== stageId && !stageIsReadable(project.stages?.[dependencyStage]);
         });
         selfChecks.push(hasUnreadyUpstream
           ? [firstPath, 'change', 'BLOCKED', 'AIH_UPSTREAM_NOT_READY']

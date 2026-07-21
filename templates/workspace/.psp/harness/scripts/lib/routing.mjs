@@ -4,6 +4,7 @@ import {
   joinRepositoryPath,
   normalizeRepositoryPath,
 } from './repository.mjs';
+import { stageIsReadable } from './stage-state.mjs';
 
 function catalogBlocker(catalog, code, location, message) {
   const declared = catalog.get(code);
@@ -168,6 +169,18 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
         '阶段尚未初始化，不能执行 readiness：' + scope.selector.stage,
       ));
     }
+    if (
+      intent === 'change'
+      && !['static', 'workspace', 'domain'].includes(scope.selector.type)
+      && project.stages?.[scope.selector.stage]?.status === 'published'
+    ) {
+      blockers.push(catalogBlocker(
+        catalog,
+        'AIH_STAGE_LOCKED',
+        scope.selector.stage,
+        '阶段已经发布并锁定；修改前必须执行 Reopen：' + scope.selector.stage,
+      ));
+    }
   }
 
   const upstreamScopes = [];
@@ -194,12 +207,12 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
       }
       const dependencyStage = scopeStage(dependency);
       const crossStage = dependencyStage && dependencyStage !== downstreamStage;
-      if (crossStage && project.stages?.[dependencyStage]?.status !== 'active') {
+      if (crossStage && !stageIsReadable(project.stages?.[dependencyStage])) {
         blockers.push(catalogBlocker(
           catalog,
           'AIH_UPSTREAM_NOT_READY',
           dependencyStage,
-          '下游变更要求依赖阶段先达到 active：' + dependencyStage,
+          '下游变更要求依赖阶段先达到 active 或 published：' + dependencyStage,
         ));
       }
       if (!upstreamProfiles.includes(dependency.readinessProfile)) {

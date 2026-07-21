@@ -52,7 +52,7 @@ async function prototypeRoots() {
   const { project } = await loadProjectAndManifest(root);
   const stage = project.stages?.['product-design'];
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
-  if (stage?.status !== 'active' && process.env.AI_HARNESS_INITIALIZING !== 'product-design') {
+  if (!['active', 'published'].includes(stage?.status) && process.env.AI_HARNESS_INITIALIZING !== 'product-design') {
     throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   }
   if (!paths?.area) throw Object.assign(new Error('项目未绑定 Canonical UI Prototype Area。'), { code: 'AIH_PROJECT_BINDING_INVALID' });

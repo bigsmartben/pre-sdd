@@ -74,6 +74,22 @@
       "projector": "render-product"
     },
     {
+      "id": "visual-spec",
+      "stage": "product-design",
+      "domain": "product-design",
+      "authorityKind": "internal-model",
+      "format": "yaml",
+      "contract": ".agents/skills/product-design/visual-spec/contract.yaml",
+      "schema": ".agents/skills/product-design/visual-spec/schema.json",
+      "template": ".agents/skills/product-design/visual-spec/template.yaml",
+      "projections": [
+        {
+          "id": "visual-spec-document",
+          "renderer": "visual-spec-markdown"
+        }
+      ]
+    },
+    {
       "id": "architecture-package",
       "stage": "architecture-design",
       "domain": "architecture-design",
@@ -220,6 +236,25 @@
       ]
     },
     {
+      "id": "apply-visual-spec",
+      "kind": "artifact",
+      "npmScript": "apply:visual-spec",
+      "run": "npm run apply:visual-spec",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/scripts/apply-artifact.mjs",
+        "args": [
+          "--operation",
+          "apply-visual-spec"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifacts": [
+        "visual-spec"
+      ]
+    },
+    {
       "id": "canonical-ui-repair",
       "kind": "repair",
       "npmScript": "repair:canonical-ui",
@@ -352,6 +387,22 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs"
+      }
+    },
+    {
+      "id": "visual-spec-strict",
+      "npmScript": "validate:visual-spec",
+      "run": "npm run validate:visual-spec",
+      "purpose": "独立校验 provider-neutral Visual Spec 的 UC 引用、页面与状态覆盖、组件状态 Variant 组合及资源哈希",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/scripts/validate.mjs",
+        "args": [
+          "--step",
+          "visual-spec"
+        ]
       }
     },
     {
@@ -650,6 +701,13 @@
       ]
     },
     {
+      "id": "visual-spec-readiness",
+      "commands": [
+        "harness",
+        "visual-spec-strict"
+      ]
+    },
+    {
       "id": "product-uninitialized",
       "commands": [
         "harness",
@@ -876,6 +934,30 @@
       "readinessProfile": "use-cases-readiness",
       "uninitializedProfile": "product-uninitialized",
       "handoffConsumers": [
+        "visual-spec"
+      ]
+    },
+    {
+      "id": "visual-spec",
+      "kind": "artifact",
+      "domain": "product-design",
+      "selectionGroup": "product-design",
+      "priority": 350,
+      "status": "active",
+      "selector": {
+        "type": "artifact",
+        "stage": "product-design",
+        "artifacts": [
+          "visual-spec"
+        ]
+      },
+      "defaultProfile": "visual-spec-readiness",
+      "readinessProfile": "visual-spec-readiness",
+      "uninitializedProfile": "product-uninitialized",
+      "dependencies": [
+        "use-cases"
+      ],
+      "handoffConsumers": [
         "canonical-ui-prototype"
       ]
     },
@@ -900,7 +982,8 @@
       "readinessProfile": "product-delivery",
       "uninitializedProfile": "product-uninitialized",
       "dependencies": [
-        "use-cases"
+        "use-cases",
+        "visual-spec"
       ],
       "handoffConsumers": []
     },

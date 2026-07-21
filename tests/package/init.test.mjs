@@ -180,6 +180,13 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   assert.deepEqual(workspaceLock.packages[''].dependencies, workspacePackage.dependencies);
   assert.equal(workspaceManifest.runtime.authority, 'generated-workspace-local');
   assert.equal(workspaceManifest.runtime.dependencyLock, 'package-lock.json');
+  assert.ok(workspaceManifest.artifactRegistry.some((item) => item.id === 'visual-spec' && item.authorityKind === 'internal-model'));
+  assert.ok(workspaceManifest.operations.some((item) => item.id === 'apply-visual-spec' && item.artifacts.includes('visual-spec')));
+  assert.ok(workspaceManifest.commands.some((item) => item.id === 'visual-spec-strict'));
+  assert.ok(workspaceManifest.validationProfiles.some((item) => item.id === 'visual-spec-readiness'));
+  assert.deepEqual(workspaceManifest.scopes.find((item) => item.id === 'visual-spec').dependencies, ['use-cases']);
+  assert.equal(workspacePackage.scripts['apply:visual-spec'].includes('apply:visual-spec'), true);
+  assert.equal(workspacePackage.scripts['validate:visual-spec'].includes('validate:visual-spec'), true);
   assert.equal(await exists(resolve(target, workspaceManifest.runtime.entrypoint)), true);
   assert.equal(await exists(resolve(target, '.psp/runtime/pre-sdd/runtime/dispatch.mjs')), true);
   assert.equal(await exists(resolve(target, '.gitignore')), true);
@@ -259,6 +266,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   for (const forbidden of [
     '01-product-design/PSP.md',
     '01-product-design/UC.md',
+    '01-product-design/Visual-Spec.md',
     '01-product-design/HTML-Mock',
     '01-product-design/Canonical-UI-Prototypes',
     '01-product-design/.psp/models',
@@ -283,6 +291,7 @@ test('scaffold source and generated workspace keep separate project contexts', a
   assert.equal(Object.hasOwn(scaffoldProject, 'stages'), false);
   assert.equal(templateProject.kind, 'PSPProject');
   assert.ok(templateProject.stages['product-design']);
+  assert.equal(templateProject.stages['product-design'].artifacts['visual-spec'].internalModel, '.psp/models/visual-spec.yaml');
   assert.ok(templateProject.stages['architecture-design']);
 
   for (const forbidden of [
@@ -485,6 +494,10 @@ test('Vite and browser execution are registered in the Product Design domain Ski
   assert.equal(repair.npmScript, 'repair:canonical-ui');
   assert.equal(repair.artifact, 'canonical-ui-prototype');
   assert.match(repair.executor.path, /^\.agents\/skills\/product-design\/canonical-ui-prototype\//);
+  const visualApply = manifest.operations.find((item) => item.id === 'apply-visual-spec');
+  assert.equal(visualApply.kind, 'artifact');
+  assert.deepEqual(visualApply.artifacts, ['visual-spec']);
+  assert.match(visualApply.executor.path, /^\.agents\/skills\/product-design\//);
   for (const code of [
     'AIH_SOURCE_CAPTURE_BLOCKED',
     'AIH_SOURCE_COVERAGE_FAILED',
@@ -539,6 +552,9 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.ok(files.has('templates/workspace/.psp/harness/HARNESS-BOUNDARY.md'));
   assert.ok(files.has('templates/workspace/.psp/harness/scripts/invoke-pre-sdd.mjs'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/visual-spec/contract.yaml'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/visual-spec/schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/visual-spec/template.yaml'));
   assert.ok(files.has('templates/workspace/.agents/skills/architecture-design/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/agents/openai.yaml'));

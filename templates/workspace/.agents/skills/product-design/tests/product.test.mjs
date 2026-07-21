@@ -89,14 +89,14 @@ test('uninitialized product stage is a valid empty scaffold but cannot pass read
   assert.ok(codes(strict).has('AIH_STAGE_UNINITIALIZED'));
 });
 
-test('generic initialization creates one atomic UC model without an independent interaction collection', async () => {
+test('generic initialization creates atomic UC and provider-neutral Visual Spec models without an independent interaction collection', async () => {
   const root = await temporaryRepository();
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
   assert.equal(stage.status, 'active');
-  assert.deepEqual(Object.keys(stage.artifacts), ['capabilities', 'canonical-ui-prototype']);
+  assert.deepEqual(Object.keys(stage.artifacts), ['capabilities', 'visual-spec', 'canonical-ui-prototype']);
   assert.equal(stage.areas['canonical-ui-prototypes'].root, 'Canonical-UI-Prototypes');
   assert.equal(stage.artifacts['html-mock'], undefined);
   const initialUseCases = await readFile(resolve(root, stage.root, stage.artifacts.capabilities.outputs[0].path), 'utf8');
@@ -104,6 +104,10 @@ test('generic initialization creates one atomic UC model without an independent 
   assert.match(initialUseCases, /Interaction Flow/);
   assert.match(initialUseCases, /Low-Fi UI Blueprint/);
   assert.equal(await stat(resolve(root, stage.root, stage.artifacts.capabilities.internalModel)).then(() => true), true);
+  const initialVisualSpec = await readFile(resolve(root, stage.root, stage.artifacts['visual-spec'].outputs[0].path), 'utf8');
+  assert.match(initialVisualSpec, /Provider-neutral Visual Spec Intake/);
+  assert.match(initialVisualSpec, /Runtime（运行环境）/);
+  assert.equal(await stat(resolve(root, stage.root, stage.artifacts['visual-spec'].internalModel)).then(() => true), true);
   const prototypeRoot = resolve(root, stage.root, stage.areas['canonical-ui-prototypes'].root);
   assert.deepEqual(await readdir(prototypeRoot), []);
   const templateRoot = resolve(root, '.agents/skills/product-design/canonical-ui-prototype/template');
@@ -175,6 +179,65 @@ test('Use Cases readiness detects drift in UC.md', async () => {
   await appendFile(resolve(root, stage.root, uc.path), '\nmanual use case edit\n');
   const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
   assert.ok(codes(result).has('AIH_GENERATED_DRIFT'));
+});
+
+test('Visual Spec has independent apply, readiness, UC references, Variant coverage, asset integrity, and deterministic projection', async () => {
+  const blockedRoot = await temporaryRepository();
+  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', blockedRoot, ['--operation', 'initialize-product', '--json']);
+  assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
+  const blockedProject = await fixtureProject(blockedRoot);
+  const blockedStage = blockedProject.stages['product-design'];
+  const blockedVisual = await readArtifact(blockedRoot, blockedStage, blockedStage.artifacts['visual-spec']);
+  const blockedApply = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', blockedRoot, [
+    '--operation', 'apply-visual-spec', '--artifact', 'visual-spec', '--input', blockedVisual.path, '--json',
+  ]);
+  assert.ok(codes(blockedApply).has('AIH_UPSTREAM_NOT_READY'));
+
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const ready = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'visual-spec', '--json']);
+  assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const binding = stage.artifacts['visual-spec'];
+  const visual = await readArtifact(root, stage, binding);
+  const applied = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
+    '--operation', 'apply-visual-spec', '--artifact', 'visual-spec', '--input', visual.path, '--dry-run', '--json',
+  ]);
+  assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
+  assert.deepEqual(applied.output.targets.sort(), [
+    stage.root + '/' + binding.internalModel,
+    stage.root + '/' + binding.outputs[0].path,
+  ].sort());
+  const markdownPath = resolve(root, stage.root, binding.outputs[0].path);
+  const markdown = await readFile(markdownPath, 'utf8');
+  assert.match(markdown, /Pages 与 Renderings/);
+  assert.match(markdown, /emphasis=primary\/secondary/);
+  assert.match(markdown, /assets\/status\.svg/);
+
+  visual.data.pages[0].useCaseRefs = ['UC-999'];
+  await writeArtifact(visual);
+  const unresolved = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'visual-spec', '--json']);
+  assert.ok(codes(unresolved).has('AIH_REFERENCE_UNRESOLVED'));
+
+  visual.data.pages[0].useCaseRefs = ['UC-001'];
+  visual.data.components[0].visualCases.pop();
+  await writeArtifact(visual);
+  const incomplete = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'visual-spec', '--json']);
+  assert.ok(codes(incomplete).has('AIH_ARTIFACT_INCOMPLETE'));
+
+  visual.data.components[0].visualCases.push({
+    id: 'VISUAL-CASE-006', name: 'INT-STATE-003 secondary', interactionStateRef: 'INT-STATE-003',
+    variants: [{ name: 'emphasis', value: 'secondary' }], visual: structuredClone(visual.data.components[0].visualCases[0].visual),
+  });
+  await writeArtifact(visual);
+  await appendFile(resolve(root, stage.root, 'assets/status.svg'), '<!-- drift -->\n');
+  const integrity = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'visual-spec', '--json']);
+  assert.ok(codes(integrity).has('AIH_SOURCE_INTEGRITY_FAILED'));
+
+  await appendFile(markdownPath, 'manual drift\n');
+  const drift = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'visual-spec', '--json']);
+  assert.ok(codes(drift).has('AIH_GENERATED_DRIFT'));
 });
 
 test('atomic UC readiness covers behavior, flow, Low-Fi, failure recovery, and deterministic projection', async () => {

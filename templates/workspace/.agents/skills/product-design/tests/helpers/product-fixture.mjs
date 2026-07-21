@@ -181,6 +181,64 @@ export async function completeProductFixture(root) {
     ],
   }];
 
+  const visualSpec = await readArtifact(root, stage, stage.artifacts['visual-spec']);
+  markReady(visualSpec.data);
+  const visualAsset = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#c8f36a"/></svg>\n';
+  const visualAssetDirectory = resolve(root, stage.root, 'assets');
+  await mkdir(visualAssetDirectory, { recursive: true });
+  await writeFile(resolve(visualAssetDirectory, 'status.svg'), visualAsset);
+  visualSpec.data.runtime = {
+    platform: 'web', renderer: 'browser', colorScheme: 'light', locale: 'zh-CN', rootFontSizePx: 16,
+  };
+  visualSpec.data.viewports = [{ id: 'VIEWPORT-DESKTOP', name: '桌面网页', widthPx: 1440, heightPx: 900, deviceScaleFactor: 1 }];
+  visualSpec.data.sources = [{
+    id: 'VISUAL-SOURCE-001', kind: 'user-input', locator: 'fixture://visual-direction', version: '1.0.0', contentHash: sha256('fixture visual direction'),
+  }];
+  visualSpec.data.foundations = {
+    spacing: [{ id: 'SPACE-0', valuePx: 0 }, { id: 'SPACE-16', valuePx: 16 }, { id: 'SPACE-24', valuePx: 24 }],
+    typography: [{ id: 'TYPE-BODY', fontFamilies: ['Inter', 'sans-serif'], fontSizePx: 16, fontWeight: 400, lineHeightPx: 24, letterSpacingPx: 0, textTransform: 'none' }],
+    paints: [
+      { id: 'PAINT-BACKGROUND', kind: 'color', value: '#ffffff', opacity: 1 },
+      { id: 'PAINT-TEXT', kind: 'color', value: '#111827', opacity: 1 },
+      { id: 'PAINT-ACCENT', kind: 'color', value: '#c8f36a', opacity: 1 },
+      { id: 'PAINT-BORDER', kind: 'color', value: '#d1d5db', opacity: 1 },
+    ],
+    effects: [],
+  };
+  visualSpec.data.layouts = [{
+    id: 'LAYOUT-001', name: '规格检查页面', direction: 'column',
+    width: { mode: 'fill', valuePx: null }, height: { mode: 'fill', valuePx: null },
+    minWidthPx: 0, maxWidthPx: 1440, minHeightPx: 0, maxHeightPx: null,
+    gapRef: 'SPACE-16', padding: { top: 'SPACE-24', right: 'SPACE-24', bottom: 'SPACE-24', left: 'SPACE-24' },
+    alignItems: 'stretch', justifyContent: 'start', overflow: 'auto',
+    children: [{ componentRef: 'VISUAL-COMPONENT-001', order: 0, grow: 0, shrink: 1, basisPx: null, alignSelf: 'stretch' }],
+  }];
+  visualSpec.data.pages = [{ id: 'PAGE-001', name: '规格检查', route: '/', useCaseRefs: ['UC-001'] }];
+  visualSpec.data.renderings = ['INT-STATE-001', 'INT-STATE-002', 'INT-STATE-003'].map((stateId, index) => ({
+    id: 'RENDERING-00' + (index + 1), pageRef: 'PAGE-001', viewportRef: 'VIEWPORT-DESKTOP', interactionStateRefs: [stateId],
+    layoutRef: 'LAYOUT-001', componentRefs: ['VISUAL-COMPONENT-001'], backgroundPaintRef: 'PAINT-BACKGROUND',
+  }));
+  const visualStyle = {
+    width: { mode: 'fill', valuePx: null }, height: { mode: 'hug', valuePx: null }, layoutRef: null,
+    typographyRef: 'TYPE-BODY', fillPaintRef: 'PAINT-ACCENT', textPaintRef: 'PAINT-TEXT',
+    border: { widthPx: 1, style: 'solid', paintRef: 'PAINT-BORDER', radiusPx: 8 }, effectRefs: [], opacity: 1,
+  };
+  visualSpec.data.components = [{
+    id: 'VISUAL-COMPONENT-001', name: '验证状态卡片', role: '展示验证状态和操作结果', useCaseRefs: ['UC-001'],
+    interactionStateRefs: ['INT-STATE-001', 'INT-STATE-002', 'INT-STATE-003'],
+    variantAxes: [{ name: 'emphasis', values: ['primary', 'secondary'] }],
+    visualCases: ['INT-STATE-001', 'INT-STATE-002', 'INT-STATE-003'].flatMap((stateId, stateIndex) => (
+      ['primary', 'secondary'].map((emphasis, variantIndex) => ({
+        id: 'VISUAL-CASE-00' + (stateIndex * 2 + variantIndex + 1), name: stateId + ' ' + emphasis,
+        interactionStateRef: stateId, variants: [{ name: 'emphasis', value: emphasis }], visual: structuredClone(visualStyle),
+      }))
+    )),
+  }];
+  visualSpec.data.assets = [{
+    id: 'VISUAL-ASSET-001', file: 'assets/status.svg', sourceRef: 'VISUAL-SOURCE-001', role: '状态图标', contentHash: sha256(visualAsset),
+    usage: [{ renderingRef: 'RENDERING-001', componentRef: 'VISUAL-COMPONENT-001', visualCaseRef: 'VISUAL-CASE-001' }],
+  }];
+
   const prototypeRoot = stage.areas['canonical-ui-prototypes'].root;
   const areaPath = resolve(root, stage.root, prototypeRoot, 'ACTOR-001');
   await cp(resolve(root, '.agents/skills/product-design/canonical-ui-prototype/template'), areaPath, { recursive: true });
@@ -314,8 +372,15 @@ export async function completeProductFixture(root) {
   const allStateIds = ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '6.0.0',
+    version: '7.0.0',
     actor: 'ACTOR-001',
+    draft: {
+      version: '1.0.0',
+      inputs: {
+        useCases: { version: capabilities.data.metadata.version, contentHash: sha256(stringifyYaml(capabilities.data)) },
+        visualSpec: { version: visualSpec.data.metadata.version, contentHash: sha256(stringifyYaml(visualSpec.data)) },
+      },
+    },
     visualPolicy: {
       mode: 'guided',
       selectedBy: 'user-explicit',
@@ -361,7 +426,7 @@ export async function completeProductFixture(root) {
     tokens: [{ id: 'TOKEN-COLOR-ACCENT', type: 'color', value: '#c8f36a', sourceIds: [sourceId], targetIds: ['CONTROL-001'], cssProperty: '--accent' }],
     routes: [{ id: 'ROUTE-001', path: '/', screenId: 'SCREEN-001' }],
     screens: [{ id: 'SCREEN-001', title: '规格验证', routeId: 'ROUTE-001', stateIds: ['INT-STATE-001'], componentIds: ['COMPONENT-001'] }],
-    components: [{ id: 'COMPONENT-001', name: '验证状态', controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
+    components: [{ id: 'COMPONENT-001', name: '验证状态', controlIds: ['CONTROL-001', 'CONTROL-002', 'CONTROL-003'], stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
     componentInventory: [{
       id: 'COMPONENT-INVENTORY-001',
       sourceId,
@@ -390,7 +455,7 @@ export async function completeProductFixture(root) {
         values: [{ figmaValue: 'Default', litValue: 'default' }],
       }],
       slotMappings: [],
-      eventIds: ['EVENT-001', 'EVENT-002'],
+      eventIds: ['EVENT-001', 'EVENT-002', 'EVENT-003'],
     }],
     componentVariantCoverage: [{
       id: 'COMPONENT-VARIANT-DEFAULT',
@@ -401,7 +466,7 @@ export async function completeProductFixture(root) {
       instanceNodeIds: ['1:2'],
       screenIds: ['SCREEN-001'],
     }],
-    controls: [{ id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' }, { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' }],
+    controls: [{ id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' }, { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' }, { id: 'CONTROL-003', componentId: 'COMPONENT-001', label: '返回重试' }],
     states: [
       { id: 'INT-STATE-001', scope: 'workflow', ownerId: 'SCREEN-001', label: '等待验证' },
       { id: 'COMPONENT-STATE-DEFAULT', scope: 'component', ownerId: 'COMPONENT-001', label: '默认' },
@@ -409,11 +474,12 @@ export async function completeProductFixture(root) {
       { id: 'COMPONENT-STATE-SUCCESS', scope: 'component', ownerId: 'COMPONENT-001', label: '成功' },
       { id: 'COMPONENT-STATE-ERROR', scope: 'component', ownerId: 'COMPONENT-001', label: '错误' },
     ],
-    events: [{ id: 'EVENT-001', name: 'submit-success', controlId: 'CONTROL-001' }, { id: 'EVENT-002', name: 'submit-error', controlId: 'CONTROL-002' }],
-    actions: [{ id: 'ACTION-001', name: 'request-success', eventId: 'EVENT-001', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS'] }, { id: 'ACTION-002', name: 'request-error', eventId: 'EVENT-002', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'] }],
+    events: [{ id: 'EVENT-001', name: 'submit-success', controlId: 'CONTROL-001' }, { id: 'EVENT-002', name: 'submit-error', controlId: 'CONTROL-002' }, { id: 'EVENT-003', name: 'return-retry', controlId: 'CONTROL-003' }],
+    actions: [{ id: 'ACTION-001', name: 'request-success', eventId: 'EVENT-001', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS'] }, { id: 'ACTION-002', name: 'request-error', eventId: 'EVENT-002', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'] }, { id: 'ACTION-003', name: 'return-to-entry', eventId: 'EVENT-003', resultingStateIds: ['COMPONENT-STATE-DEFAULT'] }],
     scenarios: [
-      { id: 'SCENARIO-001', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: allViewportIds },
-      { id: 'SCENARIO-002', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: allViewportIds },
+      { id: 'SCENARIO-001', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-01'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: allViewportIds },
+      { id: 'SCENARIO-002', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: allViewportIds },
+      { id: 'SCENARIO-003', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: ['INT-STATE-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002', 'EVENT-003'], expectedStateIds: ['COMPONENT-STATE-DEFAULT', 'INT-STATE-001'], viewportIds: allViewportIds },
     ],
     mockBehaviors: [{ id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] }],
     viewports: [{ id: 'VIEWPORT-MOBILE', width: 390, height: 844 }, { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 }],
@@ -432,6 +498,7 @@ export async function completeProductFixture(root) {
       },
       { id: 'VISUAL-SCENARIO-001', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001', viewportIds: allViewportIds, checks: [{ kind: 'element-visible', targetIds: ['COMPONENT-STATE-SUCCESS'] }] },
       { id: 'VISUAL-SCENARIO-002', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-002', viewportIds: allViewportIds, checks: [{ kind: 'element-visible', targetIds: ['COMPONENT-STATE-ERROR'] }] },
+      { id: 'VISUAL-SCENARIO-003', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-003', viewportIds: allViewportIds, checks: [{ kind: 'element-visible', targetIds: ['COMPONENT-STATE-DEFAULT', 'INT-STATE-001'] }] },
     ],
     sourceParityAssertions: [
       { id: 'PARITY-COLOR-MOBILE', sourceId, routeId: 'ROUTE-001', viewportId: 'VIEWPORT-MOBILE', aspects: ['color'], checks: [{ kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' }] },
@@ -439,7 +506,7 @@ export async function completeProductFixture(root) {
     ],
     motions: [{ id: 'MOTION-001', targetId: 'COMPONENT-001', trigger: 'loading', durationMs: 160, reducedMotion: true }],
     accessibility: { standard: 'Web Content Accessibility Guidelines 2.2 AA', checks: ['automated-rules', 'keyboard-operation', 'visible-focus', 'accessible-name', 'target-size'] },
-    traceability: [{ useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002'], stateIds: ['COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
+    traceability: [{ useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002', 'CONTROL-003'], stateIds: ['INT-STATE-001', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR', 'COMPONENT-STATE-DEFAULT'] }],
     gaps: [],
   };
   await writeFile(resolve(areaPath, 'src/spec/canonical-ui.ts'), 'export const canonicalUi = ' + JSON.stringify(canonical, null, 2) + ' as const;\n');
@@ -458,6 +525,7 @@ export async function completeProductFixture(root) {
   );
 
   await writeArtifact(capabilities);
+  await writeArtifact(visualSpec);
   const render = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--json']);
   assert.equal(render.exitCode, 0, JSON.stringify(render.output, null, 2));
 }

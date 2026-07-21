@@ -44,11 +44,11 @@ test('resolver maps Canonical UI authority and projections to one artifact scope
   const result = resolveHarness(manifest, active, [path], 'change', repositoryRoot);
   assert.equal(result.status, 'READY', JSON.stringify(result.blockers));
   assert.deepEqual(result.scopes, ['canonical-ui-prototype']);
-  assert.deepEqual(result.upstreamScopes, ['use-cases']);
+  assert.deepEqual(result.upstreamScopes, ['use-cases', 'visual-spec']);
   assert.deepEqual(result.downstreamConsumers, []);
 });
 
-test('Use Cases has Canonical UI Prototype as its only product handoff consumer', () => {
+test('Use Cases hands off to Visual Spec and Visual Spec hands off to Canonical UI Prototype', () => {
   const active = structuredClone(project);
   active.stages['product-design'].status = 'active';
   const stage = active.stages['product-design'];
@@ -57,11 +57,24 @@ test('Use Cases has Canonical UI Prototype as its only product handoff consumer'
   assert.equal(authority.status, 'READY', JSON.stringify(authority.blockers));
   assert.deepEqual(authority.scopes, ['use-cases']);
   assert.deepEqual(authority.upstreamScopes, []);
-  assert.deepEqual(authority.downstreamConsumers, ['canonical-ui-prototype']);
+  assert.deepEqual(authority.downstreamConsumers, ['visual-spec']);
   for (const output of binding.outputs) {
     const projection = resolveHarness(manifest, active, [stage.root + '/' + output.path], 'change', repositoryRoot);
     assert.equal(projection.status, 'BLOCKED');
     assert.deepEqual(projection.scopes, ['use-cases']);
+    assert.ok(projection.blockers.some((blocker) => blocker.code === 'AIH_GENERATED_DRIFT'));
+  }
+
+  const visualBinding = stage.artifacts['visual-spec'];
+  const visualAuthority = resolveHarness(manifest, active, [stage.root + '/' + visualBinding.internalModel], 'change', repositoryRoot);
+  assert.equal(visualAuthority.status, 'READY', JSON.stringify(visualAuthority.blockers));
+  assert.deepEqual(visualAuthority.scopes, ['visual-spec']);
+  assert.deepEqual(visualAuthority.upstreamScopes, ['use-cases']);
+  assert.deepEqual(visualAuthority.downstreamConsumers, ['canonical-ui-prototype']);
+  for (const output of visualBinding.outputs) {
+    const projection = resolveHarness(manifest, active, [stage.root + '/' + output.path], 'change', repositoryRoot);
+    assert.equal(projection.status, 'BLOCKED');
+    assert.deepEqual(projection.scopes, ['visual-spec']);
     assert.ok(projection.blockers.some((blocker) => blocker.code === 'AIH_GENERATED_DRIFT'));
   }
 });
@@ -150,7 +163,7 @@ test('handoff rejects unknown edges and reports uninitialized source without per
   const root = await temporaryRepository();
   const invalid = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'canonical-ui-prototype', '--to', 'architecture-design', '--json']);
   assert.ok(codes(invalid).has('AIH_HANDOFF_EDGE_INVALID'));
-  const uninitialized = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'canonical-ui-prototype', '--json']);
+  const uninitialized = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'visual-spec', '--json']);
   assert.ok(codes(uninitialized).has('AIH_STAGE_UNINITIALIZED'));
   const bound = parseYaml(await readFile(resolve(root, 'psp.project.yaml'), 'utf8'));
   assert.equal(bound.stages['architecture-design'].status, 'uninitialized');
@@ -161,7 +174,7 @@ test('handoff returns a transient PASS receipt without initializing downstream',
   await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
     value.commands.push({ id: 'fixture-pass', npmScript: 'fixture:pass', run: 'npm run fixture:pass', purpose: 'fixture', blocking: true, executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' } });
     value.validationProfiles.find((item) => item.id === 'product-delivery').commands = ['fixture-pass'];
-    for (const scopeId of ['use-cases', 'canonical-ui-prototype']) {
+    for (const scopeId of ['use-cases', 'visual-spec']) {
       value.scopes.find((item) => item.id === scopeId).readinessProfile = 'product-delivery';
     }
   });
@@ -170,11 +183,11 @@ test('handoff returns a transient PASS receipt without initializing downstream',
   bound.stages['product-design'].status = 'active';
   await writeFile(projectPath, stringifyYaml(bound));
 
-  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'canonical-ui-prototype', '--json']);
+  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'visual-spec', '--json']);
   assert.equal(result.exitCode, 0, JSON.stringify(result.output));
   assert.equal(result.output.status, 'PASS');
   assert.equal(result.output.from, 'use-cases');
-  assert.equal(result.output.to, 'canonical-ui-prototype');
+  assert.equal(result.output.to, 'visual-spec');
   assert.equal(result.output.profile, 'product-delivery');
   assert.deepEqual(result.output.validation.map((item) => item.status), ['PASS']);
   assert.equal(result.output.downstreamAction, 'NOT_RUN');
@@ -197,7 +210,7 @@ test('handoff executes commands in manifest order and marks commands after failu
       { id: 'fixture-notrun', npmScript: 'fixture:notrun', run: 'npm run fixture:notrun', purpose: 'fixture', blocking: true, executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' } },
     );
     value.validationProfiles.find((item) => item.id === 'product-delivery').commands = ['fixture-pass', 'fixture-fail', 'fixture-notrun'];
-    for (const scopeId of ['use-cases', 'canonical-ui-prototype']) {
+    for (const scopeId of ['use-cases', 'visual-spec']) {
       value.scopes.find((item) => item.id === scopeId).readinessProfile = 'product-delivery';
     }
   });
@@ -205,7 +218,7 @@ test('handoff executes commands in manifest order and marks commands after failu
   const bound = parseYaml(await readFile(projectPath, 'utf8'));
   bound.stages['product-design'].status = 'active';
   await writeFile(projectPath, stringifyYaml(bound));
-  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'canonical-ui-prototype', '--json']);
+  const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'visual-spec', '--json']);
   assert.equal(result.output.status, 'FAIL');
   assert.deepEqual(result.output.validation.map((item) => item.status), ['PASS', 'FAIL', 'NOT_RUN']);
   assert.equal(result.output.downstreamAction, 'NOT_RUN');

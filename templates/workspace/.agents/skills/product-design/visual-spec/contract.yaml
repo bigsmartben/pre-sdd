@@ -1,0 +1,58 @@
+apiVersion: psp.dev/v1
+kind: ArtifactContract
+metadata:
+  id: visual-spec
+  version: 1.0.0
+spec:
+  stage: product-design
+  internalModelFormat: yaml
+  outputRole: user-artifact
+  purpose: 以 provider-neutral Visual Spec Intake 固定 UI HTML 所需的运行环境、页面、视口、布局、视觉基础、组件状态与 Variant、资源来源及 UC 追溯，并确定性生成 Visual-Spec.md。
+  inputs:
+    artifacts:
+      - capabilities
+    directoryRole: supporting-input
+  owns:
+    - UI 运行平台、渲染器、颜色方案、语言环境与根字号
+    - 目标视口与设备像素比
+    - 页面、路由以及页面到正式 Use Case 的追溯
+    - 页面在每个视口和正式 Interaction State 下的确定渲染组合
+    - 布局、尺寸、间距、排版、颜色、边框、阴影及其他视觉效果
+    - 组件在每个正式状态和 Variant 组合下的完整视觉定义
+    - 资源的稳定文件路径、来源、来源版本、用途、使用位置与内容哈希
+  excludes:
+    - 修改 Use Case、Interaction Flow、业务规则或正式 Interaction State
+    - Figma 专用采集步骤、连接器协议与节点整理规则
+    - UI HTML、CSS、JavaScript、框架选择与发布
+    - 人工评审次数、修复次数、像素阈值与 Agent 执行步骤
+  domainRules:
+    - provider-neutral-source-identity
+    - runtime-and-viewport-explicit
+    - page-use-case-traceability
+    - rendering-state-and-viewport-coverage
+    - layout-sizing-spacing-explicit
+    - typography-paint-effect-references-resolvable
+    - component-state-variant-cartesian-coverage
+    - asset-path-source-role-usage-and-hash-stable
+    - upstream-use-cases-ready-before-apply
+    - visual-spec-projection-deterministic
+  projections:
+    - id: visual-spec-document
+      outputRole: user-artifact
+      readOnly: true
+      sources:
+        - metadata
+        - runtime
+        - viewports
+        - sources
+        - foundations
+        - layouts
+        - pages
+        - renderings
+        - components
+        - assets
+        - gaps
+  readiness:
+    requiredStatus: ready
+    requireNoGaps: true
+    requireAllGates: false

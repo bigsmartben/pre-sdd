@@ -10,7 +10,7 @@ const suites = new Map([
   ['product', {
     command: 'test:product',
     tests: '.agents/skills/product-design/tests',
-    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Canonical UI input gate|Figma source registration packet)',
+    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Figma source registration packet)',
   }],
   ['architecture', {
     command: 'test:architecture',

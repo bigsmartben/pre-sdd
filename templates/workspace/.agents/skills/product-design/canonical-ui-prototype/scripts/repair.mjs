@@ -143,6 +143,11 @@ async function main() {
   const { project, manifest } = await loadProjectAndManifest(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const stage = project.stages?.['product-design'];
+  if (stage?.status === 'published') {
+    const error = new Error('产品设计阶段已经发布并锁定；Repair 前必须先执行 Reopen。');
+    error.code = 'AIH_STAGE_LOCKED';
+    throw error;
+  }
   if (stage?.status !== 'active' || !paths?.area) {
     const error = new Error('产品设计阶段或 Canonical UI Prototype Area 尚未激活。');
     error.code = 'AIH_STAGE_UNINITIALIZED';

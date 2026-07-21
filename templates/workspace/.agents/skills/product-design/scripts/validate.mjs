@@ -1,4 +1,5 @@
-import { access } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import {
@@ -23,7 +24,7 @@ const readinessStep = process.argv.includes('--strict')
   : stepIndex >= 0 ? process.argv[stepIndex + 1] : null;
 const strict = readinessStep !== null;
 const json = process.argv.includes('--json');
-const validSteps = new Set(['use-cases', 'canonical-ui-prototype']);
+const validSteps = new Set(['use-cases', 'visual-spec', 'canonical-ui-prototype']);
 const blockers = [];
 const warnings = [];
 
@@ -118,6 +119,161 @@ function validateCapabilitiesReadiness(capabilities) {
   if ((capabilities?.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Use Cases 仍有待确认问题。', 'capabilities.gaps');
 }
 
+function validateVisualStyle(style, available, location) {
+  if (!style) return;
+  requireReferences([style.layoutRef].filter(Boolean), available.layoutIds, location, 'Layout');
+  requireReferences([style.typographyRef].filter(Boolean), available.typographyIds, location, 'Typography');
+  requireReferences([style.fillPaintRef, style.textPaintRef, style.border?.paintRef].filter(Boolean), available.paintIds, location, 'Paint');
+  requireReferences(style.effectRefs, available.effectIds, location, 'Effect');
+}
+
+function variantCombinations(axes, index = 0, current = []) {
+  if (index >= axes.length) return [current];
+  return axes[index].values.flatMap((value) => variantCombinations(axes, index + 1, [...current, [axes[index].name, value]]));
+}
+
+async function validateVisualSpec(visualSpec, capabilities, stage) {
+  if (!visualSpec) return null;
+  const useCaseIds = new Set((capabilities?.useCases || []).map((item) => item.id));
+  const interactionStateIds = new Set((capabilities?.interactionStates || []).map((item) => item.id));
+  const viewportIds = ids(visualSpec.viewports, 'visualSpec.viewports');
+  const sourceIds = ids(visualSpec.sources, 'visualSpec.sources');
+  const spacingIds = ids(visualSpec.foundations?.spacing, 'visualSpec.foundations.spacing');
+  const typographyIds = ids(visualSpec.foundations?.typography, 'visualSpec.foundations.typography');
+  const paintIds = ids(visualSpec.foundations?.paints, 'visualSpec.foundations.paints');
+  const effectIds = ids(visualSpec.foundations?.effects, 'visualSpec.foundations.effects');
+  const layoutIds = ids(visualSpec.layouts, 'visualSpec.layouts');
+  const pageIds = ids(visualSpec.pages, 'visualSpec.pages');
+  const renderingIds = ids(visualSpec.renderings, 'visualSpec.renderings');
+  const componentIds = ids(visualSpec.components, 'visualSpec.components');
+  const assetIds = ids(visualSpec.assets, 'visualSpec.assets');
+  const visualCaseIds = new Set();
+  const available = { layoutIds, typographyIds, paintIds, effectIds };
+
+  for (const effect of visualSpec.foundations?.effects || []) {
+    requireReferences([effect.paintRef].filter(Boolean), paintIds, 'visualSpec.foundations.effects.' + effect.id, 'Paint');
+  }
+  for (const layout of visualSpec.layouts || []) {
+    const location = 'visualSpec.layouts.' + layout.id;
+    requireReferences([layout.gapRef, ...Object.values(layout.padding || {})], spacingIds, location, 'Spacing');
+    requireReferences((layout.children || []).map((item) => item.componentRef), componentIds, location, 'Component');
+    const orders = (layout.children || []).map((item) => item.order);
+    if (new Set(orders).size !== orders.length) block('AIH_ARTIFACT_INCOMPLETE', 'Layout child order 必须唯一：' + layout.id, location + '.children');
+  }
+  for (const page of visualSpec.pages || []) {
+    requireReferences(page.useCaseRefs, useCaseIds, 'visualSpec.pages.' + page.id, 'Use Case');
+  }
+  for (const component of visualSpec.components || []) {
+    const location = 'visualSpec.components.' + component.id;
+    requireReferences(component.useCaseRefs, useCaseIds, location, 'Use Case');
+    requireReferences(component.interactionStateRefs, interactionStateIds, location, 'Interaction State');
+    const axisNames = new Set();
+    for (const axis of component.variantAxes || []) {
+      if (axisNames.has(axis.name)) block('AIH_REFERENCE_UNRESOLVED', 'Variant axis 重复：' + axis.name, location + '.variantAxes');
+      axisNames.add(axis.name);
+    }
+    const caseKeys = new Set();
+    for (const visualCase of component.visualCases || []) {
+      addUniqueId(visualCase.id, visualCaseIds, location + '.visualCases');
+      requireReferences([visualCase.interactionStateRef], new Set(component.interactionStateRefs), location + '.visualCases.' + visualCase.id, 'Component Interaction State');
+      const selections = new Map();
+      for (const selection of visualCase.variants || []) {
+        if (selections.has(selection.name)) block('AIH_REFERENCE_UNRESOLVED', 'Visual Case Variant axis 重复：' + selection.name, location + '.visualCases.' + visualCase.id);
+        selections.set(selection.name, selection.value);
+        const axis = (component.variantAxes || []).find((item) => item.name === selection.name);
+        if (!axis || !axis.values.includes(selection.value)) block('AIH_REFERENCE_UNRESOLVED', 'Visual Case Variant 不存在：' + selection.name + '=' + selection.value, location + '.visualCases.' + visualCase.id);
+      }
+      if (selections.size !== axisNames.size || [...axisNames].some((name) => !selections.has(name))) {
+        block('AIH_ARTIFACT_INCOMPLETE', 'Visual Case 必须为每个 Variant axis 选择一个值：' + visualCase.id, location + '.visualCases.' + visualCase.id);
+      }
+      const key = visualCase.interactionStateRef + '|' + [...selections].sort(([left], [right]) => left.localeCompare(right)).map(([name, value]) => name + '=' + value).join('|');
+      if (caseKeys.has(key)) block('AIH_REFERENCE_UNRESOLVED', '组件状态与 Variant 组合重复：' + key, location + '.visualCases');
+      caseKeys.add(key);
+      validateVisualStyle(visualCase.visual, available, location + '.visualCases.' + visualCase.id + '.visual');
+    }
+    const combinations = variantCombinations(component.variantAxes || []);
+    for (const stateId of component.interactionStateRefs || []) for (const combination of combinations) {
+      const key = stateId + '|' + combination.slice().sort(([left], [right]) => left.localeCompare(right)).map(([name, value]) => name + '=' + value).join('|');
+      if (!caseKeys.has(key)) block('AIH_ARTIFACT_INCOMPLETE', '组件缺少状态与 Variant 的完整视觉组合：' + component.id + ' / ' + key, location + '.visualCases');
+    }
+  }
+  for (const rendering of visualSpec.renderings || []) {
+    const location = 'visualSpec.renderings.' + rendering.id;
+    requireReferences([rendering.pageRef], pageIds, location, 'Page');
+    requireReferences([rendering.viewportRef], viewportIds, location, 'Viewport');
+    requireReferences(rendering.interactionStateRefs, interactionStateIds, location, 'Interaction State');
+    requireReferences([rendering.layoutRef], layoutIds, location, 'Layout');
+    requireReferences(rendering.componentRefs, componentIds, location, 'Component');
+    requireReferences([rendering.backgroundPaintRef], paintIds, location, 'Paint');
+    const page = (visualSpec.pages || []).find((item) => item.id === rendering.pageRef);
+    const pageUseCases = new Set(page?.useCaseRefs || []);
+    const relevantStates = new Set((capabilities?.interactionFlows || [])
+      .filter((flow) => pageUseCases.has(flow.useCase))
+      .flatMap((flow) => [flow.entryState, ...flow.completionStates, ...flow.transitions.flatMap((transition) => [transition.from, transition.to])]));
+    requireReferences(rendering.interactionStateRefs, relevantStates, location, 'Page Use Case Interaction State');
+    for (const componentId of rendering.componentRefs || []) {
+      const component = (visualSpec.components || []).find((item) => item.id === componentId);
+      requireReferences(rendering.interactionStateRefs, new Set(component?.interactionStateRefs || []), location, 'Rendered Component Interaction State');
+    }
+  }
+  for (const asset of visualSpec.assets || []) {
+    const location = 'visualSpec.assets.' + asset.id;
+    requireReferences([asset.sourceRef], sourceIds, location, 'Visual Source');
+    for (const usage of asset.usage || []) {
+      requireReferences([usage.renderingRef], renderingIds, location + '.usage', 'Rendering');
+      requireReferences([usage.componentRef].filter(Boolean), componentIds, location + '.usage', 'Component');
+      requireReferences([usage.visualCaseRef].filter(Boolean), visualCaseIds, location + '.usage', 'Visual Case');
+      if (usage.visualCaseRef && !usage.componentRef) block('AIH_REFERENCE_UNRESOLVED', 'Asset visualCaseRef 必须同时指定 componentRef：' + asset.id, location + '.usage');
+      if (usage.visualCaseRef && usage.componentRef) {
+        const component = (visualSpec.components || []).find((item) => item.id === usage.componentRef);
+        if (!(component?.visualCases || []).some((item) => item.id === usage.visualCaseRef)) {
+          block('AIH_REFERENCE_UNRESOLVED', 'Asset Visual Case 不属于指定 Component：' + usage.visualCaseRef, location + '.usage');
+        }
+      }
+    }
+    try {
+      const content = await readFile(repositoryFile(root, stage.root + '/' + asset.file));
+      const actualHash = 'sha256:' + createHash('sha256').update(content).digest('hex');
+      if (actualHash !== asset.contentHash) block('AIH_SOURCE_INTEGRITY_FAILED', 'Visual Spec 资源内容哈希不匹配：' + asset.file, location);
+    } catch (error) {
+      block(error.code === 'ENOENT' ? 'AIH_SOURCE_INTEGRITY_FAILED' : (error.code || 'AIH_SOURCE_INTEGRITY_FAILED'), 'Visual Spec 资源不可读：' + asset.file, location);
+    }
+  }
+  return { useCaseIds, interactionStateIds, viewportIds, sourceIds, layoutIds, pageIds, renderingIds, componentIds, assetIds };
+}
+
+function validateVisualSpecReadiness(visualSpec, capabilities) {
+  if (capabilities?.metadata?.status !== 'ready' || (capabilities?.gaps || []).length > 0) {
+    block('AIH_UPSTREAM_NOT_READY', 'Visual Spec 要求 Use Cases 已达到独立 readiness；不得静默补写上游事实。', 'capabilities');
+  }
+  if (visualSpec?.metadata?.status !== 'ready') block('AIH_ARTIFACT_INCOMPLETE', 'Visual Spec 状态不是 ready。', 'visualSpec.metadata.status');
+  if ((visualSpec?.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Visual Spec 仍有待确认问题。', 'visualSpec.gaps');
+  for (const [name, value] of Object.entries({
+    viewports: visualSpec?.viewports,
+    sources: visualSpec?.sources,
+    spacing: visualSpec?.foundations?.spacing,
+    typography: visualSpec?.foundations?.typography,
+    paints: visualSpec?.foundations?.paints,
+    layouts: visualSpec?.layouts,
+    pages: visualSpec?.pages,
+    renderings: visualSpec?.renderings,
+    components: visualSpec?.components,
+  })) if ((value || []).length === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Visual Spec 缺少：' + name, 'visualSpec.' + name);
+
+  const uiUseCases = (capabilities?.useCases || []).filter((item) => item.uiApplicability?.mode === 'required');
+  for (const useCase of uiUseCases) {
+    const pages = (visualSpec?.pages || []).filter((item) => item.useCaseRefs.includes(useCase.id));
+    if (pages.length === 0) block('AIH_ARTIFACT_INCOMPLETE', 'UI Use Case 缺少 Visual Spec Page：' + useCase.id, 'visualSpec.pages');
+    const states = new Set((capabilities?.interactionFlows || [])
+      .filter((flow) => flow.useCase === useCase.id)
+      .flatMap((flow) => [flow.entryState, ...flow.completionStates, ...flow.transitions.flatMap((transition) => [transition.from, transition.to])]));
+    for (const page of pages) for (const viewport of visualSpec?.viewports || []) for (const stateId of states) {
+      const covered = (visualSpec?.renderings || []).some((item) => item.pageRef === page.id && item.viewportRef === viewport.id && item.interactionStateRefs.includes(stateId));
+      if (!covered) block('AIH_SOURCE_COVERAGE_FAILED', 'Visual Spec 缺少页面、视口与正式状态渲染：' + page.id + ' / ' + viewport.id + ' / ' + stateId, 'visualSpec.renderings');
+    }
+  }
+}
+
 function layoutRegionReferences(node, result = []) {
   if (!node) return result;
   if (node.type === 'region') result.push(node.region);
@@ -179,7 +335,8 @@ function validateInformationArchitecture(blueprint, screenIds) {
 
 function readinessArtifacts(step) {
   if (step === 'use-cases') return new Set(['capabilities']);
-  return new Set(['capabilities', 'canonical-ui-prototype']);
+  if (step === 'visual-spec') return new Set(['capabilities', 'visual-spec']);
+  return new Set(['capabilities', 'visual-spec', 'canonical-ui-prototype']);
 }
 
 function aggregateMembers(members) {
@@ -381,11 +538,13 @@ try {
     }
 
     const capabilities = models.get('capabilities');
+    const visualSpec = models.get('visual-spec');
     const canonicalMembers = models.get('canonical-ui-prototype') || [];
     const canonical = aggregateMembers(canonicalMembers);
     const base = validateCapabilities(capabilities);
     const { useCaseIds } = base;
     const { useCasesById, stateIds: interactionStateIds, flowIds: interactionFlowIds } = validateAtomicUseCases(capabilities, base);
+    await validateVisualSpec(visualSpec, capabilities, stage);
     const actorIds = new Set((capabilities?.actors || []).map((actor) => actor.id));
     const expectedUiActors = new Set((capabilities?.useCases || []).filter((useCase) => useCase.uiApplicability?.mode === 'required').map((useCase) => useCase.actor));
     const canonicalActors = new Set();
@@ -398,6 +557,8 @@ try {
       const localUseCaseIds = new Set((capabilities?.useCases || []).filter((useCase) => useCase.actor === actor && useCase.uiApplicability?.mode === 'required').map((useCase) => useCase.id));
       const localFlows = (capabilities?.interactionFlows || []).filter((flow) => localUseCaseIds.has(flow.useCase));
       const localFlowIds = new Set(localFlows.map((flow) => flow.id));
+      const localTransitions = localFlows.flatMap((flow) => flow.transitions || []);
+      const localTransitionIds = new Set(localTransitions.map((transition) => transition.id));
       const localInteractionStateIds = new Set(localFlows.flatMap((flow) => [flow.entryState, ...flow.completionStates, ...flow.transitions.flatMap((transition) => [transition.from, transition.to])]));
       for (const state of member.data.states || []) if (state.scope === 'workflow') {
         requireReferences([state.id], localInteractionStateIds, member.authorityPath, '同参与者 Interaction State');
@@ -406,6 +567,8 @@ try {
         const useCase = useCasesById.get(scenario.useCaseId);
         if (useCase && useCase.actor !== actor) block('AIH_REFERENCE_UNRESOLVED', 'Canonical UI 场景引用了其他参与者的 Use Case：' + scenario.useCaseId, member.authorityPath);
         requireReferences(scenario.interactionFlowIds, localFlowIds, member.authorityPath, '同参与者 Interaction Flow');
+        requireReferences(scenario.transitionIds, localTransitionIds, member.authorityPath, '同参与者 Interaction Transition');
+        requireReferences(scenario.recoveryStateIds, localInteractionStateIds, member.authorityPath, '恢复/返回 Interaction State');
       }
       for (const trace of member.data.traceability || []) {
         const useCase = useCasesById.get(trace.useCaseId);
@@ -416,6 +579,19 @@ try {
       if (strict && readinessStep === 'canonical-ui-prototype') {
         if (member.data.visualPolicy.mode === 'unresolved') block('AIH_VISUAL_POLICY_UNRESOLVED', 'Canonical UI Prototype 尚未选择视觉策略。', member.authorityPath);
         if ((member.data.gaps || []).length > 0) block('AIH_ARTIFACT_INCOMPLETE', 'Canonical UI Prototype 仍有未决 gaps。', member.authorityPath);
+        for (const transition of localTransitions) {
+          const scenarios = (member.data.scenarios || []).filter((scenario) => (scenario.transitionIds || []).includes(transition.id));
+          if (scenarios.length === 0) {
+            block('AIH_CANONICAL_UI_FLOW_COVERAGE_FAILED', '正式分支没有可执行 UI HTML 场景：' + transition.id, member.authorityPath);
+          }
+          const returnState = transition.failureResponse?.returnToState;
+          if (returnState && !scenarios.some((scenario) => (
+            (scenario.recoveryStateIds || []).includes(returnState)
+            && (scenario.expectedStateIds || []).includes(returnState)
+          ))) {
+            block('AIH_CANONICAL_UI_FLOW_COVERAGE_FAILED', '失败分支没有可执行恢复/返回路径：' + transition.id + ' → ' + returnState, member.authorityPath);
+          }
+        }
       }
     }
     if (strict && readinessStep === 'canonical-ui-prototype') {
@@ -553,6 +729,8 @@ try {
       for (const scenario of canonical.scenarios) {
         if (strict || useCaseIds.size > 0) requireReferences([scenario.useCaseId], useCaseIds, 'canonical.scenarios.' + scenario.id, 'useCaseId');
         if (strict || interactionFlowIds.size > 0) requireReferences(scenario.interactionFlowIds, interactionFlowIds, 'canonical.scenarios.' + scenario.id, 'interactionFlowIds');
+        requireReferences(scenario.transitionIds, new Set((capabilities?.interactionFlows || []).flatMap((flow) => flow.transitions.map((transition) => transition.id))), 'canonical.scenarios.' + scenario.id, 'transitionIds');
+        requireReferences(scenario.recoveryStateIds, interactionStateIds, 'canonical.scenarios.' + scenario.id, 'recoveryStateIds');
         requireReferences([scenario.routeId], routeIds, 'canonical.scenarios.' + scenario.id, 'routeId');
         requireReferences(scenario.initialStateIds, stateIds, 'canonical.scenarios.' + scenario.id, 'initialStateIds');
         requireReferences(scenario.eventIds, eventIds, 'canonical.scenarios.' + scenario.id, 'eventIds');
@@ -685,6 +863,10 @@ try {
         const model = models.get(artifactId);
         if (artifactId === 'capabilities') {
           validateCapabilitiesReadiness(model);
+          continue;
+        }
+        if (artifactId === 'visual-spec') {
+          validateVisualSpecReadiness(model, capabilities);
           continue;
         }
       }

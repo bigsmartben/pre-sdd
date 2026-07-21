@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/artifacts/visual-spec.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "runtime", "viewports", "sources", "foundations", "layouts", "pages", "renderings", "components", "assets", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "VisualSpecification"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "runtime": {"$ref": "#/$defs/runtime"},
+    "viewports": {"type": "array", "items": {"$ref": "#/$defs/viewport"}},
+    "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}},
+    "foundations": {"$ref": "#/$defs/foundations"},
+    "layouts": {"type": "array", "items": {"$ref": "#/$defs/layout"}},
+    "pages": {"type": "array", "items": {"$ref": "#/$defs/page"}},
+    "renderings": {"type": "array", "items": {"$ref": "#/$defs/rendering"}},
+    "components": {"type": "array", "items": {"$ref": "#/$defs/component"}},
+    "assets": {"type": "array", "items": {"$ref": "#/$defs/asset"}},
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object", "additionalProperties": false, "required": ["status", "version"],
+      "properties": {
+        "status": {"enum": ["draft", "ready"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["platform", "renderer", "colorScheme", "locale", "rootFontSizePx"],
+      "properties": {
+        "platform": {"enum": ["web", "ios", "android", "desktop", "other"]},
+        "renderer": {"type": "string", "minLength": 1},
+        "colorScheme": {"enum": ["light", "dark", "system"]},
+        "locale": {"type": "string", "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"},
+        "rootFontSizePx": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "viewportId": {"type": "string", "pattern": "^VIEWPORT-[A-Z0-9][A-Z0-9-]*$"},
+    "sourceId": {"type": "string", "pattern": "^VISUAL-SOURCE-[0-9]{3}$"},
+    "spacingId": {"type": "string", "pattern": "^SPACE-[A-Z0-9][A-Z0-9-]*$"},
+    "typographyId": {"type": "string", "pattern": "^TYPE-[A-Z0-9][A-Z0-9-]*$"},
+    "paintId": {"type": "string", "pattern": "^PAINT-[A-Z0-9][A-Z0-9-]*$"},
+    "effectId": {"type": "string", "pattern": "^EFFECT-[A-Z0-9][A-Z0-9-]*$"},
+    "layoutId": {"type": "string", "pattern": "^LAYOUT-[0-9]{3}$"},
+    "pageId": {"type": "string", "pattern": "^PAGE-[0-9]{3}$"},
+    "renderingId": {"type": "string", "pattern": "^RENDERING-[0-9]{3}$"},
+    "componentId": {"type": "string", "pattern": "^VISUAL-COMPONENT-[0-9]{3}$"},
+    "visualCaseId": {"type": "string", "pattern": "^VISUAL-CASE-[0-9]{3}$"},
+    "assetId": {"type": "string", "pattern": "^VISUAL-ASSET-[0-9]{3}$"},
+    "useCaseId": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
+    "interactionStateId": {"type": "string", "pattern": "^INT-STATE-[0-9]{3}$"},
+    "hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "viewport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "widthPx", "heightPx", "deviceScaleFactor"],
+      "properties": {
+        "id": {"$ref": "#/$defs/viewportId"},
+        "name": {"type": "string", "minLength": 1},
+        "widthPx": {"type": "integer", "minimum": 1},
+        "heightPx": {"type": "integer", "minimum": 1},
+        "deviceScaleFactor": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "locator", "version", "contentHash"],
+      "properties": {
+        "id": {"$ref": "#/$defs/sourceId"},
+        "kind": {"enum": ["figma", "design-system", "asset-file", "user-input", "other"]},
+        "locator": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "contentHash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "spacingToken": {
+      "type": "object", "additionalProperties": false, "required": ["id", "valuePx"],
+      "properties": {"id": {"$ref": "#/$defs/spacingId"}, "valuePx": {"type": "number", "minimum": 0}}
+    },
+    "typographyToken": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "fontFamilies", "fontSizePx", "fontWeight", "lineHeightPx", "letterSpacingPx", "textTransform"],
+      "properties": {
+        "id": {"$ref": "#/$defs/typographyId"},
+        "fontFamilies": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "fontSizePx": {"type": "number", "exclusiveMinimum": 0},
+        "fontWeight": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "lineHeightPx": {"type": "number", "exclusiveMinimum": 0},
+        "letterSpacingPx": {"type": "number"},
+        "textTransform": {"enum": ["none", "uppercase", "lowercase", "capitalize"]}
+      }
+    },
+    "paintToken": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "value", "opacity"],
+      "properties": {
+        "id": {"$ref": "#/$defs/paintId"},
+        "kind": {"enum": ["color", "linear-gradient", "radial-gradient"]},
+        "value": {"type": "string", "minLength": 1},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "effectToken": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "offsetXPx", "offsetYPx", "blurPx", "spreadPx", "paintRef"],
+      "properties": {
+        "id": {"$ref": "#/$defs/effectId"},
+        "kind": {"enum": ["box-shadow", "text-shadow", "blur"]},
+        "offsetXPx": {"type": "number"},
+        "offsetYPx": {"type": "number"},
+        "blurPx": {"type": "number", "minimum": 0},
+        "spreadPx": {"type": "number"},
+        "paintRef": {"oneOf": [{"$ref": "#/$defs/paintId"}, {"type": "null"}]}
+      }
+    },
+    "foundations": {
+      "type": "object", "additionalProperties": false,
+      "required": ["spacing", "typography", "paints", "effects"],
+      "properties": {
+        "spacing": {"type": "array", "items": {"$ref": "#/$defs/spacingToken"}},
+        "typography": {"type": "array", "items": {"$ref": "#/$defs/typographyToken"}},
+        "paints": {"type": "array", "items": {"$ref": "#/$defs/paintToken"}},
+        "effects": {"type": "array", "items": {"$ref": "#/$defs/effectToken"}}
+      }
+    },
+    "dimension": {
+      "type": "object", "additionalProperties": false, "required": ["mode", "valuePx"],
+      "properties": {
+        "mode": {"enum": ["fixed", "fill", "hug"]},
+        "valuePx": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]}
+      },
+      "allOf": [
+        {"if": {"properties": {"mode": {"const": "fixed"}}, "required": ["mode"]}, "then": {"properties": {"valuePx": {"type": "number", "minimum": 0}}}},
+        {"if": {"properties": {"mode": {"enum": ["fill", "hug"]}}, "required": ["mode"]}, "then": {"properties": {"valuePx": {"type": "null"}}}}
+      ]
+    },
+    "spacingBox": {
+      "type": "object", "additionalProperties": false, "required": ["top", "right", "bottom", "left"],
+      "properties": {
+        "top": {"$ref": "#/$defs/spacingId"}, "right": {"$ref": "#/$defs/spacingId"},
+        "bottom": {"$ref": "#/$defs/spacingId"}, "left": {"$ref": "#/$defs/spacingId"}
+      }
+    },
+    "layoutChild": {
+      "type": "object", "additionalProperties": false,
+      "required": ["componentRef", "order", "grow", "shrink", "basisPx", "alignSelf"],
+      "properties": {
+        "componentRef": {"$ref": "#/$defs/componentId"},
+        "order": {"type": "integer"}, "grow": {"type": "number", "minimum": 0}, "shrink": {"type": "number", "minimum": 0},
+        "basisPx": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "alignSelf": {"enum": ["auto", "start", "center", "end", "stretch"]}
+      }
+    },
+    "layout": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "direction", "width", "height", "minWidthPx", "maxWidthPx", "minHeightPx", "maxHeightPx", "gapRef", "padding", "alignItems", "justifyContent", "overflow", "children"],
+      "properties": {
+        "id": {"$ref": "#/$defs/layoutId"}, "name": {"type": "string", "minLength": 1},
+        "direction": {"enum": ["row", "column", "grid", "stack"]},
+        "width": {"$ref": "#/$defs/dimension"}, "height": {"$ref": "#/$defs/dimension"},
+        "minWidthPx": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "maxWidthPx": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "minHeightPx": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "maxHeightPx": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "gapRef": {"$ref": "#/$defs/spacingId"}, "padding": {"$ref": "#/$defs/spacingBox"},
+        "alignItems": {"enum": ["start", "center", "end", "stretch", "baseline"]},
+        "justifyContent": {"enum": ["start", "center", "end", "space-between", "space-around", "space-evenly"]},
+        "overflow": {"enum": ["visible", "hidden", "auto", "scroll"]},
+        "children": {"type": "array", "items": {"$ref": "#/$defs/layoutChild"}}
+      }
+    },
+    "page": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "route", "useCaseRefs"],
+      "properties": {
+        "id": {"$ref": "#/$defs/pageId"}, "name": {"type": "string", "minLength": 1},
+        "route": {"type": "string", "pattern": "^/"},
+        "useCaseRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}}
+      }
+    },
+    "rendering": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "pageRef", "viewportRef", "interactionStateRefs", "layoutRef", "componentRefs", "backgroundPaintRef"],
+      "properties": {
+        "id": {"$ref": "#/$defs/renderingId"}, "pageRef": {"$ref": "#/$defs/pageId"}, "viewportRef": {"$ref": "#/$defs/viewportId"},
+        "interactionStateRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/interactionStateId"}},
+        "layoutRef": {"$ref": "#/$defs/layoutId"},
+        "componentRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/componentId"}},
+        "backgroundPaintRef": {"$ref": "#/$defs/paintId"}
+      }
+    },
+    "border": {
+      "type": "object", "additionalProperties": false, "required": ["widthPx", "style", "paintRef", "radiusPx"],
+      "properties": {
+        "widthPx": {"type": "number", "minimum": 0}, "style": {"enum": ["none", "solid", "dashed", "dotted"]},
+        "paintRef": {"oneOf": [{"$ref": "#/$defs/paintId"}, {"type": "null"}]}, "radiusPx": {"type": "number", "minimum": 0}
+      }
+    },
+    "visualStyle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["width", "height", "layoutRef", "typographyRef", "fillPaintRef", "textPaintRef", "border", "effectRefs", "opacity"],
+      "properties": {
+        "width": {"$ref": "#/$defs/dimension"}, "height": {"$ref": "#/$defs/dimension"},
+        "layoutRef": {"oneOf": [{"$ref": "#/$defs/layoutId"}, {"type": "null"}]},
+        "typographyRef": {"oneOf": [{"$ref": "#/$defs/typographyId"}, {"type": "null"}]},
+        "fillPaintRef": {"oneOf": [{"$ref": "#/$defs/paintId"}, {"type": "null"}]},
+        "textPaintRef": {"oneOf": [{"$ref": "#/$defs/paintId"}, {"type": "null"}]},
+        "border": {"$ref": "#/$defs/border"},
+        "effectRefs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/effectId"}},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "variantAxis": {
+      "type": "object", "additionalProperties": false, "required": ["name", "values"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9-]*$"},
+        "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "variantSelection": {
+      "type": "object", "additionalProperties": false, "required": ["name", "value"],
+      "properties": {"name": {"type": "string", "minLength": 1}, "value": {"type": "string", "minLength": 1}}
+    },
+    "visualCase": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "interactionStateRef", "variants", "visual"],
+      "properties": {
+        "id": {"$ref": "#/$defs/visualCaseId"}, "name": {"type": "string", "minLength": 1},
+        "interactionStateRef": {"$ref": "#/$defs/interactionStateId"},
+        "variants": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/variantSelection"}},
+        "visual": {"$ref": "#/$defs/visualStyle"}
+      }
+    },
+    "component": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "role", "useCaseRefs", "interactionStateRefs", "variantAxes", "visualCases"],
+      "properties": {
+        "id": {"$ref": "#/$defs/componentId"}, "name": {"type": "string", "minLength": 1}, "role": {"type": "string", "minLength": 1},
+        "useCaseRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}},
+        "interactionStateRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/interactionStateId"}},
+        "variantAxes": {"type": "array", "items": {"$ref": "#/$defs/variantAxis"}},
+        "visualCases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/visualCase"}}
+      }
+    },
+    "assetUsage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["renderingRef", "componentRef", "visualCaseRef"],
+      "properties": {
+        "renderingRef": {"$ref": "#/$defs/renderingId"},
+        "componentRef": {"oneOf": [{"$ref": "#/$defs/componentId"}, {"type": "null"}]},
+        "visualCaseRef": {"oneOf": [{"$ref": "#/$defs/visualCaseId"}, {"type": "null"}]}
+      }
+    },
+    "asset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "file", "sourceRef", "role", "contentHash", "usage"],
+      "properties": {
+        "id": {"$ref": "#/$defs/assetId"},
+        "file": {"type": "string", "pattern": "^assets/[A-Za-z0-9][A-Za-z0-9._/-]*$"},
+        "sourceRef": {"$ref": "#/$defs/sourceId"}, "role": {"type": "string", "minLength": 1},
+        "contentHash": {"$ref": "#/$defs/hash"},
+        "usage": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/assetUsage"}}
+      }
+    },
+    "gap": {
+      "type": "object", "additionalProperties": false, "required": ["id", "field", "reason"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^VISUAL-GAP-[0-9]{3}$"},
+        "field": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

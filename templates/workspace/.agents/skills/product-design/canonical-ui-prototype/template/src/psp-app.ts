@@ -42,6 +42,11 @@ export class PspApp extends LitElement {
     }
   }
 
+  private returnToEntry(): void {
+    this.previewState = 'COMPONENT-STATE-DEFAULT';
+    this.feedback = '已返回入口，可以修复后重新提交。';
+  }
+
   protected render() {
     const traceability: ReadonlyArray<{
       useCaseId: string;
@@ -119,6 +124,16 @@ export class PspApp extends LitElement {
                 @click=${() => this.runMock('error')}
               >
                 模拟错误
+              </button>
+              <button
+                data-control-id="CONTROL-003"
+                data-event-id="EVENT-003"
+                data-event="return-retry"
+                data-action-id="ACTION-003"
+                ?disabled=${this.previewState !== 'COMPONENT-STATE-ERROR'}
+                @click=${this.returnToEntry}
+              >
+                返回重试
               </button>
             </div>
           </article>

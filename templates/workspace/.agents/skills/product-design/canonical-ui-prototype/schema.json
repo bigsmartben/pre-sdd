@@ -5,14 +5,15 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "version", "actor", "visualPolicy", "repairPolicy", "designSources", "assets", "tokens", "routes", "screens", "components",
+    "version", "actor", "draft", "visualPolicy", "repairPolicy", "designSources", "assets", "tokens", "routes", "screens", "components",
     "componentInventory", "componentMappings", "componentVariantCoverage",
     "controls", "states", "events", "actions", "scenarios", "mockBehaviors", "viewports",
     "renderAssertions", "sourceParityAssertions", "motions", "traceability", "gaps"
   ],
   "properties": {
-    "version": {"const": "6.0.0"},
+    "version": {"const": "7.0.0"},
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+    "draft": {"$ref": "#/$defs/draft"},
     "visualPolicy": {"$ref": "#/$defs/visualPolicy"},
     "repairPolicy": {"$ref": "#/$defs/repairPolicy"},
     "designSources": {"type": "array", "items": {"$ref": "#/$defs/designSource"}},
@@ -49,6 +50,32 @@
     "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
     "figmaLocation": {"type": "string", "pattern": "^https://(?:www\\.)?figma\\.com/design/[^/?#]+/[^?#]+\\?[^#]*node-id=[0-9]+[-:][0-9]+(?:&[^#]*)?$"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "inputBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "contentHash"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "contentHash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "inputs"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["useCases", "visualSpec"],
+          "properties": {
+            "useCases": {"$ref": "#/$defs/inputBinding"},
+            "visualSpec": {"$ref": "#/$defs/inputBinding"}
+          }
+        }
+      }
+    },
     "evidenceReference": {
       "type": "object",
       "additionalProperties": false,
@@ -383,11 +410,13 @@
     "scenario": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "useCaseId", "interactionFlowIds", "routeId", "initialStateIds", "eventIds", "expectedStateIds", "viewportIds"],
+      "required": ["id", "useCaseId", "interactionFlowIds", "transitionIds", "recoveryStateIds", "routeId", "initialStateIds", "eventIds", "expectedStateIds", "viewportIds"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "useCaseId": {"$ref": "#/$defs/id"},
         "interactionFlowIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "transitionIds": {"$ref": "#/$defs/nonEmptyIds"},
+        "recoveryStateIds": {"$ref": "#/$defs/ids"},
         "routeId": {"$ref": "#/$defs/id"},
         "initialStateIds": {"$ref": "#/$defs/nonEmptyIds"},
         "eventIds": {"$ref": "#/$defs/nonEmptyIds"},

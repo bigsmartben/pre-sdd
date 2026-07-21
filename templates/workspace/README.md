@@ -14,7 +14,7 @@
 
 Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次需要的阶段，在临时位置准备候选结构化数据，再通过已登记的产物 operation（操作）生成权威 YAML 与面向使用者的 Markdown，最后执行当前范围要求的验证。完成当前产物不会自动开始下游工作；是否继续仍由使用者明确决定。
 
-阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化会创建原子 UC 模型和 `UC.md`；Canonical UI 应用仍需后续按 Actor 显式创建。
+阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化会创建原子 UC、Visual Spec 的 draft 模型及对应 Markdown；Canonical UI 应用仍需后续按 Actor 显式创建。
 
 ## 初始状态
 
@@ -34,7 +34,8 @@ Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次�
 ```mermaid
 flowchart LR
     I["Product Idea / 产品想法（使用者输入）"] --> U["Use Cases / 产品行为 + 正式交互流程 + Low-Fi 建议"]
-    U --> C["Canonical UI Prototype / 规范界面原型"]
+    U --> V["Visual Spec / 提供方中立的确定视觉规格"]
+    V --> C["Canonical UI Prototype / 规范界面原型"]
     U --> A["Architecture Design / 架构设计"]
 ```
 
@@ -42,7 +43,7 @@ flowchart LR
 
 每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
 
-例如，Use Cases 通过后可向 `canonical-ui-prototype` 形成产品设计移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。
+例如，Use Cases 通过后可向 `visual-spec` 形成产品设计移交，Visual Spec 通过后再向 `canonical-ui-prototype` 移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。
 
 当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
 
@@ -53,6 +54,7 @@ flowchart LR
 | 当前产物 | 权威入口 | 正式用户产物 |
 |---|---|---|
 | Use Cases（原子用例） | `01-product-design/.psp/models/use-cases.yaml`：同时拥有 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint | `01-product-design/UC.md` 确定性呈现三部分 |
+| Visual Spec（视觉规格） | `01-product-design/.psp/models/visual-spec.yaml`：提供方中立地定义运行环境、页面、状态渲染、布局、组件状态与 Variant、资源来源和哈希 | `01-product-design/Visual-Spec.md` 确定性呈现全部视觉输入 |
 | Canonical UI Prototype（规范界面原型） | `Canonical-UI-Prototypes/<ACTOR-ID>/src/spec/canonical-ui.ts`：每位参与者一份独立界面规格 | 每个参与者目录拥有独立源码、`package.json`、构建配置和 README；`dist`、HTTP 地址与临时证据由运行和校验过程管理 |
 | Architecture Design（架构设计） | `02-architecture-design/.psp/models/*.yaml` | `02-architecture-design/README.md`、`02-architecture-design/系统边界.md`、`02-architecture-design/概念建模.md` 与 `02-architecture-design/技术验证/README.md` |
 
@@ -60,16 +62,20 @@ flowchart LR
 
 ## 阶段初始化后的关键结构
 
-产品阶段初始化只创建原子 Use Cases 初始模型与 Canonical UI 应用集合根，不虚构参与者实例。参与者确定后形成如下结构：
+产品阶段初始化创建原子 Use Cases 与 Visual Spec 初始模型，以及 Canonical UI 应用集合根，不虚构参与者实例。参与者确定后形成如下结构：
 
 ```text
 01-product-design/
 ├─ .psp/models/
 │  ├─ use-cases.yaml
+│  ├─ visual-spec.yaml
 │  └─ canonical-ui-prototypes/
 │     ├─ ACTOR-001/canonical-ui-prototype.json
 │     └─ ACTOR-002/canonical-ui-prototype.json
 ├─ UC.md
+├─ Visual-Spec.md
+├─ inputs/visual-spec/
+├─ assets/
 └─ Canonical-UI-Prototypes/
    ├─ ACTOR-001/
    │  ├─ src/spec/canonical-ui.ts
@@ -193,6 +199,8 @@ flowchart LR
 | 初始化产品阶段 | `npm run init:product` | 使用者明确开始产品阶段 |
 | 初始化架构阶段 | `npm run init:architecture` | Use Cases readiness 通过 |
 | 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
+| 提交 Visual Spec | `npm run apply:visual-spec -- --artifact visual-spec --input <候选文件>` | Use Cases 独立 readiness 已通过；引用缺失时稳定阻断 |
+| 独立验证 Visual Spec | `npm run validate:visual-spec` | 检查 UC 引用、状态/视口覆盖、Variant 组合、资源路径与 SHA-256 |
 | 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 验证产品阶段 | `npm run validate:product` | 按 Resolver 返回顺序执行 |
 | 验证架构阶段 | `npm run validate:architecture` | 按 Resolver 返回顺序执行 |

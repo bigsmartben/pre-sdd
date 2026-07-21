@@ -187,6 +187,7 @@ export async function executeArtifactTransaction({ stageId, prepareOutputs, prep
       fail('AIH_CONTRACT_INVALID', '产物不属于当前写入 operation：' + artifactId);
     }
     const stage = project.stages?.[stageId];
+    if (stage?.status === 'published') fail('AIH_STAGE_LOCKED', '阶段已经发布并锁定；请先执行 Reopen：' + stageId);
     if (stage?.status !== 'active') fail('AIH_STAGE_UNINITIALIZED', '阶段尚未初始化，不能更新产物：' + stageId);
     const registry = manifest.artifactRegistry.find((item) => item.id === artifactId && item.stage === stageId);
     if (!registry || !['internal-model', 'internal-model-set'].includes(registry.authorityKind)) {
