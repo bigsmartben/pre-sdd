@@ -67,6 +67,15 @@ function validateContinuousIntegration(workflow, policy, issues) {
   }
 }
 
+function validateReleasePolicy(policy, continuousIntegration, issues) {
+  if (policy.runner !== continuousIntegration.runner
+    || policy.flag !== '--release'
+    || policy.intent !== 'readiness'
+    || continuousIntegration.intent !== 'checkpoint') {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '普通 CI 必须使用 checkpoint，只有显式 --release 入口可以使用 readiness。', continuousIntegration.workflow);
+  }
+}
+
 async function skillNames(root, skillsRoot) {
   const directory = repositoryFile(root, skillsRoot);
   if (!await pathExists(root, skillsRoot)) return [];
@@ -165,6 +174,7 @@ export async function validateScaffold(rootInput = process.cwd()) {
     ...manifest.readOrder,
     manifest.scaffoldPolicy.continuousIntegration.workflow,
     manifest.scaffoldPolicy.continuousIntegration.runner,
+    manifest.scaffoldPolicy.releaseValidation.runner,
     project.runtime.entrypoint,
     project.runtime.dispatcher,
     project.template.root,
@@ -210,6 +220,7 @@ export async function validateScaffold(rootInput = process.cwd()) {
   try {
     const workflow = await readYaml(root, manifest.scaffoldPolicy.continuousIntegration.workflow);
     validateContinuousIntegration(workflow, manifest.scaffoldPolicy.continuousIntegration, issues);
+    validateReleasePolicy(manifest.scaffoldPolicy.releaseValidation, manifest.scaffoldPolicy.continuousIntegration, issues);
   } catch (error) {
     issue(issues, 'AIH_CI_POLICY_INVALID', '无法读取持续集成工作流：' + error.message, manifest.scaffoldPolicy.continuousIntegration.workflow);
   }

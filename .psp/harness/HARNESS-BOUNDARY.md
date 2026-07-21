@@ -105,8 +105,8 @@ Harness 只拥有与内容语义无关的结构化硬治理：输入输出角色
 | 意图 | 用途 | 证据边界 |
 |---|---|---|
 | `change` | 编辑循环的快速结构与受影响领域反馈 | 不形成完成凭证 |
-| `checkpoint` | 任务或 Issue 完成时的定向临时工作区集成验证 | 不形成完成凭证 |
-| `readiness` | PR、合并或发布前的完整包、安装、构建与治理门禁 | PASS 后可形成 `validated-scaffold-change` |
+| `checkpoint` | 任务、Issue、PR、合并或普通 CI 的定向集成验证 | 不形成发布凭证 |
+| `readiness` | 仅显式发布前运行的完整包、安装、构建与治理门禁 | PASS 后可形成 `validated-scaffold-change` |
 
 1. 根项目不能注册产品或架构阶段与移交边。
 2. Maintainer Harness 与 User Harness 的项目类型、权威来源和生命周期相互隔离。
@@ -115,4 +115,4 @@ Harness 只拥有与内容语义无关的结构化硬治理：输入输出角色
 5. 修改生成工作区本地执行器会改变实际命令结果。
 6. 范围外的外部框架引用会被稳定阻断。
 7. 发布包只包含运行时、工作区模板、命令行入口和用户文档。
-8. 持续集成工作流从 Manifest 读取统一执行器，以 `readiness` 调用 Resolver，再按返回顺序实际执行全部命令。
+8. 普通持续集成工作流从 Manifest 读取统一执行器，以 `checkpoint` 调用 Resolver；只有显式 `--release` 入口以 `readiness` 执行完整发布门禁。

@@ -47,7 +47,7 @@
     "scaffoldPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["governanceModel", "rootSkills", "templateSkills", "textContracts", "templatePurity", "packageScripts", "execution", "continuousIntegration"],
+      "required": ["governanceModel", "rootSkills", "templateSkills", "textContracts", "templatePurity", "packageScripts", "execution", "continuousIntegration", "releaseValidation"],
       "properties": {
         "governanceModel": {
           "type": "object",
@@ -133,10 +133,11 @@
         "continuousIntegration": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["workflow", "runner", "job", "triggers", "protectedBranches", "runsOn", "nodeVersion", "checkoutAction", "setupNodeAction", "installCommand"],
+          "required": ["workflow", "runner", "intent", "job", "triggers", "protectedBranches", "runsOn", "nodeVersion", "checkoutAction", "setupNodeAction", "installCommand"],
           "properties": {
             "workflow": {"$ref": "#/$defs/path"},
             "runner": {"$ref": "#/$defs/path"},
+            "intent": {"const": "checkpoint"},
             "job": {"$ref": "#/$defs/identifier"},
             "triggers": {"type": "array", "const": ["pull_request", "push"]},
             "protectedBranches": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
@@ -145,6 +146,16 @@
             "checkoutAction": {"type": "string", "pattern": "^actions/checkout@v[0-9]+$"},
             "setupNodeAction": {"type": "string", "pattern": "^actions/setup-node@v[0-9]+$"},
             "installCommand": {"const": "npm ci"}
+          }
+        },
+        "releaseValidation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runner", "flag", "intent"],
+          "properties": {
+            "runner": {"$ref": "#/$defs/path"},
+            "flag": {"const": "--release"},
+            "intent": {"const": "readiness"}
           }
         }
       }

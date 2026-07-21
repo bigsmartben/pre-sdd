@@ -19,11 +19,12 @@ export function repositoryPaths(root) {
   return result.stdout.split('\0').filter(Boolean);
 }
 
-export function resolveRepositoryValidation(root, paths, intent = 'readiness') {
+export function resolveRepositoryValidation(root, paths, intent = 'checkpoint') {
   const resolver = '.psp/harness/scripts/resolve-validation.mjs';
   const args = [resolver];
   for (const path of paths) args.push('--path', path);
   args.push('--intent', intent, '--json');
+  if (intent === 'readiness') args.push('--release');
   const result = execute(process.execPath, args, { cwd: root });
   let receipt;
   try {
@@ -78,15 +79,22 @@ export function runValidationCommands(root, receipt) {
 
 export function planContinuousIntegration(root = process.cwd()) {
   const paths = repositoryPaths(root);
+  const receipt = resolveRepositoryValidation(root, paths, 'checkpoint');
+  return { ...receipt, repositoryPathCount: paths.length };
+}
+
+export function planReleaseValidation(root = process.cwd()) {
+  const paths = repositoryPaths(root);
   const receipt = resolveRepositoryValidation(root, paths, 'readiness');
   return { ...receipt, repositoryPathCount: paths.length };
 }
 
 async function main() {
   const root = resolve(process.cwd());
+  const release = process.argv.includes('--release');
   let plan;
   try {
-    plan = planContinuousIntegration(root);
+    plan = release ? planReleaseValidation(root) : planContinuousIntegration(root);
   } catch (error) {
     process.stderr.write('[' + (error.code || 'AIH_VALIDATION_FAILED') + '] ' + error.message + '\n');
     process.exitCode = 1;
@@ -99,7 +107,7 @@ async function main() {
     return;
   }
 
-  process.stdout.write('[READY] Resolver 已覆盖 ' + plan.repositoryPathCount + ' 个仓库路径。\n');
+  process.stdout.write('[READY] ' + plan.intent + ' 已覆盖 ' + plan.repositoryPathCount + ' 个仓库路径。\n');
   const result = runValidationCommands(root, plan);
   console.log(JSON.stringify(result, null, 2));
   if (result.status !== 'PASS') process.exitCode = 1;

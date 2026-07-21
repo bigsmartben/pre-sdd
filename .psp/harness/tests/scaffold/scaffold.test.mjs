@@ -31,6 +31,7 @@ function resolvePaths(paths, intent = 'change') {
   const args = ['.psp/harness/scripts/resolve-validation.mjs'];
   for (const path of paths) args.push('--path', path);
   args.push('--intent', intent, '--json');
+  if (intent === 'readiness') args.push('--release');
   return spawnSync(process.execPath, args, {
     cwd: repositoryRoot,
     encoding: 'utf8',
@@ -157,6 +158,27 @@ test('continuous-integration plan comes from Resolver commands', () => {
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
   assert.equal(result.status, 'READY');
+  assert.equal(result.intent, 'checkpoint');
+  assert.equal(result.completionEligible, false);
+  assert.deepEqual(result.commands, [
+    'npm run validate:harness',
+    'npm run test:harness',
+    'npm run test:workspace:harness',
+    'npm run test:workspace:product',
+    'npm run test:workspace:architecture',
+    'npm run test:package',
+  ]);
+});
+
+test('release validation requires an explicit flag and is the only repository-wide readiness plan', () => {
+  const execution = spawnSync(process.execPath, ['.psp/harness/scripts/run-ci-validation.mjs', '--release', '--plan', '--json'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  assert.equal(execution.status, 0, execution.stderr);
+  const result = JSON.parse(execution.stdout);
+  assert.equal(result.status, 'READY');
   assert.equal(result.intent, 'readiness');
   assert.equal(result.completionEligible, true);
   assert.deepEqual(result.commands, [
@@ -186,6 +208,15 @@ test('resolver blocks unmanaged and invalid paths', () => {
   const invalidIntent = resolvePaths(['README.md'], 'publish');
   assert.notEqual(invalidIntent.status, 0);
   assert.match(invalidIntent.stderr + invalidIntent.stdout, /AIH_PATH_INVALID/);
+
+  const implicitReadiness = spawnSync(process.execPath, [
+    '.psp/harness/scripts/resolve-validation.mjs',
+    '--path', 'README.md',
+    '--intent', 'readiness',
+    '--json',
+  ], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });
+  assert.notEqual(implicitReadiness.status, 0);
+  assert.match(implicitReadiness.stderr + implicitReadiness.stdout, /AIH_RELEASE_INTENT_REQUIRED/);
 });
 
 test('targeted workspace test runner rejects unknown suites before creating a workspace', () => {
@@ -275,6 +306,17 @@ test('validator blocks a continuous-integration workflow that bypasses the Resol
   const path = resolve(root, '.github/workflows/harness-governance.yml');
   const workflow = parseYaml(await readFile(path, 'utf8'));
   workflow.jobs['harness-governance'].steps.at(-1).run = 'npm run validate:harness';
+  await writeFile(path, stringifyYaml(workflow), 'utf8');
+  const result = await validateScaffold(root);
+  assert.equal(result.status, 'FAIL');
+  assert.ok(result.issues.some((item) => item.code === 'AIH_CI_POLICY_INVALID'));
+});
+
+test('validator blocks release readiness from the ordinary CI workflow', async () => {
+  const root = await fixture();
+  const path = resolve(root, '.github/workflows/harness-governance.yml');
+  const workflow = parseYaml(await readFile(path, 'utf8'));
+  workflow.jobs['harness-governance'].steps.at(-1).run += ' --release';
   await writeFile(path, stringifyYaml(workflow), 'utf8');
   const result = await validateScaffold(root);
   assert.equal(result.status, 'FAIL');

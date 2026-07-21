@@ -107,11 +107,11 @@ pre-sdd harness <npm-script> [-- <参数>]
 
 3. 只修改本次任务需要的文件。不要在 `templates/workspace/` 原位创建用户实例、`node_modules`、构建输出或浏览器证据。
 
-4. 编辑过程中以 `change` 获得快速反馈；任务或 Issue 完成时以 `checkpoint` 运行定向临时工作区测试；PR、合并或发布前以 `readiness` 执行完整门禁。只有 `readiness` PASS 可以形成 `validated-scaffold-change`。
+4. 编辑过程中以 `change` 获得快速反馈；任务、Issue、PR、合并和普通 CI 以 `checkpoint` 运行定向集成测试；只有显式发布前以 `readiness` 执行完整门禁。只有发布入口的 `readiness` PASS 可以形成 `validated-scaffold-change`。
 
    ```bash
    node .psp/harness/scripts/resolve-validation.mjs --path <实际路径> --intent checkpoint --json
-   node .psp/harness/scripts/resolve-validation.mjs --path <实际路径> --intent readiness --json
+   node .psp/harness/scripts/run-ci-validation.mjs --release --plan --json
    ```
 
 5. 对全部实际变更路径重新运行 Resolver，并按返回顺序执行每条命令。下面是 `readiness` 可能出现的最大门禁集合，不是编辑循环固定执行的四项。
@@ -152,16 +152,18 @@ Resolver 会按实际路径和意图缩小命令集合。例如，修改 Product
 
 ### 持续集成与发布检查
 
-持续集成（Continuous Integration）工作流只调用 `.psp/harness/scripts/run-ci-validation.mjs`。该执行器读取 Manifest、让 Resolver 以 `readiness` 覆盖仓库路径，再按返回顺序执行全部工程门禁。只查看本地执行计划时运行：
+持续集成（Continuous Integration）工作流只调用 `.psp/harness/scripts/run-ci-validation.mjs`。普通调用让 Resolver 以 `checkpoint` 覆盖仓库路径；不会请求发布级 `readiness`。只查看普通 CI 计划时运行：
 
 ```bash
 node .psp/harness/scripts/run-ci-validation.mjs --plan --json
 ```
 
-发布前用下面的命令确认 npm 包清单；包中应包含命令入口、运行时、工作区模板、`README.md` 和 `QUICKSTART.md`，不应包含根 `.psp/` 或用户产物。
+只有正式发布前才运行显式发布门禁：
 
 ```bash
-npm run pack:check
+node .psp/harness/scripts/run-ci-validation.mjs --release
 ```
+
+该入口以 `readiness` 执行完整工程门禁并确认 npm 包清单；包中应包含命令入口、运行时、工作区模板、`README.md` 和 `QUICKSTART.md`，不应包含根 `.psp/` 或用户产物。
 
 使用者安装和初始化示例统一放在 [QUICKSTART.md](QUICKSTART.md)，避免把脚手架维护命令与工作区使用命令混在一起。

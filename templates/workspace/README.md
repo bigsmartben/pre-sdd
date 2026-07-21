@@ -14,7 +14,7 @@
 
 Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次需要的阶段，在临时位置准备候选结构化数据，再通过已登记的产物 operation（操作）生成权威 YAML 与面向使用者的 Markdown，最后执行当前范围要求的验证。完成当前产物不会自动开始下游工作；是否继续仍由使用者明确决定。
 
-阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化也会创建 `UC.md`、页面流程模板和界面工程；Agent 仍只能填写和验证 Use Cases 事实。
+阶段初始化会创建该阶段登记的全部模型、Markdown 和工程模板，但文件已经存在不等于对应产物已经开始或就绪。例如，使用者第一次请求 Use Cases 时，产品阶段初始化会创建原子 UC 模型和 `UC.md`；Canonical UI 应用仍需后续按 Actor 显式创建。
 
 ## 初始状态
 
@@ -33,9 +33,8 @@ Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次�
 
 ```mermaid
 flowchart LR
-    I["Product Idea / 产品想法（使用者输入）"] --> U["Use Cases / 用例（唯一产品事实）"]
-    U --> W["Wireflow / 站点地图、用户流程图与线框图"]
-    W --> C["Canonical UI Prototype / 规范界面原型"]
+    I["Product Idea / 产品想法（使用者输入）"] --> U["Use Cases / 产品行为 + 正式交互流程 + Low-Fi 建议"]
+    U --> C["Canonical UI Prototype / 规范界面原型"]
     U --> A["Architecture Design / 架构设计"]
 ```
 
@@ -43,7 +42,7 @@ flowchart LR
 
 每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
 
-例如，Use Cases 通过后只向 `wireflow` 形成产品设计移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。
+例如，Use Cases 通过后可向 `canonical-ui-prototype` 形成产品设计移交；使用者明确开始 Architecture Design 时，架构阶段独立执行 Use Cases readiness，不生成 `use-cases` 到 `architecture-design` 的移交凭证。
 
 当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
 
@@ -53,32 +52,24 @@ flowchart LR
 
 | 当前产物 | 权威入口 | 正式用户产物 |
 |---|---|---|
-| Use Cases（用例） | `01-product-design/.psp/models/use-cases.yaml` | `01-product-design/UC.md` |
-| Wireflow（交互蓝图） | `.psp/models/wireflows/<ACTOR-ID>/wireflow-mid.yaml`：`useCases[].actor` 去重后每位关键参与者一份机器权威模型 | `wireflows/README.md` 导航到每位参与者的 `wireflows/<ACTOR-ID>/wireflow-mid.md` |
+| Use Cases（原子用例） | `01-product-design/.psp/models/use-cases.yaml`：同时拥有 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint | `01-product-design/UC.md` 确定性呈现三部分 |
 | Canonical UI Prototype（规范界面原型） | `Canonical-UI-Prototypes/<ACTOR-ID>/src/spec/canonical-ui.ts`：每位参与者一份独立界面规格 | 每个参与者目录拥有独立源码、`package.json`、构建配置和 README；`dist`、HTTP 地址与临时证据由运行和校验过程管理 |
 | Architecture Design（架构设计） | `02-architecture-design/.psp/models/*.yaml` | `02-architecture-design/README.md`、`02-architecture-design/系统边界.md`、`02-architecture-design/概念建模.md` 与 `02-architecture-design/技术验证/README.md` |
 
-例如，调整一个用例时，Agent 先在临时文件准备候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml` 与 `UC.md`。Wireflow 候选输入则是完整参与者目录集合：每个 `ACTOR-ID/` 只能包含 `wireflow-mid.yaml`。一次 operation 校验并更新整组 YAML、参与者索引及对应 Markdown，同时清理已从候选集合移除的受管参与者分区；目录里出现其他文件时会停止，避免误删用户内容。直接修改任何目标 YAML/Markdown，或单独运行 `render:product`，都会被视为不符合日常更新协议。
+例如，调整一个用例时，Agent 先在临时文件准备包含三部分的完整候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml` 与 `UC.md`。旧 Wireflow 目录只允许通过显式 `--legacy-wireflow-input` 作为一次性迁移输入；迁移后不会被正常校验、readiness、渲染或 handoff 读取。直接修改目标 YAML/Markdown，或单独运行 `render:product`，都会被视为不符合日常更新协议。
 
 ## 阶段初始化后的关键结构
 
-产品阶段初始化只创建 Use Cases 初始模型、Wireflow 集合根与 Canonical UI 应用集合根，不虚构参与者实例。参与者确定后形成如下结构：
+产品阶段初始化只创建原子 Use Cases 初始模型与 Canonical UI 应用集合根，不虚构参与者实例。参与者确定后形成如下结构：
 
 ```text
 01-product-design/
 ├─ .psp/models/
 │  ├─ use-cases.yaml
-│  ├─ wireflows/
-│  │  ├─ ACTOR-001/wireflow-mid.yaml
-│  │  └─ ACTOR-002/wireflow-mid.yaml
 │  └─ canonical-ui-prototypes/
 │     ├─ ACTOR-001/canonical-ui-prototype.json
 │     └─ ACTOR-002/canonical-ui-prototype.json
 ├─ UC.md
-├─ wireflows/
-│  ├─ README.md
-│  ├─ ACTOR-001/wireflow-mid.md
-│  └─ ACTOR-002/wireflow-mid.md
 └─ Canonical-UI-Prototypes/
    ├─ ACTOR-001/
    │  ├─ src/spec/canonical-ui.ts
@@ -90,7 +81,7 @@ flowchart LR
       └─ package.json
 ```
 
-其中不存在单独的产品摘要模型；`use-cases.yaml` 只生成一个面向人的 `UC.md`。
+其中不存在单独的交互模型或产品摘要模型；`use-cases.yaml` 只生成一个面向人的 `UC.md`。
 
 ## 旧 Product Package 的迁入策略
 
@@ -215,7 +206,7 @@ flowchart LR
 
 | Owner（所有者） | Owns（负责） | Does Not Own（不负责） | Example（例子） |
 |---|---|---|---|
-| Agent（智能代理） | 使用者对话、当前范围、产物编写、结果解释 | 绕过门禁、自动推进 | 使用者只要求 Use Cases 时，不自动开始 Wireflow |
+| Agent（智能代理） | 使用者对话、当前范围、产物编写、结果解释 | 绕过门禁、自动推进 | 使用者只要求 Use Cases 时，不自动开始 Canonical UI Prototype |
 | Harness（执行控制体系） | 输入输出、路径、Scope（范围）、依赖、生命周期、命令、状态与移交 | 产品或架构语义 | 检查 Manifest 声明的文件是否存在，不判断产品目标是否合理 |
 | Domain Skill（领域能力） | 领域工作流、Contract、Schema、模板、追溯、渲染器和领域 Validator | 使用者审批、阶段推进、路径推断 | 产品设计能力检查用例场景是否完整 |
 | Canonical UI Prototype（规范界面原型） | 可执行界面和 `src/spec/canonical-ui.ts` 语义事实 | 下游平台映射和代码生成规则 | 按页面流程表达界面状态，但不决定使用 React 或 Vue |

@@ -10,7 +10,6 @@ import {
 
 const LABELS = {
   capabilities: 'UC Specification',
-  interactions: 'Wireflow Mid-Fidelity Specification',
   'canonical-ui-prototype': 'Canonical UI Prototype',
   'system-boundary': '系统边界',
   'conceptual-model': '概念建模',

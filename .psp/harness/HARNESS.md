@@ -27,14 +27,16 @@
 3. 保留用户已有改动，收集预计变更的仓库相对 POSIX 路径。
 4. 调用：
 
-       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --intent change|checkpoint|readiness --json
+       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --intent change|checkpoint --json
+
+   只有正式发布前使用 `node .psp/harness/scripts/run-ci-validation.mjs --release`；该入口是请求 `readiness` 的唯一维护协议入口。
 
 5. 解析结果为 `BLOCKED` 时停止对应写入；否则只修改请求覆盖的最小脚手架工程范围。
-6. 编辑循环使用 `change`；任务或 Issue 完成时使用 `checkpoint`；PR、合并或发布前使用 `readiness`。
+6. 编辑循环使用 `change`；任务、Issue、PR、合并和普通 CI 使用 `checkpoint`；只有显式发布前验证使用 `readiness`。
 7. 对全部实际变更路径重新解析，并按返回顺序执行每一条验证命令。`change` 与 `checkpoint` 只证明当前影响范围，不能形成最终完成凭证。
 8. 按 Manifest 声明的证据结构报告结果。只有 `readiness` PASS 可以形成 `validated-scaffold-change`。
 
-`change` 用于快速反馈，`checkpoint` 用于任务级定向集成验证，`readiness` 用于完整脚手架工程门禁。根仓库的这些意图都不表示产品或架构内容就绪。
+`change` 用于快速反馈，`checkpoint` 用于任务级和普通 CI 集成验证，`readiness` 只用于显式发布前的完整脚手架工程门禁。根仓库的这些意图都不表示产品或架构内容就绪。
 
 ## 硬治理不变量
 

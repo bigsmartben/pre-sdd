@@ -1,7 +1,7 @@
 {
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
-  "version": "13.1.0",
+  "version": "13.2.0",
   "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -144,6 +144,7 @@
     "continuousIntegration": {
       "workflow": ".github/workflows/harness-governance.yml",
       "runner": ".psp/harness/scripts/run-ci-validation.mjs",
+      "intent": "checkpoint",
       "job": "harness-governance",
       "triggers": ["pull_request", "push"],
       "protectedBranches": ["main"],
@@ -152,6 +153,11 @@
       "checkoutAction": "actions/checkout@v4",
       "setupNodeAction": "actions/setup-node@v4",
       "installCommand": "npm ci"
+    },
+    "releaseValidation": {
+      "runner": ".psp/harness/scripts/run-ci-validation.mjs",
+      "flag": "--release",
+      "intent": "readiness"
     }
   },
   "commands": [
@@ -344,6 +350,7 @@
     {"code": "AIH_TEMPLATE_POLLUTED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板含用户实例、依赖目录、构建输出或运行证据"},
     {"code": "AIH_EXECUTOR_AUTHORITY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "运行时没有执行生成工作区 Manifest 声明的本地执行器"},
     {"code": "AIH_CI_POLICY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "持续集成工作流未按 Manifest 调用 Resolver 驱动的统一门禁"},
+    {"code": "AIH_RELEASE_INTENT_REQUIRED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "readiness 未通过显式发布入口请求，或发布标记被用于非 readiness 意图"},
     {"code": "AIH_VALIDATION_FAILED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "必需脚手架工程门禁返回非零"}
   ]
 }

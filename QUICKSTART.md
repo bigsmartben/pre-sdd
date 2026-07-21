@@ -27,25 +27,15 @@ pre-sdd init .
 请根据以下信息开始 Use Cases。
 产品名称：反馈管家。
 产品想法：为小型团队按项目汇总、去重并跟踪客户反馈。
-本轮只完成用例，不要开始页面流程或架构设计。
+本轮只完成原子用例：产品行为、正式 Interaction Flow 和内部 Low-Fi UI Blueprint；不要开始 UI HTML 或架构设计。
 ```
 
-评审 `01-product-design/UC.md` 和 `01-product-design/PSP.md`；只要求修改 Use Cases，不单独编辑 `PSP.md`。
+评审 `01-product-design/UC.md`：逐个确认主场景、备选/异常场景、用户动作、系统响应、失败/重试/恢复/返回，以及 Low-Fi 页面建议。Low-Fi 只作内部参考，不约束最终 UI HTML 的页面组织或像素布局。
 
-### 1.2 Wireflow（站点地图、用户流程图与线框图）
-
-```text
-请根据已确认的 Use Cases 开始 Wireflow。
-按关键参与者拆分 Wireflow；每位参与者的独立文档都覆盖站点地图（Sitemap）、用户流程图（User Flow）和线框图（Wireframe），并包含入口、正常流程、空状态、失败状态、恢复和返回路径。
-本轮只完成交互蓝图，不要开始界面原型。
-```
-
-先打开 `01-product-design/wireflows/README.md`，再按参与者评审 `wireflows/<ACTOR-ID>/wireflow-mid.md` 中的站点层级、用户路径和页面骨架；机器引用与状态差量保存在 `.psp/models/wireflows/<ACTOR-ID>/wireflow-mid.yaml`，不要求使用者逐字段评审 YAML。
-
-### 1.3 没有 Figma：生成 UI HTML
+### 1.2 没有 Figma：生成 UI HTML
 
 ```text
-请根据已确认的 Wireflow 开始 Canonical UI Prototype。
+请根据已确认的 Use Cases 和正式 Interaction Flow 开始 Canonical UI Prototype。Low-Fi UI Blueprint 仅作内部建议，可按可用性重组页面。
 运行环境：电脑网页；本轮不做其他版本。
 ```
 
@@ -122,7 +112,7 @@ Figma 再次写入后，必须重新执行 2.3 和 2.4。
 ### 2.6 打开地址巡检
 
 1. 打开智能代理提供的实际 HTTP 地址。
-2. 按 Wireflow 点击、输入、返回和恢复。
+2. 按正式 Interaction Flow 点击、输入、返回和恢复。
 3. 检查默认、加载、空、失败和成功状态。
 4. 对照 Figma 检查位置、尺寸、文字、字体、颜色和资源。
 5. 发现问题后进入 2.7。
@@ -151,7 +141,7 @@ Figma 再次写入后，必须重新执行 2.3 和 2.4。
 
 ## 3. 架构设计 SOP
 
-架构设计只需要已经确认并检查通过的 Use Cases，不要求先完成 Wireflow 或 UI HTML。
+架构设计只需要已经确认并检查通过的 Use Cases，不要求先完成 UI HTML。
 
 ```text
 请根据已确认的 Use Cases 开始 Architecture Design。

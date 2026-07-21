@@ -11,7 +11,7 @@ description: 将 Figma 节点、Frame（画框）或完整页面实现为工作�
 
 开始前必须加载 `$product-design` 和 `$apply-repository-harness`，按项目绑定确认：
 
-- 产品阶段和上游 Wireflow（页面流程）已经就绪；
+- 产品阶段和上游原子 Use Cases（含正式 Interaction Flow）已经就绪；
 - 用户已确认主要运行环境；
 - `visualPolicy.mode` 已确定；
 - Figma 节点证据、截图、变量和资源可复现；
@@ -35,7 +35,7 @@ Figma 来源尚未形成通过 Schema 校验的本地证据，或证据采集后
 
 2. 汇合事实。
    - Use Cases（用例）提供目标、权限和业务规则。
-   - Wireflow 提供 Screen、Control、页面状态和分支。
+   - 原子 Use Case 的 Interaction Flow 提供正式状态和分支；Low-Fi UI Blueprint 只提供 Screen、Control 与布局建议，可由实现重组。
    - `canonical-ui.ts` 提供 Route、Component、Event、Action、Scenario 和追溯。
    - `guided` 或 `exact` 覆盖范围内的布局、字体、尺寸、资源和视觉层级来自已采集 Figma 证据。
    - `componentInventory` 决定哪些节点是共享组件、Primitive 或页面局部结构；`componentMappings` 决定 Lit Tag、Property、Attribute、Slot 和 Event；`componentVariantCoverage` 决定每个 Figma Instance 的实际接口值。
@@ -69,7 +69,7 @@ Figma 来源尚未形成通过 Schema 校验的本地证据，或证据采集后
    - 不用整页截图替代可交互页面或可复用组件。
 
 7. 绑定可执行语义。
-   - Screen 和 Wireflow 状态使用 `data-screen-id` 与 `data-state-id`。
+   - 实际 Screen 和正式 Interaction State 使用 `data-screen-id` 与 `data-state-id`。
    - 组件局部状态使用 `data-component-state`。
    - Control、Event 和 Action 使用各自独立标识。
    - 按 `scenarios` 实际触发事件并观察声明的中间状态和最终状态。

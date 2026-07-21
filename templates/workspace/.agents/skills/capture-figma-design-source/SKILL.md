@@ -9,7 +9,7 @@ description: 将带 node-id 的 Figma 节点采集为 Canonical UI Prototype（�
 
 本技能是 Figma Source Adapter（Figma 来源适配器），只把用户确认的 Figma 节点转换为 Product Design（产品设计）拥有的 provider-neutral design-source evidence（提供方中立设计来源证据）。开始前必须加载 `$product-design` 与 `$apply-repository-harness`，由 Product Design 提供 `sourceId`、节点链接、覆盖范围和 Manifest 绑定的 Canonical UI Area。
 
-本技能不得选择或改变 `visualPolicy.mode`，不得创建 Screen、Control、State、Use Case 或 Wireflow，不得把图层名和视觉外观解释为业务规则，也不得直接判定当前产物 readiness 或执行 handoff（移交）。
+本技能不得选择或改变 `visualPolicy.mode`，不得创建 Screen、Control、State、Use Case 或 Interaction Flow，不得把图层名和视觉外观解释为业务规则，也不得直接判定当前产物 readiness 或执行 handoff（移交）。
 
 需要通过 Figma 文件上下文执行唯一读取或资源导出时，必须先加载 `$figma:figma-use`。Figma 连接器、权限或节点不可用时停止采集，将来源标记为 `blocked`，报告 `AIH_SOURCE_CAPTURE_BLOCKED`；不得根据链接、相邻节点、图层名或截图猜测缺失内容。
 

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,7 +10,7 @@ const suites = new Map([
   ['product', {
     command: 'test:product',
     tests: '.agents/skills/product-design/tests',
-    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|Canonical UI input gate|Figma source registration packet)',
+    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Canonical UI input gate|Figma source registration packet)',
   }],
   ['architecture', {
     command: 'test:architecture',
@@ -54,6 +54,7 @@ const workspace = resolve(temporaryRoot, 'workspace');
 let status = 1;
 try {
   if (mode === 'generated') {
+    await mkdir(workspace);
     const initialized = run(process.execPath, [resolve(repositoryRoot, 'bin/pre-sdd.mjs'), 'init', workspace], repositoryRoot);
     if (initialized.status !== 0) process.exitCode = initialized.status ?? 1;
     else {

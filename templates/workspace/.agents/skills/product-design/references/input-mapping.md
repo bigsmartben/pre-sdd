@@ -3,12 +3,13 @@
 | 输入事实 | 权威位置 | 实例 |
 |---|---|---|
 | 产品目标、Actor、Use Case | 上游 `capabilities` / Use Cases，单一权威、只读 | `UC-001` 的目标不能由 `UC.md` 人类视图或页面布局反推 |
-| Screen、Control、Wireflow 状态和分支 | 上游同 `ACTOR-ID` 的 `interactions` 分区，只读 | `ACTOR-001` 应用只把其 `WF-STATE-001` 映射为 DOM 的 `data-state-id` |
+| 正式 Interaction Flow、Interaction State 和分支 | 上游原子 `capabilities` / Use Cases，只读，并按 Actor 过滤 | `ACTOR-001` 应用把 `INT-STATE-001` 映射为 DOM 的 `data-state-id` |
+| Low-Fi Screen、Region、Layout 和 Control | 上游原子 UC 内部建议，只读但不要求结构或像素复刻 | `LF-SCREEN-001` 可被 UI HTML 重组为多个实际 Screen，只要正式流程语义不变 |
 | 路由、组件局部状态、事件、动作和可执行场景 | `canonical-ui.ts` | `EVENT-001` 触发 `ACTION-001`，组件进入 Loading |
 | 视觉来源、资源、令牌、视口、动画和无障碍 | `canonical-ui.ts`、Area 内设计来源证据与真实资源 | Figma 节点证据覆盖 `SCREEN-001` 的桌面默认态 |
 | Figma Component Set、Main Component、Instance 与 Variant 身份 | Figma `design-context`，只读 | `1:10` Instance 指向 `1:3` Main Component 与 `1:1` Component Set |
 | 组件语义职责、复用决定与 Lit 接口 | `canonical-ui.ts.componentInventory`、`componentMappings`、`componentVariantCoverage` | Figma `Mode=Default` 映射为 `<status-card mode="default">` |
-| Use Case → Wireflow → Screen / Control / State | `canonical-ui.ts.traceability` | `UC-001 → WF-001 → SCREEN-001` |
+| Use Case → Interaction Flow → Screen / Control / State | `canonical-ui.ts.traceability` | `UC-001 → IF-001 → SCREEN-001` |
 
 具体路径只从 `psp.project.yaml` 的 `authority`、`projections` 和 `areas` 读取。
 
@@ -40,4 +41,4 @@
 
 `renderAssertions` 只检查页面自身健康，例如溢出、裁切和目标可见；`sourceParityAssertions` 检查实现是否遵循指定视觉来源。例如，`guided` 只声明 `typography` 和 `color` 时允许重新组织未覆盖布局，但字体或颜色不匹配必须阻断；`exact` 必须包含整页 `screenshot-match`。
 
-`data-state-id` 只能表示 Wireflow 页面或流程状态；组件局部状态使用 `data-component-state`。事件与动作使用独立的 `data-event-id`、`data-event` 和 `data-action-id`，不得用一个字段混写。每个场景事件必须且只能对应一个动作，事件控件的 `data-action-id` 必须等于该动作标识。
+`data-state-id` 只能表示 UC 的正式 Interaction State；组件局部状态使用 `data-component-state`。事件与动作使用独立的 `data-event-id`、`data-event` 和 `data-action-id`，不得用一个字段混写。每个场景事件必须且只能对应一个动作，事件控件的 `data-action-id` 必须等于该动作标识。

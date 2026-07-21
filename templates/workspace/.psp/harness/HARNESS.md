@@ -30,7 +30,7 @@ uninitialized 表示目录骨架和路径绑定有效，但用户实例不存在
 
 ## Dependency Evidence / 依赖证据
 
-Manifest 使用 `dependencies` 声明 Artifact Scope 的机器依赖，并使用 `handoffConsumers` 声明工作区内部移交边。依赖不自动构成 handoff：例如 Architecture Design 依赖 Use Cases readiness，但 Use Cases 的唯一 handoff consumer 是 Wireflow。本模板不声明工作区外消费者。正式内部移交必须执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 Manifest 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
+Manifest 使用 `dependencies` 声明 Artifact Scope 的机器依赖，并使用 `handoffConsumers` 声明工作区内部移交边。依赖不自动构成 handoff：例如 Architecture Design 依赖 Use Cases readiness，但 Use Cases 的产品设计 handoff consumer 是 Canonical UI Prototype。本模板不声明工作区外消费者。正式内部移交必须执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 Manifest 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
 
 ## Verify
 

@@ -11,7 +11,7 @@
 
 ## 行为边界
 
-- 仓库内部交付关系为 Product Idea → Use Cases；Use Cases → Wireflow（Sitemap + User Flow + Wireframe）→ Canonical UI Prototype；Use Cases → Architecture Design。Architecture Design 只依赖通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。当前工作区不绑定任何外部框架生命周期。Agent 每轮只处理用户明确请求的当前产物，不得把“一句话”自动扩展成全部分支产物。
+- 仓库内部交付关系为 Product Idea → Use Cases；每个 UC 原子包含 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint；Use Cases → Canonical UI Prototype；Use Cases → Architecture Design。Architecture Design 只依赖通过严格门禁的 Use Cases，不依赖 Canonical UI Prototype。当前工作区不绑定任何外部框架生命周期。Agent 每轮只处理用户明确请求的当前产物，不得把“一句话”自动扩展成全部分支产物。
 - Use Cases 是产品设计的首个权威产物和产品事实唯一来源；YAML 是机器权威视图，`UC.md` 是从同一模型确定性生成的唯一人类视图，不拥有独立事实，也不得反向更新 Use Cases。
 - 当前产物 readiness 全部通过且 Manifest 为当前产物声明了 handoff（移交）边后，Agent 必须执行登记的 handoff 操作；只有取得本次 `PASS` 凭证，才能在回复中提示移交并结束本轮。Manifest 未声明消费者时，当前范围在 readiness 通过后结束。只有用户后续明确请求下游工作时，才建立新的执行范围。
 - Harness 只拥有与产品语义和内容效果无关的硬治理：输入输出角色与路径绑定、Scope、上下游依赖、生命周期、工程命令规范与执行、readiness Profile、blocker code 协议和确定的 handoff；不拥有用户对话、审批、`currentStep`、领域语义或自动推进状态。

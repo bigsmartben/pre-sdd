@@ -7,6 +7,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { stringify as stringifyYaml } from 'yaml';
 import { cleanupTemporaryRepositories, codes, runScript, temporaryRepository } from './helpers/fixture.mjs';
 import { completeProductFixture, fixtureProject, readArtifact, writeArtifact } from './helpers/product-fixture.mjs';
+import { migrateLegacyWireflowDirectory } from '../scripts/lib/migrate-legacy-wireflow.mjs';
 
 test.after(cleanupTemporaryRepositories);
 
@@ -88,7 +89,7 @@ test('uninitialized product stage is a valid empty scaffold but cannot pass read
   assert.ok(codes(strict).has('AIH_STAGE_UNINITIALIZED'));
 });
 
-test('generic initialization creates one atomic UC model without an independent Wireflow collection', async () => {
+test('generic initialization creates one atomic UC model without an independent interaction collection', async () => {
   const root = await temporaryRepository();
   const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
@@ -133,94 +134,6 @@ test('generic initialization creates one atomic UC model without an independent 
   assert.match(skill, /AIH_CANONICAL_UI_SERVER_FAILED/);
   assert.match(skill, /不得根据默认端口猜测或伪造地址/);
   assert.ok((await stat(resolve(templateRoot, 'public/vendor/html2canvas-1.4.1.min.js'))).isFile());
-});
-
-test.skip('legacy streamlined Use Cases projection is replaced by the atomic UC projection', async () => {
-  const root = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
-  assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
-  const project = await fixtureProject(root);
-  const stage = project.stages['product-design'];
-  const binding = stage.artifacts.capabilities;
-  assert.deepEqual(binding.outputs.map((output) => output.path), ['UC.md']);
-  const artifact = await readArtifact(root, stage, binding);
-  const ucPath = resolve(root, stage.root, binding.outputs[0].path);
-  const initialMarkdown = await readFile(ucPath, 'utf8');
-  assert.match(initialMarkdown, /尚未形成可供 Wireflow 消费的稳定 Use Case 行为目录/);
-  assert.doesNotMatch(initialMarkdown, /GAP-001|useCases/);
-
-  artifact.data.metadata.status = 'ready';
-  artifact.data.metadata.version = '1.0.0';
-  artifact.data.intent = {
-    productName: '轻量用例产品',
-    productConcept: '稳定产品行为目录',
-    problem: '下游缺少可追溯的行为输入',
-    businessGoal: '让页面流程稳定消费产品行为',
-    successSignal: '用例通过严格校验',
-  };
-  artifact.data.actors = [{ id: 'ACTOR-001', name: '产品负责人', goal: '确认稳定产品行为' }];
-  artifact.data.productScope = { included: ['维护稳定用例'], excluded: ['定义详细功能验收'] };
-  artifact.data.businessRules = [{ id: 'BR-001', statement: '每个用例必须归属已知参与者', appliesTo: ['UC-001'] }];
-  artifact.data.useCases = [{
-    id: 'UC-001',
-    name: '确认产品行为',
-    actor: 'ACTOR-001',
-    goal: '确认下游可消费的稳定行为',
-    value: '减少行为理解偏差',
-    trigger: '产品负责人提交行为目录',
-    preconditions: ['产品目标已经明确'],
-    successOutcome: '稳定行为目录可供页面流程消费',
-    minimumGuarantee: '原始行为目录保持不变并给出问题原因',
-    mainScenario: [{
-      id: 'UC-001-STEP-01',
-      initiator: 'actor',
-      action: '提交行为目录',
-      outcome: '系统检查行为和引用',
-    }],
-    alternateScenarios: [{
-      id: 'UC-001-EXC-01',
-      type: 'exception',
-      name: '参与者引用无效',
-      startsAt: 'UC-001-STEP-01',
-      condition: '用例引用未知参与者',
-      steps: [{
-        id: 'UC-001-EXC-01-STEP-01',
-        initiator: 'system',
-        action: '停止接受行为目录',
-        outcome: '展示可理解的问题原因',
-      }],
-      outcome: '行为目录等待修正',
-    }],
-    businessRules: ['BR-001'],
-    relationships: [],
-  }];
-  artifact.data.gaps = [];
-
-  const candidate = resolve(root, '.psp/candidate-use-cases.yaml');
-  await writeFile(candidate, stringifyYaml(artifact.data));
-  const applied = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact',
-    '--artifact', 'capabilities',
-    '--input', candidate,
-    '--json',
-  ]);
-  assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
-  const authority = await readFile(artifact.path, 'utf8');
-  const ucMarkdown = await readFile(ucPath, 'utf8');
-  assert.match(authority, /轻量用例产品/);
-  assert.match(ucMarkdown, /# 轻量用例产品用例/);
-  assert.equal((ucMarkdown.match(/```mermaid/g) || []).length, 1);
-  assert.match(ucMarkdown, /flowchart TB/);
-  assert.match(ucMarkdown, /- 范围内：维护稳定用例/);
-  assert.match(ucMarkdown, /- 产品负责人 → 确认产品行为（UC-001）/);
-  assert.match(ucMarkdown, /### UC-001｜确认产品行为/);
-  assert.match(ucMarkdown, /结果：系统检查行为和引用/);
-  assert.match(ucMarkdown, /参与者引用无效/);
-  assert.doesNotMatch(ucMarkdown, /<!-- OFFICIAL|^---$|generated:|artifactRole|internalModel|^status:|^version:|## Gates|GAP-[0-9]|Projection Rules|Product Package|PSP\.md/mi);
-  assert.doesNotMatch(ucMarkdown, /^\|/m);
-
-  const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
-  assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
 });
 
 test('Use Cases validator blocks invalid actors, startsAt references, and duplicate identifiers', async () => {
@@ -334,251 +247,55 @@ test('non-UI Use Case is explicit and requires neither flow nor Low-Fi blueprint
   assert.match(markdown, /不适用（该用例由离线批处理完成，不提供用户界面。/);
 });
 
-test.skip('independent Interactions projection was removed by the atomic UC model', async () => {
+test('legacy Wireflow is accepted only as a one-time input and converts into the atomic UC model', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
-  const binding = stage.artifacts.interactions;
-  const interactionArtifact = await readArtifact(root, stage, binding);
-  interactionArtifact.data.screens[0].regions[1].controls.push({
-    id: 'CONTROL-003',
-    type: 'selection',
-    label: '严格模式',
-    purpose: '选择是否执行严格校验',
-    dataBinding: 'strictMode',
-    action: null,
-  }, {
-    id: 'CONTROL-004',
-    type: 'input',
-    label: 'Package 路径',
-    purpose: '输入待校验 Package 路径',
-    dataBinding: 'packagePath',
-    action: null,
-  });
-  interactionArtifact.data.interactionStates.push({
-    id: 'INT-STATE-004',
-    screen: 'SCREEN-001',
-    type: 'validation',
-    condition: '等待人工复核',
-    stateDelta: {
-      show: ['REGION-001', 'REGION-002', 'REGION-003', 'CONTROL-002'],
-      hide: [],
-      enable: [],
-      disable: ['CONTROL-001'],
-      content: [{ target: 'CONTROL-002', value: '待确认状态和复核原因' }],
-    },
-    terminal: true,
-  });
-  interactionArtifact.data.wireflows[0].completionStates.push('INT-STATE-004');
-  interactionArtifact.data.wireflows[0].steps.push({
-    id: 'WF-001-STEP-03',
-    scenarioRef: 'main',
-    useCaseStepRefs: ['UC-001-STEP-01'],
-    from: { screen: 'SCREEN-001', state: 'INT-STATE-001' },
-    trigger: { event: 'manual-review-required', control: null },
-    guard: '需要人工复核',
-    branchLabel: '待确认',
-    to: { screen: 'SCREEN-001', state: 'INT-STATE-004' },
-  });
-  const interactionCandidate = resolve(root, '.psp/candidate-interactions');
-  await mkdir(resolve(interactionCandidate, 'ACTOR-001'), { recursive: true });
-  await writeFile(resolve(interactionCandidate, 'ACTOR-001', 'wireflow-mid.yaml'), stringifyYaml(interactionArtifact.data));
-  const interactionApplied = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact',
-    '--artifact', 'interactions',
-    '--input', interactionCandidate,
-    '--json',
-  ]);
-  assert.equal(interactionApplied.exitCode, 0, JSON.stringify(interactionApplied.output, null, 2));
-  const markdown = await readFile(resolve(root, stage.root, binding.memberOutputs[0].root, 'ACTOR-001', binding.memberOutputs[0].member), 'utf8');
-  assert.match(markdown, /## 站点地图（Sitemap）/);
-  assert.match(markdown, /- 单页站点：规格检查页（入口）/);
-  assert.match(markdown, /## 用户流程图（User Flow）/);
-  assert.match(markdown, /图例：矩形 State Node（状态节点）/);
-  assert.match(markdown, /flowchart LR/);
-  assert.match(markdown, /运行验证/);
-  const userFlow = markdown.match(/```mermaid\nflowchart LR[\s\S]+?```/);
-  assert.ok(userFlow, '必须生成 User Flow Mermaid');
-  assert.match(userFlow[0], /entry\(\["入口"\]\) --> state_1/);
-  assert.match(userFlow[0], /state_1\["规格检查页<br\/>尚未运行验证"\]/);
-  assert.match(userFlow[0], /decision_1\{"验证规格结果"\}/);
-  assert.match(userFlow[0], /-->\|"成功"\| state_2/);
-  assert.match(userFlow[0], /-->\|"失败"\| state_3/);
-  assert.match(userFlow[0], /terminal_1\(\["成功结束"\]\)/);
-  assert.match(userFlow[0], /terminal_2\(\["失败结束"\]\)/);
-  assert.match(userFlow[0], /state_1 -->\|"系统返回结果"\| decision_2/);
-  assert.match(userFlow[0], /decision_2 -->\|"待确认"\| state_4/);
-  assert.match(userFlow[0], /terminal_3\(\["待确认结束"\]\)/);
-  assert.doesNotMatch(userFlow[0], /WF-|UC-|SCREEN-|CONTROL-|validate-package|manual-review-required|Package 中存在无法解析的引用|需要人工复核/);
-  assert.match(markdown, /## 线框图（Wireframe）/);
-  assert.match(markdown, /对应 Use Case：\[UC-001\]\(\.\.\/\.\.\/UC\.md\)/);
-  assert.match(markdown, /\+----------------------------------------------------------------------------------------\+/);
-  assert.match(markdown, /验证工作区/);
-  assert.match(markdown, /\[运行验证\]/);
-  assert.match(markdown, /\( \) 严格模式/);
-  assert.match(markdown, /Package 路径：\[____________\]/);
-  assert.match(markdown, /#### 页面状态/);
-  assert.match(markdown, /\*\*成功\*\*｜所有结构、引用和门禁检查通过/);
-  assert.match(markdown, /控件「验证结果」显示“通过状态和验证证据”/);
-  assert.doesNotMatch(markdown, /纵向排列|横向排列/);
-  const frame = markdown.match(/```text\n([\s\S]+?)\n```/);
-  assert.ok(frame, '必须生成文本线框图');
-  const visualWidths = frame[1].split('\n').map((line) => [...line].reduce((width, character) => (
-    width + (/[ᄀ-ᅟ〈〉⺀-꓏가-힣豈-﫿︐-﹯＀-｠￠-￦]/u.test(character) ? 2 : 1)
-  ), 0));
-  assert.deepEqual([...new Set(visualWidths)], [90], '中英文混排时线框应保持右边界对齐');
-  assert.doesNotMatch(markdown, /\| 用户目标 \||\| Actor 动作 \||\| 系统响应 \||\| 可见反馈 \|/);
-  assert.doesNotMatch(markdown, /规格作者选择运行验证|执行检查并汇总通过证据|结果区显示通过状态和证据/);
-  assert.doesNotMatch(markdown, /<!-- OFFICIAL|^---$|generated:|artifactRole|internalModel|^status:|^version:|## Gates|GAP-[0-9]|siteMap:|wireflows:|interactionStates:|SCREEN-001|INT-STATE-001|CONTROL-001/mi);
-  const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'wireflow', '--json']);
-  assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
-  const useCasesOnly = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
-  assert.equal(useCasesOnly.exitCode, 0, JSON.stringify(useCasesOnly.output, null, 2));
-});
-
-test.skip('independent Interactions validation was removed by the atomic UC model', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const project = await fixtureProject(root);
-  const stage = project.stages['product-design'];
-  const interactions = await readArtifact(root, stage, stage.artifacts.interactions);
-  interactions.data.siteMap.nodes.push({ screen: 'SCREEN-001', parent: 'SCREEN-001' });
-  interactions.data.screens[0].layoutTree.children.push({ type: 'region', region: 'REGION-001' });
-  interactions.data.wireflows[0].steps[0].useCaseStepRefs = ['UC-001-STEP-99'];
-  interactions.data.wireflows[0].steps.push({
-    ...structuredClone(interactions.data.wireflows[0].steps[0]),
-    id: 'WF-001-STEP-03',
-    guard: '另一项成功结果',
-  });
-  interactions.data.wireflows[0].steps[1].from = { screen: 'SCREEN-001', state: 'INT-STATE-003' };
-  interactions.data.interactionStates[0].stateDelta.enable = [];
-  interactions.data.gates[0].id = interactions.data.gates[1].id;
-  await writeArtifact(interactions);
-  const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'wireflow', '--json']);
-  assert.notEqual(result.exitCode, 0, JSON.stringify(result.output, null, 2));
-  const messages = result.output.blockers.map((item) => item.message).join('\n');
-  assert.match(messages, /Sitemap 重复放置 Screen：SCREEN-001/);
-  assert.match(messages, /Sitemap 页面不能以自身为父页面：SCREEN-001/);
-  assert.match(messages, /布局树必须且只能放置一次 Region：SCREEN-001 \/ REGION-001/);
-  assert.match(messages, /useCaseStepRefs 引用不存在：UC-001-STEP-99/);
-  assert.match(messages, /同一判断的 branchLabel 必须唯一：WF-001 \/ 成功/);
-  assert.match(messages, /触发 Control 在起始状态未启用：WF-001-STEP-01 \/ CONTROL-001/);
-  assert.match(messages, /完成状态无法从 Wireflow 入口到达：WF-001 \/ INT-STATE-003/);
-  assert.ok(codes(result).has('AIH_ARTIFACT_SCHEMA_FAILED'));
-});
-
-test.skip('independent Wireflow collection transaction was removed by the atomic UC model', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const project = await fixtureProject(root);
-  const stage = project.stages['product-design'];
-  const capabilities = await readArtifact(root, stage, stage.artifacts.capabilities);
-  const firstInteraction = await readArtifact(root, stage, stage.artifacts.interactions);
-
-  capabilities.data.actors.push({ id: 'ACTOR-002', name: '审核人员', goal: '复核产品规格' });
-  const secondUseCase = JSON.parse(JSON.stringify(capabilities.data.useCases[0]).replaceAll('UC-001', 'UC-002').replaceAll('ACTOR-001', 'ACTOR-002'));
-  secondUseCase.name = '复核产品规格 Package';
-  secondUseCase.actor = 'ACTOR-002';
-  secondUseCase.businessRules = [];
-  capabilities.data.useCases.push(secondUseCase);
-  const capabilityCandidate = resolve(root, '.psp/candidate-use-cases-two-actors.yaml');
-  await writeFile(capabilityCandidate, stringifyYaml(capabilities.data));
-  const capabilityApplied = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact', '--artifact', 'capabilities', '--input', capabilityCandidate, '--json',
-  ]);
-  assert.equal(capabilityApplied.exitCode, 0, JSON.stringify(capabilityApplied.output, null, 2));
-
-  let second = JSON.stringify(firstInteraction.data);
-  for (const [from, to] of [
-    ['ACTOR-001', 'ACTOR-002'], ['UC-001', 'UC-002'], ['IF-001', 'WF-002'], ['SCREEN-001', 'SCREEN-002'],
-    ['REGION-001', 'REGION-004'], ['REGION-002', 'REGION-005'], ['REGION-003', 'REGION-006'],
-    ['CONTROL-001', 'CONTROL-005'], ['CONTROL-002', 'CONTROL-006'],
-    ['INT-STATE-001', 'INT-STATE-005'], ['INT-STATE-002', 'INT-STATE-006'], ['INT-STATE-003', 'INT-STATE-007'],
-  ]) second = second.replaceAll(from, to);
-  const secondInteraction = JSON.parse(second);
-  const candidateRoot = resolve(root, '.psp/candidate-wireflow-set');
-  for (const [actor, data] of [['ACTOR-001', firstInteraction.data], ['ACTOR-002', secondInteraction]]) {
-    await mkdir(resolve(candidateRoot, actor), { recursive: true });
-    await writeFile(resolve(candidateRoot, actor, 'wireflow-mid.yaml'), stringifyYaml(data));
-  }
-  const applied = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact', '--artifact', 'interactions', '--input', candidateRoot, '--json',
-  ]);
-  assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
-
-  const modelRoot = resolve(root, stage.root, stage.artifacts.interactions.internalModelSet.root);
-  const documentRoot = resolve(root, stage.root, stage.artifacts.interactions.memberOutputs[0].root);
-  for (const actor of ['ACTOR-001', 'ACTOR-002']) {
-    assert.ok((await stat(resolve(modelRoot, actor, 'wireflow-mid.yaml'))).isFile());
-    assert.ok((await stat(resolve(documentRoot, actor, 'wireflow-mid.md'))).isFile());
-  }
-  const index = await readFile(resolve(documentRoot, 'README.md'), 'utf8');
-  assert.match(index, /ACTOR-001.*规格作者.*ACTOR-001\/wireflow-mid\.md/s);
-  assert.match(index, /ACTOR-002.*审核人员.*ACTOR-002\/wireflow-mid\.md/s);
-  await assert.rejects(readFile(resolve(root, stage.root, '.psp/models/wireflow-mid.yaml'), 'utf8'));
-  const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'wireflow', '--json']);
-  assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
-
-  const actorOneOnly = resolve(root, '.psp/candidate-wireflow-actor-one');
-  await mkdir(resolve(actorOneOnly, 'ACTOR-001'), { recursive: true });
-  await writeFile(resolve(actorOneOnly, 'ACTOR-001', 'wireflow-mid.yaml'), stringifyYaml(firstInteraction.data));
-  const removed = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact', '--artifact', 'interactions', '--input', actorOneOnly, '--json',
-  ]);
-  assert.equal(removed.exitCode, 0, JSON.stringify(removed.output, null, 2));
-  await assert.rejects(readFile(resolve(modelRoot, 'ACTOR-002', 'wireflow-mid.yaml'), 'utf8'));
-  await assert.rejects(readFile(resolve(documentRoot, 'ACTOR-002', 'wireflow-mid.md'), 'utf8'));
-  const missing = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'wireflow', '--json']);
-  assert.ok(missing.output.blockers.some((item) => item.message.includes('ACTOR-002')));
-});
-
-test.skip('legacy Canonical UI Wireflow references were replaced by direct Interaction Flow references', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const project = await fixtureProject(root);
-  const stage = project.stages['product-design'];
-  const capabilities = await readArtifact(root, stage, stage.artifacts.capabilities);
-  const firstInteraction = await readArtifact(root, stage, stage.artifacts.interactions);
-
-  capabilities.data.actors.push({ id: 'ACTOR-002', name: '审核人员', goal: '复核产品规格' });
-  const secondUseCase = JSON.parse(JSON.stringify(capabilities.data.useCases[0]).replaceAll('UC-001', 'UC-002'));
-  secondUseCase.name = '复核产品规格 Package';
-  secondUseCase.actor = 'ACTOR-002';
-  secondUseCase.businessRules = [];
-  capabilities.data.useCases.push(secondUseCase);
-  await writeArtifact(capabilities);
-
-  let secondText = JSON.stringify(firstInteraction.data);
-  for (const [from, to] of [
-    ['ACTOR-001', 'ACTOR-002'], ['UC-001', 'UC-002'], ['IF-001', 'WF-002'], ['SCREEN-001', 'SCREEN-002'],
-    ['REGION-001', 'REGION-004'], ['REGION-002', 'REGION-005'], ['REGION-003', 'REGION-006'],
-    ['CONTROL-001', 'CONTROL-005'], ['CONTROL-002', 'CONTROL-006'],
-    ['INT-STATE-001', 'INT-STATE-005'], ['INT-STATE-002', 'INT-STATE-006'], ['INT-STATE-003', 'INT-STATE-007'],
-  ]) secondText = secondText.replaceAll(from, to);
-  const secondPath = resolve(
-    root,
-    stage.root,
-    stage.artifacts.interactions.internalModelSet.root,
-    'ACTOR-002',
-    stage.artifacts.interactions.internalModelSet.member,
-  );
-  await mkdir(resolve(secondPath, '..'), { recursive: true });
-  await writeFile(secondPath, stringifyYaml(JSON.parse(secondText)));
-
-  const { path, model } = await canonicalFixture(root);
-  const crossActorModel = JSON.parse(
-    JSON.stringify(model)
-      .replaceAll('INT-STATE-001', 'INT-STATE-005')
-      .replaceAll('IF-001', 'WF-002'),
-  );
-  await writeCanonical(path, crossActorModel);
-
-  const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--json']);
-  const messages = result.output.blockers.map((item) => item.message).join('\n');
-  assert.match(messages, /同参与者 Wireflow workflow state 引用不存在：INT-STATE-005/);
-  assert.match(messages, /同参与者 Wireflow 场景 引用不存在：WF-002/);
-  assert.match(messages, /同参与者 Wireflow 追溯 引用不存在：WF-002/);
+  const artifact = await readArtifact(root, stage, stage.artifacts.capabilities);
+  const candidate = structuredClone(artifact.data);
+  for (const useCase of candidate.useCases) delete useCase.uiApplicability;
+  delete candidate.interactionStates;
+  delete candidate.interactionFlows;
+  delete candidate.lowFiUiBlueprints;
+  const legacyRoot = resolve(root, 'legacy-wireflow-input');
+  await mkdir(resolve(legacyRoot, 'ACTOR-001'), { recursive: true });
+  const stateDelta = { show: ['REGION-001'], hide: [], enable: ['CONTROL-001'], disable: [], content: [] };
+  const legacy = {
+    apiVersion: 'psp.dev/v1',
+    kind: 'WireflowMidSpecification',
+    metadata: { status: 'ready', version: '1.0.0', upstreamArtifact: 'capabilities', actor: 'ACTOR-001' },
+    siteMap: { entryScreen: 'SCREEN-001', nodes: [{ screen: 'SCREEN-001', parent: null }] },
+    screens: [{
+      id: 'SCREEN-001', name: '规格检查页', purpose: '提交并查看结果', useCases: ['UC-001'],
+      layoutTree: { type: 'vertical', children: [{ type: 'region', region: 'REGION-001' }] },
+      regions: [{ id: 'REGION-001', name: '验证区', purpose: '操作与反馈', content: ['验证结果'], controls: [{ id: 'CONTROL-001', type: 'action', label: '验证', purpose: '提交验证', dataBinding: null, action: 'validate' }] }],
+    }],
+    interactionStates: [
+      { id: 'WF-STATE-001', screen: 'SCREEN-001', type: 'default', condition: '等待验证', stateDelta, terminal: false },
+      { id: 'WF-STATE-002', screen: 'SCREEN-001', type: 'success', condition: '验证通过', stateDelta, terminal: true },
+      { id: 'WF-STATE-003', screen: 'SCREEN-001', type: 'error', condition: '验证失败', stateDelta, terminal: true },
+    ],
+    wireflows: [{
+      id: 'WF-001', useCase: 'UC-001', name: '验证规格', coveredScenarios: ['main', 'UC-001-EXC-01'],
+      entry: { screen: 'SCREEN-001', state: 'WF-STATE-001' }, completionStates: ['WF-STATE-002', 'WF-STATE-003'],
+      steps: [
+        { id: 'WF-001-STEP-01', scenarioRef: 'main', useCaseStepRefs: ['UC-001-STEP-01'], from: { screen: 'SCREEN-001', state: 'WF-STATE-001' }, trigger: { event: 'validate', control: 'CONTROL-001' }, guard: '有效', branchLabel: '成功', to: { screen: 'SCREEN-001', state: 'WF-STATE-002' } },
+        { id: 'WF-001-STEP-02', scenarioRef: 'UC-001-EXC-01', useCaseStepRefs: ['UC-001-EXC-01-STEP-01'], from: { screen: 'SCREEN-001', state: 'WF-STATE-001' }, trigger: { event: 'validate', control: 'CONTROL-001' }, guard: '引用无效', branchLabel: '失败', to: { screen: 'SCREEN-001', state: 'WF-STATE-003' } },
+      ],
+    }],
+    gates: [],
+    gaps: [],
+  };
+  await writeFile(resolve(legacyRoot, 'ACTOR-001', 'wireflow-mid.yaml'), stringifyYaml(legacy));
+  const migrated = await migrateLegacyWireflowDirectory(candidate, legacyRoot);
+  const schema = JSON.parse(await readFile(resolve(root, '.agents/skills/product-design/capabilities/schema.json'), 'utf8'));
+  const validate = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(schema);
+  assert.equal(validate(migrated), true, JSON.stringify(validate.errors));
+  assert.equal(migrated.interactionFlows[0].id, 'IF-001');
+  assert.equal(migrated.interactionFlows[0].transitions[1].failureResponse.returnToState, 'INT-STATE-001');
+  assert.equal(migrated.lowFiUiBlueprints[0].screens[0].id, 'LF-SCREEN-001');
+  assert.equal('wireflows' in migrated, false);
 });
 
 test('static semantic entry generates deterministic hidden JSON and README projections', async () => {
@@ -699,7 +416,7 @@ test('Figma source registration packet validates adapter output without owning C
   assert.equal(validate(packet), false);
 });
 
-test('Canonical UI 5.0 rejects every removed legacy structure', async () => {
+test('Canonical UI 6.0 rejects every removed legacy structure', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { path, model } = await canonicalFixture(root);

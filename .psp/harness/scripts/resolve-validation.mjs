@@ -9,6 +9,7 @@ for (let index = 0; index < args.length; index += 1) {
 }
 const intentIndex = args.indexOf('--intent');
 const intent = intentIndex >= 0 ? args[intentIndex + 1] : 'change';
+const release = args.includes('--release');
 const json = args.includes('--json');
 const root = resolve(process.env.PSP_REPOSITORY_ROOT || process.cwd());
 let result;
@@ -16,6 +17,9 @@ let result;
 try {
   if (paths.length === 0 || !['change', 'checkpoint', 'readiness'].includes(intent)) {
     throw Object.assign(new Error('必须提供至少一个 --path，且 --intent 只能是 change、checkpoint 或 readiness。'), { code: 'AIH_PATH_INVALID' });
+  }
+  if ((intent === 'readiness') !== release) {
+    throw Object.assign(new Error('readiness 只能由显式 --release 发布入口请求，--release 也不能用于其他意图。'), { code: 'AIH_RELEASE_INTENT_REQUIRED' });
   }
   const project = await readYaml(root, 'psp.project.yaml');
   if (project.kind !== 'PSPScaffoldProject') {
