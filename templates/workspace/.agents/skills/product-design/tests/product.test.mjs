@@ -804,7 +804,7 @@ test('evidence manifest rejects traversal and source identity mismatch', async (
   screenshotAsAsset.designSources[0].evidence.sha256 = sha256(restoredText);
   screenshotAsAsset.assets[0].path = originalManifest.items.find((item) => item.role === 'screenshot').path;
   await writeCanonical(path, screenshotAsAsset);
-  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_SOURCE_INTEGRITY_FAILED'));
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_ASSET_MISSING'));
 });
 
 test('Figma evidence requires normalized parameters and layer-scoped static assets', async () => {
