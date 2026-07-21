@@ -312,6 +312,19 @@ test('validator blocks a continuous-integration workflow that bypasses the Resol
   assert.ok(result.issues.some((item) => item.code === 'AIH_CI_POLICY_INVALID'));
 });
 
+test('validator blocks continuous integration without the declared Playwright browser install', async () => {
+  const root = await fixture();
+  const path = resolve(root, '.github/workflows/harness-governance.yml');
+  const workflow = parseYaml(await readFile(path, 'utf8'));
+  workflow.jobs['harness-governance'].steps = workflow.jobs['harness-governance'].steps.filter(
+    (step) => step.run !== 'npx playwright install --with-deps chromium',
+  );
+  await writeFile(path, stringifyYaml(workflow), 'utf8');
+  const result = await validateScaffold(root);
+  assert.equal(result.status, 'FAIL');
+  assert.ok(result.issues.some((item) => item.code === 'AIH_CI_POLICY_INVALID'));
+});
+
 test('validator blocks release readiness from the ordinary CI workflow', async () => {
   const root = await fixture();
   const path = resolve(root, '.github/workflows/harness-governance.yml');

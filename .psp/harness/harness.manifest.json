@@ -155,7 +155,9 @@
       "nodeVersion": "22",
       "checkoutAction": "actions/checkout@v4",
       "setupNodeAction": "actions/setup-node@v4",
-      "installCommand": "npm ci"
+      "installCommand": "npm ci",
+      "browserInstallCommand": "npx playwright install --with-deps chromium",
+      "timeoutMinutes": 60
     },
     "releaseValidation": {
       "runner": ".psp/harness/scripts/run-ci-validation.mjs",
