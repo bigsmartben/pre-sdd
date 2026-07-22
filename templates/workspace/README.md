@@ -63,6 +63,22 @@ flowchart LR
 
 例如，调整一个用例时，Agent 先在临时文件准备包含三部分的完整候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml` 与 `UC.md`。旧 Wireflow 目录只允许通过显式 `--legacy-wireflow-input` 作为一次性迁移输入；迁移后不会被正常校验、readiness、渲染或 handoff 读取。直接修改目标 YAML/Markdown，或单独运行 `render:product`，都会被视为不符合日常更新协议。
 
+## MockCase 业务覆盖
+
+`mockcase-coverage` 是 Canonical UI Prototype 的独立辅助 Skill（技能），用于检查正式、可在 UI 中评审的 Scenario 是否已经由 `kind=business` 的 MockCase 覆盖。它可以按 Actor、Route、Use Case、Scenario 或全部缺失项分析现有覆盖，并把结果分为 `existing`（已有）、`generated`（可生成）、`stale`（已失效）和 `blocked`（缺少上游事实）。`kind=technical` 的预览 Case 不计入业务覆盖率。
+
+```text
+只读分析当前工作区本地事实
+  → 展示覆盖差量、输入哈希和候选哈希
+  → 使用者确认候选
+  → Product Design 的 apply-mockcase-candidate 原子应用
+  → Resolver 调度结构与运行验证
+```
+
+分析和生成候选都不会修改 Use Cases、Scenario、Visual Spec、Canonical UI 或其他正式产物。正式业务事实不足时返回 `AIH_MOCKCASE_UPSTREAM_GAP` 并停止；不得猜测业务分支、响应、文案、组件状态或 Mock Behavior。候选只有在使用者明确确认后才能应用；输入发生变化时，旧候选以 `AIH_MOCKCASE_CANDIDATE_STALE` 拒绝。应用成功最多表示映射完成（`MAPPED`），页面运行结果仍需由 MockCase Review Plugin 和浏览器 Validator 验证。
+
+例如，可以对 Agent 说：“检查 ACTOR-001 支付流程尚未覆盖的业务 MockCase；先展示现有、可生成、失效和阻断项，不要直接写入。等我确认候选后再应用。”
+
 ## 阶段初始化后的关键结构
 
 产品阶段初始化创建原子 Use Cases 与 Visual Spec 初始模型，以及 Canonical UI 应用集合根，不虚构参与者实例。参与者确定后形成如下结构：
@@ -203,6 +219,9 @@ flowchart LR
 | 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 提交 Visual Spec | `npm run apply:visual-spec -- --artifact visual-spec --input <候选文件>` | Use Cases 独立 readiness 已通过；引用缺失时稳定阻断 |
 | 独立验证 Visual Spec | `npm run validate:visual-spec` | 检查 UC 引用、状态/视口覆盖、Variant 组合、资源路径与 SHA-256 |
+| 分析 MockCase 业务覆盖 | `npm run analyze:mockcase-coverage -- --actor <ACTOR-ID> --json` | 只读当前工作区本地权威输入；可追加 `--route`、`--use-case` 或 `--scenario` |
+| 生成 MockCase 候选 | `npm run generate:mockcase-coverage -- --actor <ACTOR-ID> --json` | 只生成确定性候选，不修改正式文件；上游事实缺失时停止 |
+| 应用 MockCase 候选 | `npm run apply:mockcase-candidate -- --actor <ACTOR-ID> --input <临时候选文件> --json` | 使用者已查看并明确确认候选；重新校验输入锁并原子更新目标 Actor |
 | 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 验证产品阶段 | `npm run validate:product` | 按 Resolver 返回顺序执行 |
 | 验证架构阶段 | `npm run validate:architecture` | 按 Resolver 返回顺序执行 |
