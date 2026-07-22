@@ -1,6 +1,6 @@
 {
   "name": "pre-sdd",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Harness-governed reusable Product Design and Architecture Design workspace scaffold",
   "type": "module",
   "bin": {
