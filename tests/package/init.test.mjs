@@ -567,7 +567,7 @@ test('Area Script execution uses a trusted npm CLI without a shell', async () =>
 test('package allowlist includes runtime and template but excludes root workspace state', async () => {
   const packageJson = JSON.parse(await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'));
   assert.equal(packageJson.name, 'pre-sdd');
-  assert.equal(packageJson.version, '0.4.0');
+  assert.equal(packageJson.version, '0.4.1');
   assert.equal(packageJson.scripts.build, undefined);
   assert.equal(packageJson.bin['pre-sdd'], './bin/pre-sdd.mjs');
   assert.equal(packageJson.dependencies['axe-core'], '^4.12.1');
