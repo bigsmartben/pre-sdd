@@ -6,6 +6,10 @@ function fail(message) {
   throw Object.assign(new Error(message), { code: 'AIH_PATH_INVALID' });
 }
 
+function failReference(message) {
+  throw Object.assign(new Error(message), { code: 'AIH_REFERENCE_UNRESOLVED' });
+}
+
 function numbered(prefix, index, width = 3) {
   return prefix + String(index + 1).padStart(width, '0');
 }
@@ -20,15 +24,6 @@ function stateType(oldState, entryStates) {
   if (entryStates.has(oldState.id)) return 'entry';
   if (['loading', 'disabled'].includes(oldState.type)) return 'waiting';
   return oldState.type === 'error' ? 'failure' : 'in-progress';
-}
-
-function referencedUseCaseText(capabilities, stepRefs, field) {
-  const values = [];
-  for (const useCase of capabilities.useCases || []) {
-    for (const step of useCase.mainScenario || []) if (stepRefs.includes(step.id)) values.push(step[field]);
-    for (const scenario of useCase.alternateScenarios || []) for (const step of scenario.steps || []) if (stepRefs.includes(step.id)) values.push(step[field]);
-  }
-  return values.filter(Boolean).join('；');
 }
 
 export async function migrateLegacyWireflowDirectory(capabilities, directory) {
@@ -58,6 +53,8 @@ export async function migrateLegacyWireflowDirectory(capabilities, directory) {
   const allControls = allRegions.flatMap((region) => region.controls || []);
   const regionIds = new Map(allRegions.map((region, index) => [region.id, numbered('LF-REGION-', index)]));
   const controlIds = new Map(allControls.map((control, index) => [control.id, numbered('LF-CONTROL-', index)]));
+  if (controlIds.size !== allControls.length) failReference('旧 Wireflow Control ID 重复，无法确定 Transition 追溯。');
+  const transitionRefsByControl = new Map(allControls.map((control) => [control.id, []]));
   const scenarioById = new Map((capabilities.useCases || []).flatMap((useCase) => (useCase.alternateScenarios || []).map((scenario) => [scenario.id, scenario])));
 
   const interactionStates = legacyStates.map((state) => ({
@@ -73,24 +70,25 @@ export async function migrateLegacyWireflowDirectory(capabilities, directory) {
       id,
       useCase: flow.useCase,
       name: flow.name,
-      coveredScenarios: flow.coveredScenarios,
       entryState: stateIds.get(flow.entry.state),
       completionStates: flow.completionStates.map((stateId) => stateIds.get(stateId)),
       transitions: flow.steps.map((step, index) => {
         const scenario = scenarioById.get(step.scenarioRef);
         const failure = scenario?.type === 'exception';
+        const transitionId = id + '-TRANS-' + String(index + 1).padStart(2, '0');
+        if (step.trigger.control) {
+          if (!transitionRefsByControl.has(step.trigger.control)) failReference('旧 Wireflow step 引用了不存在的 Control：' + step.trigger.control);
+          transitionRefsByControl.get(step.trigger.control).push(transitionId);
+        }
         return {
-          id: id + '-TRANS-' + String(index + 1).padStart(2, '0'),
+          id: transitionId,
           scenarioRef: step.scenarioRef,
           useCaseStepRefs: step.useCaseStepRefs,
           from: stateIds.get(step.from.state),
           to: stateIds.get(step.to.state),
-          userAction: step.trigger.control ? referencedUseCaseText(capabilities, step.useCaseStepRefs, 'action') || '操作 ' + step.trigger.control : null,
-          systemResponse: referencedUseCaseText(capabilities, step.useCaseStepRefs, 'outcome') || step.trigger.event,
           guard: step.guard,
           branchLabel: step.branchLabel,
           failureResponse: failure ? {
-            failure: scenario.outcome,
             retry: null,
             recovery: null,
             returnToState: stateIds.get(step.from.state),
@@ -101,11 +99,9 @@ export async function migrateLegacyWireflowDirectory(capabilities, directory) {
   });
 
   const lowFiUiBlueprints = members.filter((member) => (member.screens || []).length > 0).map((member, index) => {
-    const useCases = [...new Set(member.screens.flatMap((screen) => screen.useCases || []))];
     return {
       id: numbered('BLUEPRINT-', index),
       actor: member.metadata.actor,
-      useCases,
       informationArchitecture: {
         entryScreen: screenIds.get(member.siteMap.entryScreen),
         nodes: member.siteMap.nodes.map((node) => ({ screen: screenIds.get(node.screen), parent: node.parent ? screenIds.get(node.parent) : null })),
@@ -115,7 +111,10 @@ export async function migrateLegacyWireflowDirectory(capabilities, directory) {
         layoutTree: mapLayout(screen.layoutTree, regionIds),
         regions: screen.regions.map((region) => ({
           id: regionIds.get(region.id), name: region.name, purpose: region.purpose, content: region.content,
-          controls: region.controls.map((control) => ({ id: controlIds.get(control.id), type: control.type, label: control.label, purpose: control.purpose, action: control.action })),
+          controls: region.controls.map((control) => ({
+            id: controlIds.get(control.id), type: control.type, label: control.label, purpose: control.purpose,
+            action: control.action, transitionRefs: transitionRefsByControl.get(control.id),
+          })),
         })),
       })),
       statePresentations: member.interactionStates.map((state) => ({

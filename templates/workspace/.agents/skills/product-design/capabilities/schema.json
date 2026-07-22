@@ -58,10 +58,9 @@
       }
     },
     "businessRule": {
-      "type": "object", "additionalProperties": false, "required": ["id", "statement", "appliesTo"],
+      "type": "object", "additionalProperties": false, "required": ["id", "statement"],
       "properties": {
-        "id": {"$ref": "#/$defs/businessRuleId"}, "statement": {"type": "string", "minLength": 1},
-        "appliesTo": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}}
+        "id": {"$ref": "#/$defs/businessRuleId"}, "statement": {"type": "string", "minLength": 1}
       }
     },
     "uiApplicability": {
@@ -114,29 +113,27 @@
     "failureResponse": {
       "oneOf": [
         {"type": "null"},
-        {"type": "object", "additionalProperties": false, "required": ["failure", "retry", "recovery", "returnToState"], "properties": {
-          "failure": {"type": "string", "minLength": 1}, "retry": {"$ref": "#/$defs/nullableText"},
+        {"type": "object", "additionalProperties": false, "required": ["retry", "recovery", "returnToState"], "properties": {
+          "retry": {"$ref": "#/$defs/nullableText"},
           "recovery": {"$ref": "#/$defs/nullableText"}, "returnToState": {"oneOf": [{"$ref": "#/$defs/interactionStateId"}, {"type": "null"}]}
         }}
       ]
     },
     "transition": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "scenarioRef", "useCaseStepRefs", "from", "to", "userAction", "systemResponse", "guard", "branchLabel", "failureResponse"],
+      "required": ["id", "scenarioRef", "useCaseStepRefs", "from", "to", "guard", "branchLabel", "failureResponse"],
       "properties": {
         "id": {"$ref": "#/$defs/transitionId"}, "scenarioRef": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/scenarioId"}]},
         "useCaseStepRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"oneOf": [{"$ref": "#/$defs/mainStepId"}, {"$ref": "#/$defs/scenarioStepId"}]}},
         "from": {"$ref": "#/$defs/interactionStateId"}, "to": {"$ref": "#/$defs/interactionStateId"},
-        "userAction": {"$ref": "#/$defs/nullableText"}, "systemResponse": {"type": "string", "minLength": 1},
         "guard": {"$ref": "#/$defs/nullableText"}, "branchLabel": {"$ref": "#/$defs/nullableText"},
         "failureResponse": {"$ref": "#/$defs/failureResponse"}
       }
     },
     "interactionFlow": {
-      "type": "object", "additionalProperties": false, "required": ["id", "useCase", "name", "coveredScenarios", "entryState", "completionStates", "transitions"],
+      "type": "object", "additionalProperties": false, "required": ["id", "useCase", "name", "entryState", "completionStates", "transitions"],
       "properties": {
         "id": {"$ref": "#/$defs/interactionFlowId"}, "useCase": {"$ref": "#/$defs/useCaseId"}, "name": {"type": "string", "minLength": 1},
-        "coveredScenarios": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"oneOf": [{"const": "main"}, {"$ref": "#/$defs/scenarioId"}]}},
         "entryState": {"$ref": "#/$defs/interactionStateId"},
         "completionStates": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/interactionStateId"}},
         "transitions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/transition"}}
@@ -149,8 +146,8 @@
     "layoutRegion": {"type": "object", "additionalProperties": false, "required": ["type", "region"], "properties": {"type": {"const": "region"}, "region": {"$ref": "#/$defs/regionId"}}},
     "layoutNode": {"oneOf": [{"$ref": "#/$defs/layoutContainer"}, {"$ref": "#/$defs/layoutRegion"}]},
     "control": {
-      "type": "object", "additionalProperties": false, "required": ["id", "type", "label", "purpose", "action"],
-      "properties": {"id": {"$ref": "#/$defs/controlId"}, "type": {"enum": ["display", "input", "action", "navigation", "selection"]}, "label": {"type": "string", "minLength": 1}, "purpose": {"type": "string", "minLength": 1}, "action": {"$ref": "#/$defs/nullableText"}}
+      "type": "object", "additionalProperties": false, "required": ["id", "type", "label", "purpose", "action", "transitionRefs"],
+      "properties": {"id": {"$ref": "#/$defs/controlId"}, "type": {"enum": ["display", "input", "action", "navigation", "selection"]}, "label": {"type": "string", "minLength": 1}, "purpose": {"type": "string", "minLength": 1}, "action": {"$ref": "#/$defs/nullableText"}, "transitionRefs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/transitionId"}}}
     },
     "region": {
       "type": "object", "additionalProperties": false, "required": ["id", "name", "purpose", "content", "controls"],
@@ -169,8 +166,8 @@
       "properties": {"interactionState": {"$ref": "#/$defs/interactionStateId"}, "screen": {"$ref": "#/$defs/screenId"}, "suggestion": {"type": "string", "minLength": 1}}
     },
     "lowFiUiBlueprint": {
-      "type": "object", "additionalProperties": false, "required": ["id", "actor", "useCases", "informationArchitecture", "screens", "statePresentations"],
-      "properties": {"id": {"$ref": "#/$defs/blueprintId"}, "actor": {"$ref": "#/$defs/actorId"}, "useCases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/useCaseId"}}, "informationArchitecture": {"$ref": "#/$defs/informationArchitecture"}, "screens": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/lowFiScreen"}}, "statePresentations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/statePresentation"}}}
+      "type": "object", "additionalProperties": false, "required": ["id", "actor", "informationArchitecture", "screens", "statePresentations"],
+      "properties": {"id": {"$ref": "#/$defs/blueprintId"}, "actor": {"$ref": "#/$defs/actorId"}, "informationArchitecture": {"$ref": "#/$defs/informationArchitecture"}, "screens": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/lowFiScreen"}}, "statePresentations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/statePresentation"}}}
     },
     "gap": {"type": "object", "additionalProperties": false, "required": ["id", "field", "reason"], "properties": {"id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"}, "field": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}},
     "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}

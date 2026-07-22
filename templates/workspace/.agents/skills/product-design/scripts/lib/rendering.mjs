@@ -41,17 +41,48 @@ function mermaidFlow(lines) {
 }
 
 function renderUseCaseBehavior(useCase) {
-  const lines = [];
-  for (const step of useCase.mainScenario) {
-    lines.push([step.id, '主场景', step.initiator === 'actor' ? 'Actor' : 'System', step.action, step.outcome]);
+  const stepTable = (steps) => table(['步骤', '发起者', '动作', '可观察结果'], steps.map((step) => [
+    step.id, step.initiator === 'actor' ? 'Actor' : 'System', step.action, step.outcome,
+  ]));
+  const lines = ['##### 主场景', '', stepTable(useCase.mainScenario)];
+  for (const scenario of useCase.alternateScenarios) {
+    lines.push(
+      '',
+      '##### ' + scenario.id + '｜' + scenario.name,
+      '',
+      '- 类型：' + scenario.type,
+      '- 起始步骤：' + scenario.startsAt,
+      '- 条件：' + scenario.condition,
+      '- 结果：' + scenario.outcome,
+      '',
+      stepTable(scenario.steps),
+    );
   }
-  for (const scenario of useCase.alternateScenarios) for (const step of scenario.steps) {
-    lines.push([step.id, scenario.id + '｜' + scenario.name, step.initiator === 'actor' ? 'Actor' : 'System', step.action, step.outcome]);
-  }
-  return table(['步骤', '场景', '发起者', '动作', '可观察结果'], lines);
+  return lines.join('\n');
 }
 
-function renderInteractionFlow(flow, statesById) {
+function useCaseSteps(useCase) {
+  return new Map([
+    ...useCase.mainScenario.map((step) => [step.id, step]),
+    ...useCase.alternateScenarios.flatMap((scenario) => scenario.steps.map((step) => [step.id, step])),
+  ]);
+}
+
+function transitionBehavior(transition, useCase) {
+  const stepsById = useCaseSteps(useCase);
+  const steps = transition.useCaseStepRefs.map((stepId) => stepsById.get(stepId)).filter(Boolean);
+  return {
+    action: steps.filter((step) => step.initiator === 'actor').map((step) => step.action).join('；') || '系统事件',
+    response: steps.map((step) => step.outcome).join('；') || '—',
+  };
+}
+
+function failureMeaning(transition, useCase) {
+  const scenario = useCase.alternateScenarios.find((item) => item.id === transition.scenarioRef && item.type === 'exception');
+  return scenario ? [scenario.name, scenario.condition, scenario.outcome].join('；') : '—';
+}
+
+function renderInteractionFlow(flow, useCase, statesById) {
   const graph = [];
   const referenced = new Set([flow.entryState, ...flow.completionStates]);
   for (const transition of flow.transitions) {
@@ -63,32 +94,48 @@ function renderInteractionFlow(flow, statesById) {
     graph.push(mermaidNode('state', stateId) + '["' + mermaidText((state?.name || stateId) + (state?.terminal ? '（终态）' : '')) + '"]');
   }
   for (const transition of flow.transitions) {
-    const label = [transition.userAction, transition.systemResponse].filter(Boolean).join(' → ');
+    const behavior = transitionBehavior(transition, useCase);
+    const label = behavior.action + ' → ' + behavior.response;
     graph.push(mermaidNode('state', transition.from) + ' -->|"' + mermaidText(label) + '"| ' + mermaidNode('state', transition.to));
   }
-  const transitionRows = flow.transitions.map((transition) => [
-    transition.id,
-    transition.scenarioRef,
-    transition.useCaseStepRefs.join('、'),
-    transition.from + ' → ' + transition.to,
-    transition.userAction || '系统事件',
-    transition.systemResponse,
-    transition.guard || '无',
-    transition.branchLabel || '无',
-  ]);
+  const transitionRows = flow.transitions.map((transition) => {
+    return [
+      transition.id, transition.scenarioRef, transition.useCaseStepRefs.join('、'), transition.from + ' → ' + transition.to,
+      transition.guard || '无', transition.branchLabel || '无',
+    ];
+  });
   const failureRows = flow.transitions
     .filter((transition) => transition.failureResponse)
     .map((transition) => [
       transition.id,
-      transition.failureResponse.failure,
+      failureMeaning(transition, useCase),
       transition.failureResponse.retry || '不可重试',
       transition.failureResponse.recovery || '无恢复动作',
       transition.failureResponse.returnToState || '不返回',
     ]);
   return [
+    '- Flow：' + flow.id + '｜' + flow.name,
+    '- 入口状态：' + flow.entryState,
+    '- 完成状态：' + flow.completionStates.join('、'),
+    '- 覆盖场景（由 Transition 推导）：' + [...new Set(flow.transitions.map((transition) => transition.scenarioRef))].join('、'),
+    '',
+    '##### Interaction States（交互状态）',
+    '',
+    table(['状态', '名称', '类型', '终态'], [...referenced].map((stateId) => {
+      const state = statesById.get(stateId);
+      return [stateId, state?.name, state?.type, state?.terminal ? '是' : '否'];
+    })),
+    '',
+    '##### Flow 图',
+    '',
     mermaidFlow(graph),
     '',
-    table(['迁移', '场景', 'UC 步骤', '状态变化', '用户动作', '系统响应', 'Guard', '分支'], transitionRows),
+    '<details>',
+    '<summary>查看 Transition 与 UC 步骤追溯</summary>',
+    '',
+    table(['迁移', '场景', 'UC 步骤', '状态变化', 'Guard', '分支'], transitionRows),
+    '',
+    '</details>',
     '',
     '失败、重试、恢复与返回：',
     '',
@@ -123,14 +170,24 @@ function renderBlueprint(blueprint, actorsById) {
     region.name,
     region.purpose,
     region.content.join('、'),
-    region.controls.map((control) => control.id + ' ' + control.label + '（' + control.type + '）').join('、') || '无',
   ]));
+  const controlRows = blueprint.screens.flatMap((screen) => screen.regions.flatMap((region) => region.controls.map((control) => [
+    screen.id,
+    region.id,
+    control.id,
+    control.type,
+    control.label,
+    control.purpose,
+    control.action || '无',
+    control.transitionRefs.join('、') || '无',
+  ])));
+  const coveredUseCases = [...new Set(blueprint.screens.flatMap((screen) => screen.useCases))];
   return [
     '### ' + blueprint.id + '｜' + (actorsById.get(blueprint.actor)?.name || blueprint.actor),
     '',
     '> 本蓝图是内部低保真建议；UI HTML 可重组页面与控件，但必须保持正式 Interaction Flow 的行为语义与追溯关系。',
     '',
-    '- 覆盖 Use Case：' + blueprint.useCases.join('、'),
+    '- 覆盖 Use Case（由 Screen 推导）：' + coveredUseCases.join('、'),
     '- 建议入口：' + blueprint.informationArchitecture.entryScreen,
     '',
     '#### 信息架构（IA）',
@@ -141,9 +198,13 @@ function renderBlueprint(blueprint, actorsById) {
     '',
     table(['Screen', '名称', '目的', 'Use Case', 'Layout'], screenRows),
     '',
-    '#### Region 与 Control 建议',
+    '#### Region 建议',
     '',
-    table(['Screen', 'Region', '名称', '目的', '内容', 'Controls'], regionRows),
+    table(['Screen', 'Region', '名称', '目的', '内容'], regionRows),
+    '',
+    '#### Control 与正式 Transition 追溯',
+    '',
+    table(['Screen', 'Region', 'Control', '类型', '标签', '目的', '动作建议', 'Transition refs'], controlRows),
     '',
     '#### 正式状态到低保真呈现',
     '',
@@ -159,6 +220,9 @@ function renderCapabilities(data) {
     '# ' + (data.intent.productName || '产品') + ' Use Cases',
     '',
     '> 单一权威模型：Product Behavior（产品行为）+ Interaction Flow（正式交互流程）+ Low-Fi UI Blueprint（内部低保真建议）。',
+    '',
+    '- 状态：' + data.metadata.status,
+    '- 版本：' + data.metadata.version,
     '',
     '## 产品目标',
     '',
@@ -181,7 +245,9 @@ function renderCapabilities(data) {
     '',
     table(['Actor', '名称', '目标'], data.actors.map((actor) => [actor.id, actor.name, actor.goal])),
     '',
-    table(['规则', '声明', '适用 Use Case'], data.businessRules.map((rule) => [rule.id, rule.statement, rule.appliesTo.join('、')])),
+    table(['规则', '声明', '适用 Use Case（反向推导）'], data.businessRules.map((rule) => [
+      rule.id, rule.statement, data.useCases.filter((useCase) => useCase.businessRules.includes(rule.id)).map((useCase) => useCase.id).join('、'),
+    ])),
     '',
     '## Use Cases',
     '',
@@ -199,6 +265,8 @@ function renderCapabilities(data) {
       '- 前置条件：' + (useCase.preconditions.join('、') || '无'),
       '- 成功保证：' + useCase.successOutcome,
       '- 最小保证：' + useCase.minimumGuarantee,
+      '- 适用业务规则：' + (useCase.businessRules.join('、') || '无'),
+      '- Use Case 关系：' + (useCase.relationships.map((relationship) => relationship.type + ' → ' + relationship.target).join('；') || '无'),
       '',
       '#### Product Behavior（产品行为）',
       '',
@@ -206,12 +274,33 @@ function renderCapabilities(data) {
       '',
       '#### Interaction Flow（正式交互流程）',
       '',
-      flow ? renderInteractionFlow(flow, statesById) : '非 UI 用例：无 Interaction Flow。',
+      flow
+        ? renderInteractionFlow(flow, useCase, statesById)
+        : useCase.uiApplicability.mode === 'required'
+          ? '待补充正式 Interaction Flow。'
+          : '非 UI 用例：' + useCase.uiApplicability.reason,
       '',
     );
   }
+  lines.push(
+    '## Interaction State Catalog（交互状态目录）',
+    '',
+    '<details>',
+    '<summary>查看完整状态定义</summary>',
+    '',
+    table(['状态', '名称', '类型', '描述', '终态'], data.interactionStates.map((state) => [
+      state.id, state.name, state.type, state.description, state.terminal ? '是' : '否',
+    ])),
+    '',
+    '</details>',
+    '',
+  );
   lines.push('## Low-Fi UI Blueprints', '');
-  if (data.lowFiUiBlueprints.length === 0) lines.push('- 当前没有 UI 用例，因此无需 Low-Fi UI Blueprint。', '');
+  if (data.lowFiUiBlueprints.length === 0) {
+    if (data.useCases.length === 0) lines.push('- 尚未判断 UI 适用性。', '');
+    else if (data.useCases.some((useCase) => useCase.uiApplicability.mode === 'required')) lines.push('- 待补充 UI Use Case 对应的 Low-Fi UI Blueprint。', '');
+    else lines.push('- 所有 Use Case 均已明确为非 UI，因此无需 Low-Fi UI Blueprint。', '');
+  }
   for (const blueprint of data.lowFiUiBlueprints) lines.push(renderBlueprint(blueprint, actorsById), '');
   lines.push(
     '## 待确认问题',
