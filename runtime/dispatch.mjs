@@ -97,8 +97,12 @@ export async function dispatchHarness(npmScript, workspaceRoot, forwarded = []) 
     console.error('[' + (error.code || 'AIH_PROJECT_BINDING_INVALID') + '] ' + error.message);
     return 1;
   }
-  if (loaded.manifest.runtime?.protocol !== 'pre-sdd-harness/v2') {
-    console.error('[AIH_RUNTIME_INCOMPATIBLE] 工作区需要的 Harness 协议不受当前 pre-sdd 支持。');
+  if (
+    loaded.project?.harness?.protocol !== 'pre-sdd-harness/v3'
+    || loaded.manifest.standard?.protocol !== 'pre-sdd-harness/v3'
+    || loaded.manifest.runtime?.protocol !== 'pre-sdd-harness/v3'
+  ) {
+    console.error('[AIH_PROTOCOL_UNSUPPORTED] 当前运行时只支持 pre-sdd-harness/v3。');
     return 1;
   }
   const item = [...loaded.manifest.commands, ...loaded.manifest.operations]

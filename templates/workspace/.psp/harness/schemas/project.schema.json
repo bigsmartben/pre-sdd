@@ -8,7 +8,7 @@
   "properties": {
     "apiVersion": {"const": "psp.dev/v1"},
     "kind": {"const": "PSPProject"},
-    "harness": {"type": "object", "additionalProperties": false, "required": ["manifest"], "properties": {"manifest": {"$ref": "#/$defs/path"}}},
+    "harness": {"type": "object", "additionalProperties": false, "required": ["protocol", "manifest"], "properties": {"protocol": {"const": "pre-sdd-harness/v3"}, "manifest": {"$ref": "#/$defs/path"}}},
     "stages": {"type": "object", "minProperties": 1, "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"$ref": "#/$defs/stage"}}
   },
   "$defs": {

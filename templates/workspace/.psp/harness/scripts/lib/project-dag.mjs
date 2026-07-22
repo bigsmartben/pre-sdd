@@ -7,7 +7,9 @@ export function incomingDagEdges(manifest, nodeId) {
 }
 
 export function dependencyIds(manifest, nodeId) {
-  return incomingDagEdges(manifest, nodeId).map((edge) => edge.from);
+  return incomingDagEdges(manifest, nodeId)
+    .filter((edge) => edge.type === 'dependency')
+    .map((edge) => edge.from);
 }
 
 export function handoffConsumerIds(manifest, nodeId) {
@@ -19,6 +21,10 @@ export function handoffConsumerIds(manifest, nodeId) {
 export function handoffEdge(manifest, from, to) {
   return (manifest.projectDag?.edges || [])
     .find((edge) => edge.from === from && edge.to === to && edge.type === 'handoff');
+}
+
+export function edgeIdentity(edge) {
+  return edge.from + '->' + edge.to + ':' + edge.type;
 }
 
 export function collectDependencyIds(manifest, nodeId) {

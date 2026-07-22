@@ -93,8 +93,9 @@ export function executeRegisteredCommand(root, command, options = {}) {
     execution = { status: 1, stdout: '', stderr: '[' + (error.code || 'AIH_VALIDATION_FAILED') + '] ' + error.message };
   }
   const stdout = execution.stdout?.trim() || '';
-  const stderr = execution.stderr?.trim() || '';
-  const codes = blockerCodes(stdout + '\n' + stderr);
+  const timedOut = execution.error?.code === 'ETIMEDOUT';
+  const stderr = execution.stderr?.trim() || (execution.error?.message || '');
+  const codes = timedOut ? ['AIH_COMMAND_TIMEOUT'] : blockerCodes(stdout + '\n' + stderr);
   return {
     id: command.id,
     command: command.run,

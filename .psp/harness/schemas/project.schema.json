@@ -11,8 +11,8 @@
     "harness": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest"],
-      "properties": {"manifest": {"$ref": "#/$defs/path"}}
+      "required": ["protocol", "manifest"],
+      "properties": {"protocol": {"const": "pre-sdd-harness/v3"}, "manifest": {"$ref": "#/$defs/path"}}
     },
     "template": {
       "type": "object",

@@ -101,20 +101,20 @@ pre-sdd harness <npm-script> [-- <参数>]
    node .psp/harness/scripts/resolve-validation.mjs \
      --path README.md \
      --path QUICKSTART.md \
-     --intent change \
+     --context local-edit \
      --json
    ```
 
 3. 只修改本次任务需要的文件。不要在 `templates/workspace/` 原位创建用户实例、`node_modules`、构建输出或浏览器证据。
 
-4. 编辑过程中以 `change` 获得快速反馈；任务、Issue、PR、合并和普通 CI 以 `checkpoint` 运行定向集成测试；只有显式发布前以 `readiness` 执行完整门禁。只有发布入口的 `readiness` PASS 可以形成 `validated-scaffold-change`。
+4. 编辑过程中以 `local-edit` 获得当前 Scope 的 quick 反馈；PR 以 `pull-request` 运行受影响范围门禁；push 到 main 以 `main` 运行全仓门禁；只有隔离的显式发布入口使用 `release`。只有 `release` PASS 可以形成 `validated-scaffold-change`。
 
    ```bash
-   node .psp/harness/scripts/resolve-validation.mjs --path <实际路径> --intent checkpoint --json
-   node .psp/harness/scripts/run-ci-validation.mjs --release --plan --json
+   node .psp/harness/scripts/resolve-validation.mjs --path <实际路径> --context pull-request --json
+   node .psp/harness/scripts/run-ci-validation.mjs --context release --plan --json
    ```
 
-5. 对全部实际变更路径重新运行 Resolver，并按返回顺序执行每条命令。下面是 `readiness` 可能出现的最大门禁集合，不是编辑循环固定执行的四项。
+5. 对全部实际变更路径重新运行 Resolver，并按 `plan` 返回顺序执行每条命令。下面是 `release` 的最大门禁集合，不是编辑循环固定执行的四项。
 
    ```bash
    npm run validate:harness
@@ -123,11 +123,11 @@ pre-sdd harness <npm-script> [-- <参数>]
    npm run pack:check
    ```
 
-Resolver 会按实际路径和意图缩小命令集合。例如，修改 Product Design Skill 时，`change` 只运行根结构校验和临时模板副本中的高信号 Product Design 测试，`checkpoint` 再运行临时生成工作区的完整领域套件；`readiness` 仍运行全部四项。
+Resolver 会按实际路径和执行上下文缩小命令集合。例如，修改 Product Design Skill 时，`local-edit` 只运行当前 Scope 的 quick 结构检查，`pull-request` 才扩展到受影响模板回归，`main` 与 `release` 执行 full 集合。
 
 ### 变更范围与门禁
 
-| 修改内容 | 常见路径 | `change` / `checkpoint` | `readiness` |
+| 修改内容 | 常见路径 | `local-edit` / `pull-request` | `main` / `release` |
 |---|---|---|---|
 | 根治理与开发者文档 | `README.md`、`.psp/harness/**` | Harness 结构与治理回归 | 完整发布门禁 |
 | 运行时与命令行入口 | `bin/**`、`runtime/**`、`package.json` | Harness 回归 / 包行为检查 | 完整发布门禁 |
@@ -137,7 +137,7 @@ Resolver 会按实际路径和意图缩小命令集合。例如，修改 Product
 
 这里的 `PASS` 只表示脚手架工程门禁通过，不表示任何产品或架构内容已经就绪。
 
-当前根仓库的 Maintainer Handoff（维护者移交）就是“已验证脚手架变更”：维护者取得上述工程证据后决定是否合并。它不是用户内容，也不会生成产品或架构移交凭证。
+当前根仓库的 Maintainer Completion（维护者完成证据）就是“已验证脚手架变更”：维护者取得上述工程证据后决定是否合并。它不是 Handoff，也不会生成产品或架构移交凭证。
 
 ### 模板与运行时边界
 
@@ -152,18 +152,18 @@ Resolver 会按实际路径和意图缩小命令集合。例如，修改 Product
 
 ### 持续集成与发布检查
 
-持续集成（Continuous Integration）工作流只调用 `.psp/harness/scripts/run-ci-validation.mjs`。普通调用让 Resolver 以 `checkpoint` 覆盖仓库路径；不会请求发布级 `readiness`。只查看普通 CI 计划时运行：
+持续集成（Continuous Integration）工作流只调用 `.psp/harness/scripts/run-ci-validation.mjs`。PR 使用受影响范围 `pull-request`，push 到 main 使用全仓 `main`；两者都不会请求发布级 `release`。只查看 main 计划时运行：
 
 ```bash
-node .psp/harness/scripts/run-ci-validation.mjs --plan --json
+node .psp/harness/scripts/run-ci-validation.mjs --context main --plan --json
 ```
 
 只有正式发布前才运行显式发布门禁：
 
 ```bash
-node .psp/harness/scripts/run-ci-validation.mjs --release
+node .psp/harness/scripts/run-ci-validation.mjs --context release
 ```
 
-该入口以 `readiness` 执行完整工程门禁并确认 npm 包清单；包中应包含命令入口、运行时、工作区模板、`README.md` 和 `QUICKSTART.md`，不应包含根 `.psp/` 或用户产物。
+该入口以 `release` 执行完整工程门禁并确认 npm 包清单；PASS 只形成 `validated-scaffold-change` 证据，不自动打标签、发布或部署。
 
 使用者安装和初始化示例统一放在 [QUICKSTART.md](QUICKSTART.md)，避免把脚手架维护命令与工作区使用命令混在一起。

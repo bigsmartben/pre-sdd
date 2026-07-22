@@ -6,15 +6,15 @@ import { pathToFileURL } from 'node:url';
 
 const repositoryRoot = resolve(import.meta.dirname, '../../..');
 const suites = new Map([
-  ['harness', { command: 'test:harness', tests: '.psp/harness/tests' }],
+  ['harness', { command: 'test:harness', tests: ['.psp/harness/tests', '.agents/skills/project-consistency/tests'] }],
   ['product', {
     command: 'test:product',
-    tests: '.agents/skills/product-design/tests',
+    tests: ['.agents/skills/product-design/tests'],
     changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Figma source registration packet)',
   }],
   ['architecture', {
     command: 'test:architecture',
-    tests: '.agents/skills/architecture-design/tests',
+    tests: ['.agents/skills/architecture-design/tests'],
     changePattern: '^(architecture empty scaffold|architecture initialization|architecture artifact operation|complete Architecture mapping|optional Product Design reference|each Architecture artifact|strict validation accepts|all architecture artifacts declare fixed inputs)',
   }],
 ]);
@@ -65,8 +65,7 @@ try {
     }
   } else {
     await cp(resolve(repositoryRoot, 'templates/workspace'), workspace, { recursive: true });
-    const testRoot = resolve(workspace, suiteDefinition.tests);
-    const files = await testFiles(testRoot);
+    const files = (await Promise.all(suiteDefinition.tests.map((tests) => testFiles(resolve(workspace, tests))))).flat().sort();
     const dependencyLoader = '--import=' + pathToFileURL(resolve(repositoryRoot, 'runtime/register-dependency-loader.mjs')).href;
     const testArgs = ['--test'];
     if (suiteDefinition.changePattern) testArgs.push('--test-name-pattern=' + suiteDefinition.changePattern);

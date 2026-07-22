@@ -18,6 +18,7 @@
   },
   "scripts": {
     "validate:harness": "node .psp/harness/scripts/validate-harness.mjs",
+    "check:scaffold-consistency": "node .agents/skills/scaffold-consistency/scripts/check.mjs",
     "harness:resolve": "node .psp/harness/scripts/resolve-validation.mjs",
     "test:harness": "node --test .psp/harness/tests/scaffold/*.test.mjs",
     "test:template:harness": "node .psp/harness/scripts/run-workspace-suite.mjs --mode template --suite harness",

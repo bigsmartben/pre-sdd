@@ -1,6 +1,7 @@
 apiVersion: psp.dev/v1
 kind: PSPScaffoldProject
 harness:
+  protocol: pre-sdd-harness/v3
   manifest: .psp/harness/harness.manifest.json
 template:
   root: templates/workspace

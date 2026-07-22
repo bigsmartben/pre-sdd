@@ -1,47 +1,37 @@
-# PSP 生成工作区 User Harness（使用者治理层）
+# PSP User Harness v3 执行协议
 
-本文件只定义生成工作区的硬治理执行协议，不治理 `pre-sdd` 脚手架源仓库。路径绑定由工作区根目录 psp.project.yaml 提供；Artifact binding 明确区分输入、权威入口、用户产物、机器投影和临时证据。逻辑 Scope、Domain Registry（领域注册表）、Profile、工程命令、生命周期、内部移交边与 blocker catalog 的机器事实来源是 harness.manifest.json。产品与架构的 Agent 工作流、Contract、Schema、模板、投影器和领域 Validator 封装在 Manifest 登记的仓库领域 Skill 中；Harness 只检查登记结构、路径边界和执行结果，不解释产品或架构语义。
+本文件把根 Harness Standard v3 投影到生成工作区。职责边界见 [HARNESS-BOUNDARY.md](./HARNESS-BOUNDARY.md)；运行计划只从本地 `psp.project.yaml` 与 Manifest 解析。
 
-Harness 与 Agent、领域 Skill 和正式产物之间的完整职责判定规则见 [HARNESS-BOUNDARY.md](./HARNESS-BOUNDARY.md)。
+## Discover / 发现
 
-## Discover
+1. 读取适用的 `AGENTS.md`、本协议、项目绑定和 Manifest。
+2. 确认项目与 Manifest 都声明 `pre-sdd-harness/v3`。
+3. 保留已有改动，收集预计变更的 POSIX 仓库相对路径。
 
-1. 读取适用的 AGENTS.md 指令链。
-2. 读取 psp.project.yaml、本协议和 harness.manifest.json。
-3. 收集预计变更路径并保留用户已有改动。
+## Resolve / 解析
 
-## Resolve
+普通编辑调用：
 
-调用：
+    node .psp/harness/scripts/resolve-validation.mjs --path <path>... --context local-edit --json
 
-    node .psp/harness/scripts/resolve-validation.mjs --path <path> --intent change|readiness --json
+`local-edit` 只调度当前直接 Scope 的 quick 检查，不沿 Dependency 或 Handoff 扩展。显式一致性、Handoff、PR、main 和 release 只能由对应显式 Operation/Adapter 请求；Planner 必须返回选择原因、范围扩展路径、成本、超时、输入摘要和缓存状态。
 
-普通实现使用 change；只有正式 readiness 或交付判断使用 readiness。resolver 返回 BLOCKED 时停止目标写入，只执行 blocker 允许的恢复动作。已登记 Domain Skill 根目录优先归入对应 Domain Scope，宽泛的 repository Scope 只接收未被领域声明的治理路径。`upstreamScopes` 与 `upstreamCommands` 是从 `projectDag` 推导的机器依赖和门禁；`downstreamConsumers` 只返回 DAG 中显式声明且当前可用的 handoff consumer（移交候选），不代表用户已经选择下一步。
+## Change / 修改
 
-## Change
+只修改用户请求的 Artifact 或 Area。权威入口变化后通过登记的 Artifact Operation 原子更新 projection；不得单独维护生成投影。`published` 阶段必须先显式 Reopen。阶段未初始化时，只有用户明确开始该阶段才能执行登记的初始化 Operation；初始化、Publish、Reopen、Repair 和 Handoff 互不隐含。
 
-只修改请求覆盖的最小范围。权威入口发生变化后，通过阶段对应的 render operation 更新全部 projection。`user-artifact` 是正式用户输出；`generated-support` 是机器支撑；`runtime-evidence` 只能临时生成。Artifact binding 可以声明内部模型或可执行 Area 作为权威入口，所有 projection 都不得脱离权威入口单独维护。实际路径超出预计范围时必须重新解析。
+## Consistency / 一致性
 
-## Initialize
+`project-consistency` 是只读能力，只把 `dependency` 当数据边。用户直接激活同名 Skill 必须来自显式请求；Manifest 登记的同名 Command 可以由 Handoff Profile 或 CI/CD 严格 Profile 调度。两者都不进入 Hook、保存或普通编辑，也不授予修改权限。报告包含 `dependencies`、`diagnostics`、`acceptedRisks` 与 `suggestedOperations`，但不修改任何产物。
 
-纯脚手架使用 manifest 声明的 initialize-workspace operation 初始化工作区：先运行 `npm run init:workspace -- --dry-run`，确认目标后运行 `npm run init:workspace`。该 operation 必须从 psp.project.yaml 派生全部非 unavailable 阶段根目录，只创建 workspace Scope 声明的 `.gitkeep` 标记，并保持所有阶段为 uninitialized；它不得创建任何产品或架构用户实例。该操作可重复执行，但发现 active 阶段或用户文件时必须阻断。
+## Handoff / 授权移交
 
-uninitialized 表示目录骨架和路径绑定有效，但用户实例不存在；`.gitkeep` 不属于用户文件，也不得列入用户交付。普通 Harness 变更和 Hook 不得创建用户文件。只有用户明确开始某阶段时，才能执行 Manifest 为该阶段声明的 stage operation。通用 `initialize-stage` 只复制已登记模板、保护目标路径、执行已登记领域命令并在失败时回滚，不解释模板内容，也不自动执行 readiness 或 handoff；具体命令和模板只能从当前 Manifest 解析，不在协议中硬编码。
+正式 Handoff 必须经过 preflight、展示、用户 confirm/reject 与 Receipt Schema 校验。Receipt 在写入、查询和撤销前都必须通过登记 Schema；验证状态、用户决定和 Receipt 状态分别记录。Domain Diagnostic 可由用户逐项接受，Safety/Structure Blocker 永不可覆盖。Receipt 绑定来源、Dependency、Manifest、Profile 和 Standard 的版本与哈希；Profile 版本或 handoff 边变化后也必须标记为 `STALE`。无论结果如何，`downstreamAction` 都是 `NOT_RUN`。
 
-Product Design 的 UI HTML 完成事件是 Manifest 登记的 Publish operation。Publish 在同一生命周期事务中写入项目绑定的发布凭证并把阶段从 `active` 改为 `published`；凭证锁定范围由领域 Contract 与 Validator 解释。`published` 可执行读取和校验，但 resolver 的 `change`、Artifact operation 与 Repair 必须以 `AIH_STAGE_LOCKED` 阻断。只有 Reopen operation 能把阶段恢复为 `active`，同时保留原发布历史；Reopen、Publish 都返回 `downstreamAction: NOT_RUN`，不得初始化 02 或触发外部移交。
+## Verify / 验证
 
-## Dependency Evidence / 依赖证据
+对全部实际变更路径重新解析并按 `plan` 顺序执行。一次 Operation 内按 `commandId + inputDigest + profileVersion` 去重；cache key 另行绑定 Standard、Profile、Executor、Source、Dependency 与 Runtime 六类摘要。失败后剩余命令为 `NOT_RUN`；超时以稳定 blocker code 失败。最终 Evidence Report 必须通过共享 Schema，只使用 `PASS`、`FAIL`、`BLOCKED`、`NOT_RUN`，并报告 Scope、Changes、Validation、Residuals 和耗时/缓存指标。
 
-Manifest 的 `projectDag` 是 Stage/Artifact 关系的唯一事实来源。节点声明 Scope 身份，`dependency` 与 `handoff` 边声明方向及 `sourceReadiness` 前置条件；Resolver 按入边拓扑推导依赖顺序，只有 `handoff` 边构成合法移交。Product Design 的内部链是 Use Cases → Visual Spec → UI HTML → Review/Repair → Publish/Lock；Architecture Design 拥有独立生命周期，不依赖 Product Design readiness、发布状态或 handoff。本模板不声明工作区外消费者。Architecture Design 可以在 Package 中选择一个显式、固定版本、只读的 Product Design 输入引用；该引用只用于一致性校验，不形成 DAG 边、生命周期控制或回写权限。正式内部移交必须由用户明确请求并执行 `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`。Harness 按 DAG 顺序实际执行来源 readiness 与全部上游命令，失败后其余命令标为 `NOT_RUN`，并返回不持久化的移交凭证。Harness 不保存用户确认、不拥有当前会话步骤，也不初始化或运行下游工作。
+## Stop / 停止
 
-## Verify
-
-对实际变更路径重新调用 resolver，按返回顺序执行所有 commands。Harness 只执行并汇总命令，并治理输入输出角色、工程命令登记、失败状态与阻断码；对应仓库领域 Skill 的 Schema、Contract 和 Validator 解释领域内容，projection drift check 判断投影是否与权威入口一致。uninitialized 的结构校验可以 PASS，但 readiness 必须以 AIH_STAGE_UNINITIALIZED 阻断；下游阶段还必须执行依赖阶段的 readiness Profile。
-
-## Evidence Report / 技术证据报告
-
-按 manifest 的 `evidenceReport` 字段报告 Scope、Changes、Validation 和 Residuals。每条命令只能标记 PASS、FAIL、BLOCKED 或 NOT_RUN，并为失败提供稳定 blocker code。移交凭证属于本次命令执行结果，不持久化用户确认；面向用户的移交提示仍由 Agent 在取得 `PASS` 后生成。
-
-## Codex 生命周期
-
-.codex Hook 与 `apply-repository-harness` Skill 只是治理适配器，不拥有路由、领域 Schema 或 readiness 规则。Manifest 登记的 Product Design 与 Architecture Design 仓库领域 Skill 拥有各自工作流和领域资源；它们不得拥有路径绑定、工程门禁结果或 handoff 决策。Hook 只做轻量 Harness 自检，不能替代任何阶段的严格门禁。
+请求完成、出现不可恢复 blocker、需要新用户决定或发现范围外修复时立即停止。不得自动修复、Handoff、Reopen、初始化、发布或开始下游工作。

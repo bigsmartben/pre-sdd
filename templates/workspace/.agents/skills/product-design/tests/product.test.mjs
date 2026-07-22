@@ -1291,7 +1291,7 @@ test('browser validator skips accessibility checks when the user did not select 
   await writeCanonical(path, model);
   const appPath = resolve(areaPath, 'src/psp-app.ts');
   const app = await readFile(appPath, 'utf8');
-  await writeFile(appPath, app.replace('              >\n                模拟错误\n              </button>', '              >\n              </button>'));
+  await writeFile(appPath, app.replace(/              >\r?\n                模拟错误\r?\n              <\/button>/, '              >\n              </button>'));
   const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.equal(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED'), false, JSON.stringify(result.output, null, 2));
 });
@@ -1316,11 +1316,11 @@ test('browser validator separates console, network, visual, accessibility and as
   const app = await readFile(appPath, 'utf8');
   await writeFile(appPath, app
     .replace("this.feedback = '选择一种 Mock 行为，验证 Loading、Success 与 Error 状态。';", "this.feedback = '选择一种 Mock 行为，验证 Loading、Success 与 Error 状态。';\n    console.error('fixture console failure');\n    setTimeout(() => { throw new Error('fixture page failure'); }, 0);\n    void fetch('https://example.com/blocked').catch(() => undefined);")
-    .replace('            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />\n', '')
-    .replace('                data-control-id="CONTROL-001"\n', '                data-control-id="CONTROL-001"\n                tabindex="-1"\n')
+    .replace(/            <img src="\/assets\/DESIGN-SOURCE-001\/source\.svg" alt="Fixture source" width="40" height="40" \/>\r?\n/, '')
+    .replace(/                data-control-id="CONTROL-001"\r?\n/, '                data-control-id="CONTROL-001"\n                tabindex="-1"\n')
     .replace('                data-action-id="ACTION-001"', '                data-action-id="ACTION-UNKNOWN"')
-    .replace('              >\n                模拟错误\n              </button>', '              >\n              </button>')
-    .replace('    button {\n      min-height: 44px;', '    button {\n      box-sizing: border-box;\n      width: 30px;\n      overflow: hidden;\n      min-height: 10px;')
+    .replace(/              >\r?\n                模拟错误\r?\n              <\/button>/, '              >\n              </button>')
+    .replace(/    button \{\r?\n      min-height: 44px;/, '    button {\n      box-sizing: border-box;\n      width: 30px;\n      overflow: hidden;\n      min-height: 10px;')
     .replace('button.primary { background: var(--accent); }', 'button.primary { background: var(--accent); }\n    button + button { margin-left: -10px; }')
     .replace('button:focus-visible { outline: 3px solid #678e25; outline-offset: 3px; }', 'button:focus-visible { outline: none; box-shadow: none; }'));
 

@@ -44,9 +44,9 @@ flowchart LR
 
 “Product Idea（产品想法）”是使用者提供的输入；进入 Product Design 后形成的第一个权威产物是 Use Cases。`use-cases.yaml` 是机器权威视图，`UC.md` 是唯一人类视图。Architecture Design 不依赖 Product Design 生命周期；它可以完全独立，也可以显式固定一个只读 Use Cases 版本。Canonical UI Prototype 不是架构输入。
 
-每轮只处理使用者明确要求的当前产物。当前产物的 readiness Profile（就绪验证配置）全部通过且 Manifest 声明了移交边后，Agent 必须执行本次 handoff（移交）门禁并取得新的 `PASS` 凭证。移交只证明声明的上下游关系可用，不保存使用者确认，也不初始化或运行下游工作。Manifest 没有声明消费者时，当前范围在 readiness 通过后结束。
+每轮只处理使用者明确要求的当前产物。验证结果不会自动触发 handoff（移交）；只有使用者显式请求时才运行 preflight，展示固定来源版本、内容哈希、检查结果和风险，然后等待确认或拒绝。确认后的 Receipt 也始终返回 `downstreamAction: NOT_RUN`。
 
-例如，Use Cases 通过后可向 `visual-spec` 形成产品设计移交，Visual Spec 通过后再向 `canonical-ui-prototype` 移交；使用者明确开始 Architecture Design 时，不执行 Product Design readiness，也不生成 `use-cases` 到 `architecture-design` 的移交凭证。
+例如，Use Cases → Visual Spec 同时声明数据 Dependency 和授权 Handoff：普通编辑只检查 Use Cases 当前 Scope；显式一致性分析才检查数据关系；使用者显式确认后才形成授权 Receipt。开始 Architecture Design 不执行 Product Design 验证，也不生成跨生命周期 Receipt。
 
 当前模板只声明工作区内部移交边，不绑定工作区外部框架。架构设计通过本地门禁后形成当前范围的验证结果，后续消费仍需使用者另行明确。
 
@@ -156,7 +156,7 @@ flowchart LR
 | 4. Review HTML（审查 HTML） | 在浏览器中对照 Figma 操作页面，使用默认固定在每个页面右上方的不一致标记工具框选差异、选择类别并复制标记截图；剪贴板被拒绝时下载 PNG | 差异形成可执行的修复说明，不改变正式规格 |
 | 5. 修复 HTML | 仅按 Repair Packet（修复包）允许的范围修正实现，重新验证并提供当前评审地址；服务重启时提供新的实际地址 | Repair Action Report（修复动作报告）与新一轮可审查页面 |
 
-第 3 步的实现达到可运行状态后必须立即提供 UI HTML 地址，不等待视觉修复、严格检查或正式就绪全部通过；未通过项只作为 residual（剩余问题）阻止正式 ready（就绪）或 handoff（移交）。第 4、5 步的循环示例：审查时发现“标题距顶部比 Figma 多 12px”，框选标题区域并复制标记截图；修复后重新打开评审地址复查。若仍有差异，继续标记并修复；若无差异，由使用者结束循环。
+第 3 步的实现达到可运行状态后必须立即提供 UI HTML 地址，不等待视觉修复、严格检查或正式就绪全部通过。未通过的 safety-structure（安全结构）门禁阻止 Handoff Receipt（移交凭证）；domain-diagnostic（领域诊断）必须作为 residual（剩余问题）展示，只有用户在显式 preflight（预检）后逐项接受，才允许确认 Handoff。第 4、5 步的循环示例：审查时发现“标题距顶部比 Figma 多 12px”，框选标题区域并复制标记截图；修复后重新打开评审地址复查。若仍有差异，继续标记并修复；若无差异，由使用者结束循环。
 
 ```text
 Product Design 确认 sourceId、业务范围与视觉策略
@@ -189,14 +189,15 @@ flowchart LR
     I --> E["在临时位置准备候选数据"]
     E --> P["产物操作：生成 YAML 与 Markdown"]
     P --> V["执行全部验证命令"]
-    V --> H["当前产物就绪后执行移交门禁"]
+    V --> P["用户显式发起 Handoff preflight"]
+    P --> H["确认门禁结果并逐项接受可接受风险"]
 ```
 
 以下命令由 Agent 和 Harness Adapter（执行控制适配器）根据使用者意图调用，不是面向使用者的操作接口：
 
 | 目的 | 命令示例 | 前置条件 |
 |---|---|---|
-| 解析实际变更路径 | `npm run harness:resolve -- --intent change --path <仓库相对路径> --json` | 路径使用正斜杠 |
+| 解析实际变更路径 | `npm run harness:resolve -- --context local-edit --path <仓库相对路径> --json` | 路径使用正斜杠；只调度当前 Scope quick 检查 |
 | 初始化产品阶段 | `npm run init:product` | 使用者明确开始产品阶段 |
 | 初始化架构阶段 | `npm run init:architecture` | 只要求 Architecture Design 尚未初始化；不检查 Product Design 生命周期 |
 | 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
@@ -205,7 +206,8 @@ flowchart LR
 | 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 验证产品阶段 | `npm run validate:product` | 按 Resolver 返回顺序执行 |
 | 验证架构阶段 | `npm run validate:architecture` | 按 Resolver 返回顺序执行 |
-| 执行内部移交 | `npm run handoff -- --from <来源范围> --to <消费范围> --json` | 来源产物的就绪验证全部通过 |
+| Handoff preflight | `npm run handoff -- --from <来源范围> --to <消费范围> --json` | 用户显式请求；只展示检查、风险与 token |
+| 确认 Handoff | `npm run handoff -- --from <来源范围> --to <消费范围> --confirm --actor <主体> --preflight-token <token> --json` | 用户查看 preflight 后明确确认；风险逐项使用 `--accept-risk` |
 
 工作区本地 `package.json` 与 `package-lock.json` 固定运行配置；执行器从当前工作区本地 Manifest 声明的路径加载。本地领域 Skill（能力说明）、Contract（契约）、Schema（结构定义）、模板、渲染器和 Validator（校验器）不得由包内 `templates/workspace/` 副本替代。
 

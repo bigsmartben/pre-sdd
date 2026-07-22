@@ -68,5 +68,10 @@ export function runScript(script, fixtureRoot, args = []) {
 }
 
 export function codes(result) {
-  return new Set((result.output.blockers || []).map((item) => item.code));
+  return new Set([
+    ...(result.output.blockers || []),
+    ...(result.output.validation?.blockers || []),
+    ...(result.output.diagnostics || []),
+    ...(result.output.residuals || []),
+  ].map((item) => item.code));
 }

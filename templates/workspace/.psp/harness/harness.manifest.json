@@ -1,9 +1,9 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "17.0.0",
+  "version": "18.0.0",
   "runtime": {
-    "protocol": "pre-sdd-harness/v2",
+    "protocol": "pre-sdd-harness/v3",
     "authority": "generated-workspace-local",
     "entrypoint": ".psp/runtime/pre-sdd/bin/pre-sdd.mjs",
     "dependencyLock": "package-lock.json",
@@ -20,7 +20,10 @@
   "schemas": {
     "manifest": ".psp/harness/schemas/harness-manifest.schema.json",
     "project": ".psp/harness/schemas/project.schema.json",
-    "contract": ".psp/harness/schemas/artifact-contract.schema.json"
+    "contract": ".psp/harness/schemas/artifact-contract.schema.json",
+    "handoffReceipt": ".psp/harness/schemas/handoff-receipt.schema.json",
+    "consistencyReport": ".psp/harness/schemas/consistency-report.schema.json",
+    "evidenceReport": ".psp/harness/schemas/evidence-report.schema.json"
   },
   "codex": {
     "projectConfig": ".codex/config.toml",
@@ -216,57 +219,67 @@
         "from": "use-cases",
         "to": "visual-spec",
         "type": "handoff",
-        "conditions": {
-          "sourceReadiness": "required"
-        }
+        "profile": "product-handoff"
       },
       {
         "from": "use-cases",
         "to": "canonical-ui-prototype",
         "type": "dependency",
-        "conditions": {
-          "sourceReadiness": "required"
-        }
+        "analysisCommand": "project-consistency"
       },
       {
         "from": "visual-spec",
         "to": "canonical-ui-prototype",
         "type": "handoff",
-        "conditions": {
-          "sourceReadiness": "required"
-        }
+        "profile": "product-handoff"
       },
       {
         "from": "system-boundary",
         "to": "conceptual-model",
         "type": "dependency",
-        "conditions": {
-          "sourceReadiness": "required"
-        }
+        "analysisCommand": "project-consistency"
       },
       {
         "from": "system-boundary",
         "to": "technical-validation",
         "type": "dependency",
-        "conditions": {
-          "sourceReadiness": "required"
-        }
+        "analysisCommand": "project-consistency"
       },
       {
         "from": "conceptual-model",
         "to": "architecture-package",
         "type": "dependency",
-        "conditions": {
-          "sourceReadiness": "required"
-        }
+        "analysisCommand": "project-consistency"
       },
       {
         "from": "technical-validation",
         "to": "architecture-package",
         "type": "dependency",
-        "conditions": {
-          "sourceReadiness": "required"
-        }
+        "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "use-cases",
+        "to": "visual-spec",
+        "type": "dependency",
+        "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "visual-spec",
+        "to": "canonical-ui-prototype",
+        "type": "dependency",
+        "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "system-boundary",
+        "to": "conceptual-model",
+        "type": "handoff",
+        "profile": "architecture-handoff"
+      },
+      {
+        "from": "system-boundary",
+        "to": "technical-validation",
+        "type": "handoff",
+        "profile": "architecture-handoff"
       }
     ]
   },
@@ -433,7 +446,9 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/review.mjs",
-        "args": ["--json"]
+        "args": [
+          "--json"
+        ]
       },
       "domain": "product-design",
       "stage": "product-design",
@@ -449,7 +464,9 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/visual-acceptance.mjs",
-        "args": ["--json"]
+        "args": [
+          "--json"
+        ]
       },
       "domain": "product-design",
       "stage": "product-design",
@@ -465,7 +482,11 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs",
-        "args": ["--operation", "publish-product-design", "--json"]
+        "args": [
+          "--operation",
+          "publish-product-design",
+          "--json"
+        ]
       },
       "domain": "product-design",
       "stage": "product-design",
@@ -483,7 +504,11 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs",
-        "args": ["--operation", "reopen-product-design", "--json"]
+        "args": [
+          "--operation",
+          "reopen-product-design",
+          "--json"
+        ]
       },
       "domain": "product-design",
       "stage": "product-design",
@@ -500,7 +525,9 @@
       "executor": {
         "kind": "module",
         "path": ".psp/harness/scripts/run-handoff.mjs"
-      }
+      },
+      "receiptDirectory": ".psp/handoffs/receipts",
+      "receiptSchema": ".psp/harness/schemas/handoff-receipt.schema.json"
     }
   ],
   "commands": [
@@ -508,11 +535,23 @@
       "id": "project-consistency",
       "npmScript": "check:project-consistency",
       "run": "npm run check:project-consistency",
-      "purpose": "仅在用户显式调用时按项目 DAG 只读检查节点、边与领域产物一致性",
+      "purpose": "由显式一致性请求、Handoff Profile 或严格 CI/CD Profile 调度，按项目 DAG 只读检查节点、边与领域产物一致性",
       "blocking": true,
       "executor": {
         "kind": "module",
         "path": ".agents/skills/project-consistency/scripts/check.mjs"
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -524,6 +563,19 @@
       "executor": {
         "kind": "module",
         "path": ".psp/harness/scripts/validate-harness.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -538,6 +590,19 @@
         "args": [
           "--dry-run"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -552,6 +617,19 @@
           ".psp/harness/tests/harness/*.test.mjs",
           ".agents/skills/project-consistency/tests/*.test.mjs"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -566,6 +644,18 @@
         "paths": [
           ".agents/skills/product-design/tests/*.test.mjs"
         ]
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -578,7 +668,23 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/tests/run-suite.mjs",
-        "args": ["--tier", "fast"]
+        "args": [
+          "--tier",
+          "fast"
+        ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -591,7 +697,19 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/tests/run-suite.mjs",
-        "args": ["--tier", "slow"]
+        "args": [
+          "--tier",
+          "slow"
+        ]
+      },
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -604,6 +722,19 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/scripts/validate.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -619,6 +750,18 @@
         "args": [
           "--strict"
         ]
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -635,6 +778,19 @@
           "--step",
           "use-cases"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -647,6 +803,19 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -663,6 +832,19 @@
           "--step",
           "visual-spec"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -679,6 +861,18 @@
           "--capability",
           "typecheck"
         ]
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -695,6 +889,18 @@
           "--capability",
           "build"
         ]
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -707,6 +913,18 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs"
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -719,6 +937,18 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs"
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -731,6 +961,18 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/validate-incremental.mjs"
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -745,6 +987,19 @@
         "paths": [
           ".agents/skills/architecture-design/tests/*.test.mjs"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -757,6 +1012,19 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/architecture-design/scripts/validate.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -772,6 +1040,18 @@
         "args": [
           "--strict"
         ]
+      },
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -788,6 +1068,15 @@
           "--capability",
           "dev"
         ]
+      },
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "disabled"
       }
     },
     {
@@ -804,6 +1093,15 @@
           "--capability",
           "install-browser"
         ]
+      },
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "disabled"
       }
     },
     {
@@ -816,6 +1114,19 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/product-design/scripts/render.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -828,6 +1139,19 @@
       "executor": {
         "kind": "module",
         "path": ".agents/skills/architecture-design/scripts/render.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -843,6 +1167,19 @@
         "args": [
           "--check"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -858,6 +1195,19 @@
         "args": [
           "--check"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -871,7 +1221,19 @@
         "area": "technical-validation",
         "script": "verify"
       },
-      "domain": "architecture-design"
+      "domain": "architecture-design",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "architecture-system-boundary",
@@ -887,6 +1249,19 @@
           "--step",
           "system-boundary"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -903,6 +1278,19 @@
           "--step",
           "conceptual-model"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -919,6 +1307,19 @@
           "--step",
           "technical-validation"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -935,6 +1336,19 @@
           "--step",
           "architecture-package"
         ]
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     },
     {
@@ -946,6 +1360,19 @@
       "executor": {
         "kind": "module",
         "path": ".psp/harness/scripts/resolve-validation.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
       }
     }
   ],
@@ -961,21 +1388,59 @@
         "product-structure",
         "test-architecture",
         "architecture-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "repository-harness",
       "commands": [
         "harness",
         "test-harness"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "use-cases-readiness",
       "commands": [
         "harness",
         "use-cases-strict"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "product-framework",
@@ -983,14 +1448,42 @@
         "harness",
         "test-product-fast",
         "product-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "visual-spec-readiness",
       "commands": [
         "harness",
         "visual-spec-strict"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "product-uninitialized",
@@ -998,14 +1491,42 @@
         "harness",
         "test-product-fast",
         "product-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "product-structure",
       "commands": [
         "harness",
         "product-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "product-delivery",
@@ -1020,7 +1541,17 @@
         "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "canonical-ui-prototype",
@@ -1033,7 +1564,20 @@
         "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "canonical-ui-review-readiness",
@@ -1046,7 +1590,20 @@
         "canonical-ui-contract-tests",
         "canonical-ui-runtime",
         "product-strict"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "architecture-framework",
@@ -1054,7 +1611,21 @@
         "harness",
         "test-architecture",
         "architecture-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "architecture-uninitialized",
@@ -1062,14 +1633,42 @@
         "harness",
         "test-architecture",
         "architecture-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "architecture-structure",
       "commands": [
         "harness",
         "architecture-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "architecture-delivery",
@@ -1078,7 +1677,20 @@
         "test-architecture",
         "architecture-structure",
         "architecture-strict"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "system-boundary-readiness",
@@ -1087,7 +1699,21 @@
         "test-architecture",
         "architecture-structure",
         "architecture-system-boundary"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "conceptual-model-readiness",
@@ -1096,7 +1722,21 @@
         "test-architecture",
         "architecture-structure",
         "architecture-conceptual-model"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "technical-validation-readiness",
@@ -1106,7 +1746,20 @@
         "architecture-structure",
         "verify-architecture",
         "architecture-technical-validation"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "architecture-package-readiness",
@@ -1115,7 +1768,21 @@
         "test-architecture",
         "architecture-structure",
         "architecture-package-readiness"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "technical-validation",
@@ -1123,7 +1790,157 @@
         "harness",
         "test-architecture",
         "architecture-structure"
-      ]
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "workspace-quick",
+      "commands": [
+        "harness",
+        "workspace-structure",
+        "test-harness"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "quick",
+      "timeoutMs": 300000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "project-consistency",
+      "commands": [
+        "harness",
+        "project-consistency"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 900000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "canonical-ui-quick",
+      "commands": [
+        "harness",
+        "product-structure",
+        "canonical-ui-input"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "quick",
+      "timeoutMs": 300000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "product-handoff",
+      "commands": [
+        "harness",
+        "project-consistency",
+        "test-product-fast",
+        "product-structure",
+        "canonical-ui-input",
+        "canonical-ui-typecheck",
+        "canonical-ui-build",
+        "canonical-ui-contract-tests",
+        "canonical-ui-runtime",
+        "product-strict"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "architecture-handoff",
+      "commands": [
+        "harness",
+        "project-consistency",
+        "test-architecture",
+        "architecture-structure",
+        "architecture-strict"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "workspace-main",
+      "commands": [
+        "harness",
+        "workspace-structure",
+        "test-harness",
+        "test-product-fast",
+        "test-product-slow",
+        "product-strict",
+        "test-architecture",
+        "architecture-strict"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "costClass": "full",
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     }
   ],
   "scopes": [
@@ -1137,8 +1954,12 @@
         "type": "workspace",
         "marker": ".gitkeep"
       },
-      "defaultProfile": "workspace-scaffold",
-      "readinessProfile": "workspace-scaffold"
+      "defaultProfile": "workspace-quick",
+      "readinessProfile": "workspace-scaffold",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "project-consistency",
+      "checkpointProfile": "project-consistency",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "repository-harness",
@@ -1172,7 +1993,11 @@
         ]
       },
       "defaultProfile": "repository-harness",
-      "readinessProfile": "repository-harness"
+      "readinessProfile": "repository-harness",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "project-consistency",
+      "checkpointProfile": "project-consistency",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "product-framework",
@@ -1186,7 +2011,11 @@
         "domain": "product-design"
       },
       "defaultProfile": "product-framework",
-      "readinessProfile": "product-framework"
+      "readinessProfile": "product-framework",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "product-handoff",
+      "checkpointProfile": "product-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "architecture-framework",
@@ -1200,7 +2029,11 @@
         "domain": "architecture-design"
       },
       "defaultProfile": "architecture-framework",
-      "readinessProfile": "architecture-framework"
+      "readinessProfile": "architecture-framework",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "architecture-handoff",
+      "checkpointProfile": "architecture-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "product-design",
@@ -1215,7 +2048,11 @@
       },
       "defaultProfile": "product-structure",
       "readinessProfile": "product-delivery",
-      "uninitializedProfile": "product-uninitialized"
+      "uninitializedProfile": "product-uninitialized",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "product-handoff",
+      "checkpointProfile": "product-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "use-cases",
@@ -1233,7 +2070,11 @@
       },
       "defaultProfile": "use-cases-readiness",
       "readinessProfile": "use-cases-readiness",
-      "uninitializedProfile": "product-uninitialized"
+      "uninitializedProfile": "product-uninitialized",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "product-handoff",
+      "checkpointProfile": "product-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "visual-spec",
@@ -1251,7 +2092,11 @@
       },
       "defaultProfile": "visual-spec-readiness",
       "readinessProfile": "visual-spec-readiness",
-      "uninitializedProfile": "product-uninitialized"
+      "uninitializedProfile": "product-uninitialized",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "product-handoff",
+      "checkpointProfile": "product-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "canonical-ui-prototype",
@@ -1270,9 +2115,13 @@
           "canonical-ui-prototypes"
         ]
       },
-      "defaultProfile": "canonical-ui-prototype",
+      "defaultProfile": "canonical-ui-quick",
       "readinessProfile": "product-delivery",
-      "uninitializedProfile": "product-uninitialized"
+      "uninitializedProfile": "product-uninitialized",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "product-handoff",
+      "checkpointProfile": "product-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "architecture-design",
@@ -1287,7 +2136,11 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "architecture-delivery",
       "uninitializedProfile": "architecture-uninitialized",
-      "domain": "architecture-design"
+      "domain": "architecture-design",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "architecture-handoff",
+      "checkpointProfile": "architecture-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "system-boundary",
@@ -1305,7 +2158,11 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "system-boundary-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "domain": "architecture-design"
+      "domain": "architecture-design",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "architecture-handoff",
+      "checkpointProfile": "architecture-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "conceptual-model",
@@ -1323,7 +2180,11 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "conceptual-model-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "domain": "architecture-design"
+      "domain": "architecture-design",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "architecture-handoff",
+      "checkpointProfile": "architecture-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "technical-validation",
@@ -1344,7 +2205,11 @@
       "defaultProfile": "technical-validation",
       "readinessProfile": "technical-validation-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "domain": "architecture-design"
+      "domain": "architecture-design",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "architecture-handoff",
+      "checkpointProfile": "architecture-handoff",
+      "mainProfile": "workspace-main"
     },
     {
       "id": "architecture-package",
@@ -1362,10 +2227,15 @@
       "defaultProfile": "architecture-structure",
       "readinessProfile": "architecture-package-readiness",
       "uninitializedProfile": "architecture-uninitialized",
-      "domain": "architecture-design"
+      "domain": "architecture-design",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "architecture-handoff",
+      "checkpointProfile": "architecture-handoff",
+      "mainProfile": "workspace-main"
     }
   ],
   "evidenceReport": {
+    "schema": ".psp/harness/schemas/evidence-report.schema.json",
     "requiredFields": [
       "scope",
       "changes",
@@ -1377,6 +2247,13 @@
       "FAIL",
       "BLOCKED",
       "NOT_RUN"
+    ],
+    "metrics": [
+      "plannedCommandCount",
+      "executedCommandCount",
+      "cacheHitCount",
+      "notRunCount",
+      "totalDurationMs"
     ]
   },
   "blockers": [
@@ -1384,501 +2261,633 @@
       "code": "AIH_PROJECT_BINDING_INVALID",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "项目绑定缺失、越界、重复或引用未知逻辑对象"
+      "meaning": "项目绑定缺失、越界、重复或引用未知逻辑对象",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_CONTRACT_INVALID",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "Artifact Contract 缺失、结构非法或与 registry 不一致"
+      "meaning": "Artifact Contract 缺失、结构非法或与 registry 不一致",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_ARTIFACT_SCHEMA_FAILED",
       "severity": "high",
       "owner": "product-framework",
       "meaning": "Harness 内部结构化模型不符合对应 Schema",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ARTIFACT_INCOMPLETE",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "规格内容仍是 draft、存在 gap 或未满足严格门禁",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ASSET_CLASSIFICATION_INCOMPLETE",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "确认范围内的视觉候选节点缺少唯一 asset、dom-css、dynamic 或 ignored 策略",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ASSET_MISSING",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "已分类 asset 缺少 Acquisition Packet 文件、正式文件或来源证据",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ASSET_HASH_MISMATCH",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "Capture Plan、Acquisition Packet、正式 Asset 或 Asset Manifest 的 SHA-256 不一致",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ASSET_CLOSURE_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "视觉候选、来源证据、正式 Asset 与消费目标未形成双向闭包",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ASSET_CSS_BYPASS",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "已分类 asset 的消费目标没有加载并使用正式 Asset，疑似以 DOM/CSS 近似旁路",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ASSET_INGEST_CONFLICT",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "受控 Ingest 目标已存在不同内容且没有匹配 previousSha256",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_SOURCE_INTEGRITY_FAILED",
       "severity": "high",
       "owner": "product-framework",
       "meaning": "设计来源缺少可复现本地证据、证据不可读或内容哈希不匹配",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_SOURCE_CAPTURE_BLOCKED",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "设计来源连接器、权限或指定节点访问失败",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_SOURCE_COVERAGE_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "设计来源未覆盖声明的页面、状态或视口",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_COMPONENT_ABSTRACTION_UNRESOLVED",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "Figma 组件相关节点缺少唯一、可追溯的共享组件、Primitive 或局部结构归类决定",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_COMPONENT_MAPPING_INVALID",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "Component Inventory、Figma 组件身份与 Lit 接口映射无法闭合或不是一对一关系",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_COMPONENT_VARIANT_COVERAGE_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "使用中的 Figma Instance 或 Variant 未被 Lit Attribute 与 Screen 覆盖关系完整表达",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_COMPONENT_IMPLEMENTATION_MISMATCH",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "运行页面没有使用声明的 Lit 自定义元素、Variant Attribute 或 Slot 渲染 Figma Instance",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_REFERENCE_UNRESOLVED",
       "severity": "high",
       "owner": "product-design",
       "meaning": "跨产物标识符引用无法解析",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_GENERATED_DRIFT",
       "severity": "high",
       "owner": "product-framework",
       "meaning": "Markdown 用户产物或机器生成支撑与内部模型不一致，或 output 被单独修改",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_UPSTREAM_NOT_READY",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "下游工作要求的上游严格门禁未通过",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ARCHITECTURE_UNAVAILABLE",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "项目将架构阶段显式绑定为 unavailable，架构写入被阻断"
+      "meaning": "项目将架构阶段显式绑定为 unavailable，架构写入被阻断",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_TECHNICAL_VALIDATION_FAILED",
       "severity": "blocker",
       "owner": "architecture-design",
       "meaning": "技术选型代码验证失败、被环境阻断或没有形成可审阅证据",
-      "domain": "architecture-design"
+      "domain": "architecture-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_SCOPE_UNRESOLVED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "输入路径无法归入任何已声明 Scope"
+      "meaning": "输入路径无法归入任何已声明 Scope",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_PATH_INVALID",
       "severity": "high",
       "owner": "repository-harness",
-      "meaning": "仓库路径使用绝对路径、反斜杠、目录跳转或非法 glob"
+      "meaning": "仓库路径使用绝对路径、反斜杠、目录跳转或非法 glob",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_PATH_OUTSIDE_ROOT",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "解析后的路径位于仓库根目录之外"
+      "meaning": "解析后的路径位于仓库根目录之外",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_MANIFEST_UNREADABLE",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "Harness manifest 缺失或不是有效 JSON"
+      "meaning": "Harness manifest 缺失或不是有效 JSON",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_SCHEMA_INVALID",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "Harness、项目或 Contract Schema 无法编译或验证失败"
+      "meaning": "Harness、项目或 Contract Schema 无法编译或验证失败",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_ENTRYPOINT_MISSING",
       "severity": "high",
       "owner": "repository-harness",
-      "meaning": "声明的入口、Contract、Schema、模板、内部模型或 output 不存在"
+      "meaning": "声明的入口、Contract、Schema、模板、内部模型或 output 不存在",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_COMMAND_INVALID",
       "severity": "high",
       "owner": "repository-harness",
-      "meaning": "命令重复、未声明或与 package.json 不一致"
+      "meaning": "命令重复、未声明或与 package.json 不一致",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_PROFILE_INVALID",
       "severity": "high",
       "owner": "repository-harness",
-      "meaning": "Profile 重复、引用未知命令或缺少 Harness 自检"
+      "meaning": "Profile 重复、引用未知命令或缺少 Harness 自检",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_SCOPE_INVALID",
       "severity": "high",
       "owner": "repository-harness",
-      "meaning": "Scope 重复、引用未知 Profile、阶段、区域、依赖或 blocker"
+      "meaning": "Scope 重复、引用未知 Profile、阶段、区域、依赖或 blocker",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_CODEX_ADAPTER_INVALID",
       "severity": "high",
       "owner": "repository-harness",
-      "meaning": "Codex config、Hook 或 Repository Skill 不符合适配器契约"
+      "meaning": "Codex config、Hook 或 Repository Skill 不符合适配器契约",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_HARNESS_COUPLED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "Harness Framework 硬编码了项目绑定中的用户目录"
+      "meaning": "Harness Framework 硬编码了项目绑定中的用户目录",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_HOOK_DEGRADED",
       "severity": "medium",
       "owner": "repository-harness",
-      "meaning": "SessionStart Hook 缺少依赖或无法定位仓库"
+      "meaning": "SessionStart Hook 缺少依赖或无法定位仓库",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_RUNTIME_UNAVAILABLE",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "pre-sdd 全局运行时与一次性回退均不可用"
-    },
-    {
-      "code": "AIH_RUNTIME_INCOMPATIBLE",
-      "severity": "blocker",
-      "owner": "repository-harness",
-      "meaning": "工作区 Harness 协议与 pre-sdd 运行时不兼容"
+      "meaning": "pre-sdd 全局运行时与一次性回退均不可用",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_VALIDATION_FAILED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "必需验证命令返回非零"
+      "meaning": "必需验证命令返回非零",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_BROWSER_UNAVAILABLE",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "Canonical UI Prototype 浏览器运行时未安装或不可启动",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_SERVER_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "meaning": "Canonical UI Prototype 本地服务器未启动、未返回实际评审地址或地址无法访问",
-      "domain": "product-design"
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_ARTIFACT_TRANSACTION_FAILED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "内部模型与对应用户投影的本次写入未完成；可修正环境后重新运行同一产物 operation"
+      "meaning": "内部模型与对应用户投影的本次写入未完成；可修正环境后重新运行同一产物 operation",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_USER_CHANGE_COLLISION",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "目标位置存在无法安全合并的用户改动"
+      "meaning": "目标位置存在无法安全合并的用户改动",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_WORKSPACE_NOT_EMPTY",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "纯脚手架初始化要求所有可用阶段均未初始化且不存在用户实例"
+      "meaning": "纯脚手架初始化要求所有可用阶段均未初始化且不存在用户实例",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_STAGE_UNINITIALIZED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "阶段绑定有效但尚未创建任何用户实例，不能执行 readiness 或实例操作"
+      "meaning": "阶段绑定有效但尚未创建任何用户实例，不能执行 readiness 或实例操作",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_PARTIAL_INITIALIZATION",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "uninitialized 阶段出现部分用户文件，生命周期状态不一致"
+      "meaning": "uninitialized 阶段出现部分用户文件，生命周期状态不一致",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_STAGE_ALREADY_INITIALIZED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "阶段已经 active，不能再次执行初始化 operation"
+      "meaning": "阶段已经 active，不能再次执行初始化 operation",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_DOMAIN_BOUNDARY_INVALID",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "领域注册路径缺失、越界或被 Harness 垂直解释"
+      "meaning": "领域注册路径缺失、越界或被 Harness 垂直解释",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_DAG_NODE_UNKNOWN",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "项目 DAG 节点未绑定已知且身份一致的 Stage 或 Artifact Scope"
+      "meaning": "项目 DAG 节点未绑定已知且身份一致的 Stage 或 Artifact Scope",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_DAG_EDGE_CONFLICT",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "项目 DAG 对同一节点对声明了重复或冲突边"
+      "meaning": "项目 DAG 对同一节点对声明了重复或冲突边",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_DAG_CYCLE",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "项目 DAG 存在依赖环，无法推导稳定执行顺序"
+      "meaning": "项目 DAG 存在依赖环，无法推导稳定执行顺序",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_HANDOFF_UNREACHABLE",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "请求的来源与目标之间没有可执行的显式 handoff 边"
+      "meaning": "请求的来源与目标之间没有可执行的显式 handoff 边",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_CANONICAL_UI_RUNTIME_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Canonical UI Prototype 路由、交互、状态、视口或可见反馈运行验证失败"
+      "meaning": "Canonical UI Prototype 路由、交互、状态、视口或可见反馈运行验证失败",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_NETWORK_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Canonical UI Prototype 发起外部网络请求或资源请求失败"
+      "meaning": "Canonical UI Prototype 发起外部网络请求或资源请求失败",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_CONSOLE_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Canonical UI Prototype 产生控制台错误或未处理页面异常"
+      "meaning": "Canonical UI Prototype 产生控制台错误或未处理页面异常",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_VISUAL_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Canonical UI Prototype 类型化视觉断言失败"
+      "meaning": "Canonical UI Prototype 类型化视觉断言失败",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_ACCESSIBILITY_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Canonical UI Prototype 自动或补充无障碍检查失败"
+      "meaning": "Canonical UI Prototype 自动或补充无障碍检查失败",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_ASSET_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Canonical UI Prototype 资源缺失、加载失败或未被声明目标实际使用"
+      "meaning": "Canonical UI Prototype 资源缺失、加载失败或未被声明目标实际使用",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_POLICY_UNRESOLVED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Canonical UI Prototype 尚未明确选择自主设计、部分参考或完全实现"
+      "meaning": "Canonical UI Prototype 尚未明确选择自主设计、部分参考或完全实现",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_SOURCE_REQUIRED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "部分参考或完全实现缺少可复现视觉来源"
+      "meaning": "部分参考或完全实现缺少可复现视觉来源",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_STYLE_BINDING_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "声明为风格或局部参考的视觉属性没有绑定到实际渲染结果或比较失败"
+      "meaning": "声明为风格或局部参考的视觉属性没有绑定到实际渲染结果或比较失败",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_SOURCE_INCOMPLETE",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "完全实现缺少覆盖路由、场景或视口的完整视觉证据与截图基线"
+      "meaning": "完全实现缺少覆盖路由、场景或视口的完整视觉证据与截图基线",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_SOURCE_PARITY_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "实际渲染与指定视觉来源截图的机器比较超出 Contract 固定容差"
+      "meaning": "实际渲染与指定视觉来源截图的机器比较超出 Contract 固定容差",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_DEVIATION_UNAPPROVED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "实现偏离已选择视觉策略或超出用户声明的局部参考范围"
+      "meaning": "实现偏离已选择视觉策略或超出用户声明的局部参考范围",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_REPAIR_REQUIRED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "完全实现视觉验收失败并已生成 Repair Packet，等待 Agent 在允许路径内修复实现"
+      "meaning": "完全实现视觉验收失败并已生成 Repair Packet，等待 Agent 在允许路径内修复实现",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_REPAIR_PACKET_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "视觉校验失败但无法生成符合 Schema 的 Repair Packet"
+      "meaning": "视觉校验失败但无法生成符合 Schema 的 Repair Packet",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_VISUAL_REPAIR_EXHAUSTED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "完全实现经过三次 Agent 实现修复后仍未通过视觉验收"
+      "meaning": "完全实现经过三次 Agent 实现修复后仍未通过视觉验收",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_STAGE_LOCKED",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "阶段已经发布并锁定；任何修改必须先执行 Reopen"
+      "meaning": "阶段已经发布并锁定；任何修改必须先执行 Reopen",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_CANONICAL_UI_INPUT_DRIFT",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "UI HTML Draft 固定的 UC 或 Visual Spec 版本与内容哈希不再匹配"
+      "meaning": "UI HTML Draft 固定的 UC 或 Visual Spec 版本与内容哈希不再匹配",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_FLOW_COVERAGE_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "正式 Interaction State、分支或失败恢复路径没有可执行 UI HTML 场景"
+      "meaning": "正式 Interaction State、分支或失败恢复路径没有可执行 UI HTML 场景",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_REVIEW_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "UI HTML Review 未产生与实际冻结版本对应的真实运行地址和过程证据"
+      "meaning": "UI HTML Review 未产生与实际冻结版本对应的真实运行地址和过程证据",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_REVIEW_REQUIRED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Publish 前缺少通过的 UI HTML Review Evidence"
+      "meaning": "Publish 前缺少通过的 UI HTML Review Evidence",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_REVIEW_STALE",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Review 对应的 Draft、源码或构建输入不是当前待发布版本"
+      "meaning": "Review 对应的 Draft、源码或构建输入不是当前待发布版本",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_CANONICAL_UI_FEEDBACK_ROUTE_INVALID",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Review 反馈未按行为问题、视觉输入问题和实现偏差路由到既有唯一事实来源"
+      "meaning": "Review 反馈未按行为问题、视觉输入问题和实现偏差路由到既有唯一事实来源",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_PUBLISH_VALIDATION_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Product Design Publish 原子锁定前的工程门禁未通过"
+      "meaning": "Product Design Publish 原子锁定前的工程门禁未通过",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_PUBLISH_RECEIPT_INVALID",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "Product Design 发布凭证缺失或结构无效"
+      "meaning": "Product Design 发布凭证缺失或结构无效",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_PUBLISH_CREDENTIAL_STALE",
       "severity": "blocker",
       "owner": "repository-harness",
-      "meaning": "已锁定输入、资源、UI HTML 源码、构建输入或 Review 身份发生漂移，原发布凭证失效"
+      "meaning": "已锁定输入、资源、UI HTML 源码、构建输入或 Review 身份发生漂移，原发布凭证失效",
+      "gateClass": "safety-structure"
     },
     {
       "code": "AIH_PUBLISH_VERSION_NOT_ADVANCED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "Reopen 后仍使用原 UI HTML Draft 版本，不能重新发布"
+      "meaning": "Reopen 后仍使用原 UI HTML Draft 版本，不能重新发布",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_PROTOCOL_UNSUPPORTED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "只支持 Harness Standard v3。"
+    },
+    {
+      "code": "AIH_EXECUTION_CONTEXT_INVALID",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "执行上下文未声明或不允许。"
+    },
+    {
+      "code": "AIH_COST_POLICY_EXCEEDED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "命令成本超过当前上下文上限。"
+    },
+    {
+      "code": "AIH_COMMAND_TIMEOUT",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "命令超过声明的稳定超时。"
+    },
+    {
+      "code": "AIH_SOURCE_IDENTITY_INVALID",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "handoff 来源身份、路径或哈希无法固定。"
+    },
+    {
+      "code": "AIH_HANDOFF_CONFIRMATION_INVALID",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "handoff 确认主体或 token 无效。"
+    },
+    {
+      "code": "AIH_RISK_ACCEPTANCE_REQUIRED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "确认前必须逐项接受已展示的领域风险。"
+    },
+    {
+      "code": "AIH_RECEIPT_TAMPERED",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "Handoff Receipt 完整性校验失败。"
+    },
+    {
+      "code": "AIH_RECEIPT_STATE_INVALID",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "gateClass": "safety-structure",
+      "meaning": "Handoff Receipt 状态转换非法。"
     }
   ],
   "domainRegistry": [
@@ -1892,5 +2901,12 @@
       "skill": "architecture-design",
       "root": ".agents/skills/architecture-design"
     }
-  ]
+  ],
+  "standard": {
+    "protocol": "pre-sdd-harness/v3",
+    "version": "3.0.0",
+    "profile": "user",
+    "normativeAuthority": "pre-sdd://harness-standard/v3",
+    "projection": ".psp/harness/HARNESS-BOUNDARY.md"
+  }
 }

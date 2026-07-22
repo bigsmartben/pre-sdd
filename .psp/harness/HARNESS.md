@@ -1,6 +1,6 @@
 # pre-sdd Maintainer Harness（维护者治理层）
 
-本 Harness 只治理 `pre-sdd` 脚手架源仓库的维护、测试和发布准备。根 `psp.project.yaml`、本协议与 `.psp/harness/harness.manifest.json` 是机器执行的唯一事实来源（Single Source of Truth）；产品与架构内容不属于本 Harness。
+本文件是 [Harness Standard v3](./HARNESS-BOUNDARY.md) 的 Maintainer Harness（维护者治理层）执行投影，只治理 `pre-sdd` 脚手架源仓库的维护、测试和发布准备。规范权威属于 `HARNESS-BOUNDARY.md`；根 `psp.project.yaml`、Manifest 与本地脚本是当前仓库的运行权威。产品与架构内容不属于本 Harness。
 
 ## 双 Harness 模型
 
@@ -27,16 +27,16 @@
 3. 保留用户已有改动，收集预计变更的仓库相对 POSIX 路径。
 4. 调用：
 
-       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --intent change|checkpoint --json
+       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --context local-edit|explicit-consistency|pull-request|main|release --json
 
-   只有正式发布前使用 `node .psp/harness/scripts/run-ci-validation.mjs --release`；该入口是请求 `readiness` 的唯一维护协议入口。
+   普通编辑只使用 `local-edit`；用户显式请求脚手架一致性时使用 `explicit-consistency`；CI Adapter 分别请求 `pull-request` 或 `main`；只有隔离的发布 workflow 可以请求 `release`。
 
 5. 解析结果为 `BLOCKED` 时停止对应写入；否则只修改请求覆盖的最小脚手架工程范围。
-6. 编辑循环使用 `change`；任务、Issue、PR、合并和普通 CI 使用 `checkpoint`；只有显式发布前验证使用 `readiness`。
-7. 对全部实际变更路径重新解析，并按返回顺序执行每一条验证命令。`change` 与 `checkpoint` 只证明当前影响范围，不能形成最终完成凭证。
-8. 按 Manifest 声明的证据结构报告结果。只有 `readiness` PASS 可以形成 `validated-scaffold-change`。
+6. 编辑循环使用 `local-edit`；PR 使用受影响范围 `pull-request`；push 到 main 使用全仓 `main`；只有显式发布前验证使用 `release`。
+7. 对全部实际变更路径重新解析，并按 `plan` 返回顺序执行每一条验证命令；失败后的计划项标记 `NOT_RUN`。
+8. 按 Manifest 声明的证据结构报告结果。只有 `release` PASS 可以形成 `validated-scaffold-change`。
 
-`change` 用于快速反馈，`checkpoint` 用于任务级和普通 CI 集成验证，`readiness` 只用于显式发布前的完整脚手架工程门禁。根仓库的这些意图都不表示产品或架构内容就绪。
+`local-edit` 只能调度 quick 成本；`pull-request` 最多 standard；`main` 与 `release` 才允许 full。根仓库的这些上下文都不表示产品或架构内容就绪。
 
 ## 硬治理不变量
 
@@ -51,9 +51,9 @@
 
 Schema（结构定义）先校验机器结构，Validator（校验器）再校验跨文件关系。说明文字不能替代机器门禁。
 
-## Maintainer Handoff（维护者移交）
+## Maintainer Completion（维护者完成证据）
 
-当前根仓库的移交对象是未来维护者与维护 Agent，结果是 `validated-scaffold-change`（已验证脚手架变更）：
+根仓库没有领域 Handoff。显式 `release` 门禁全部通过时可以形成 `validated-scaffold-change`（已验证脚手架变更）：
 
 ```text
 Repository Change Request / 仓库变更请求

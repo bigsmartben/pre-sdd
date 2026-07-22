@@ -31,14 +31,16 @@ function evidenceCodes(result) {
   return new Set((result.output.residuals || []).map((item) => item.code));
 }
 
-test('project-consistency is discoverable but absent from hooks and validation Profiles', async () => {
+test('project-consistency is discoverable, absent from hooks, and excluded from local-edit Profiles', async () => {
   const root = await temporaryRepository();
   const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
   const hook = await readFile(resolve(root, '.codex/hooks.json'), 'utf8');
   assert.ok(manifest.codex.repositorySkills.includes('.agents/skills/project-consistency/SKILL.md'));
   assert.equal(manifest.commands.find((item) => item.id === 'project-consistency')?.executor.path, '.agents/skills/project-consistency/scripts/check.mjs');
   assert.ok(manifest.projectDag.nodes.every((node) => node.validators.length > 0));
-  assert.ok(manifest.validationProfiles.every((profile) => !profile.commands.includes('project-consistency')));
+  const profiles = manifest.validationProfiles.filter((profile) => profile.commands.includes('project-consistency'));
+  assert.ok(profiles.length > 0);
+  assert.ok(profiles.every((profile) => !profile.allowedContexts.includes('local-edit')));
   assert.doesNotMatch(hook, /project-consistency/);
 });
 
@@ -51,6 +53,8 @@ test('full-project inspection reports every DAG node and edge without initializi
   assert.equal(result.output.nodes.length, result.output.scope.topologicalOrder.length);
   assert.ok(result.output.nodes.every((node) => node.status === 'NOT_RUN'));
   assert.equal(result.output.edges.length, 7);
+  assert.equal(result.output.dependencies.length, 7);
+  assert.deepEqual(result.output.acceptedRisks, []);
   assert.equal(result.output.sideEffects.status, 'PASS');
   assert.deepEqual(result.output.changes, []);
   assert.equal(result.output.initialization, 'NOT_RUN');
@@ -112,13 +116,13 @@ test('illegal DAG and unknown requested Scope return stable blockers', async () 
       from: 'visual-spec',
       to: 'use-cases',
       type: 'dependency',
-      conditions: { sourceReadiness: 'required' },
+      analysisCommand: 'project-consistency',
     },
     {
       from: 'unknown-node',
       to: 'visual-spec',
       type: 'dependency',
-      conditions: { sourceReadiness: 'required' },
+      analysisCommand: 'project-consistency',
     },
   );
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');

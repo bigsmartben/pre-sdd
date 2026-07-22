@@ -179,6 +179,9 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   const workspaceManifest = JSON.parse(await readFile(resolve(target, '.psp/harness/harness.manifest.json'), 'utf8'));
   assert.deepEqual(workspaceLock.packages[''].dependencies, workspacePackage.dependencies);
   assert.equal(workspaceManifest.runtime.authority, 'generated-workspace-local');
+  assert.equal(project.harness.protocol, 'pre-sdd-harness/v3');
+  assert.equal(workspaceManifest.standard.protocol, 'pre-sdd-harness/v3');
+  assert.equal(workspaceManifest.runtime.protocol, 'pre-sdd-harness/v3');
   assert.equal(workspaceManifest.runtime.dependencyLock, 'package-lock.json');
   assert.ok(workspaceManifest.artifactRegistry.some((item) => item.id === 'visual-spec' && item.authorityKind === 'internal-model'));
   assert.ok(workspaceManifest.operations.some((item) => item.id === 'apply-visual-spec' && item.artifacts.includes('visual-spec')));
@@ -366,7 +369,7 @@ test('existing workspace ignores a later global runtime entry', async () => {
   const target = await temporaryDirectory('pre-sdd-pinned-runtime-');
   assert.equal(runCli(['init', target]).status, 0);
   const futureGlobalRuntime = resolve(target, 'future-global-runtime.mjs');
-  await writeFile(futureGlobalRuntime, "console.error('[AIH_RUNTIME_INCOMPATIBLE] future-global-runtime-probe');\nprocess.exitCode = 72;\n", 'utf8');
+  await writeFile(futureGlobalRuntime, "console.error('[FUTURE_GLOBAL_RUNTIME_PROBE] should-not-run');\nprocess.exitCode = 72;\n", 'utf8');
 
   const validation = runWorkspaceScript('validate:harness', target, {
     PRE_SDD_RUNTIME_ENTRY: futureGlobalRuntime,
@@ -374,6 +377,19 @@ test('existing workspace ignores a later global runtime entry', async () => {
   assert.equal(validation.status, 0, validation.stderr + validation.stdout);
   assert.doesNotMatch(validation.stderr + validation.stdout, /future-global-runtime-probe/);
   assert.equal(await findDirectory(target, 'node_modules'), null);
+});
+
+test('generated workspace rejects a non-v3 protocol without migration or fallback', async () => {
+  const target = await temporaryDirectory('pre-sdd-protocol-cutover-');
+  assert.equal(runCli(['init', target]).status, 0);
+  const manifestPath = resolve(target, '.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.standard.protocol = 'unsupported-protocol';
+  manifest.runtime.protocol = 'unsupported-protocol';
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  const validation = runWorkspaceScript('validate:harness', target);
+  assert.notEqual(validation.status, 0);
+  assert.match(validation.stderr + validation.stdout, /AIH_PROTOCOL_UNSUPPORTED/);
 });
 
 test('CLI rejects missing --workspace values before dispatching Harness commands', async () => {
@@ -562,6 +578,10 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.ok(files.has('templates/workspace/package-lock.json'));
   assert.ok(files.has('templates/workspace/.psp/harness/harness.manifest.json'));
   assert.ok(files.has('templates/workspace/.psp/harness/HARNESS-BOUNDARY.md'));
+  assert.ok(files.has('templates/workspace/.psp/harness/schemas/handoff-receipt.schema.json'));
+  assert.ok(files.has('templates/workspace/.psp/harness/schemas/consistency-report.schema.json'));
+  assert.ok(files.has('templates/workspace/.psp/harness/schemas/evidence-report.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/project-consistency/SKILL.md'));
   assert.ok(files.has('templates/workspace/.psp/harness/scripts/invoke-pre-sdd.mjs'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/visual-spec/contract.yaml'));

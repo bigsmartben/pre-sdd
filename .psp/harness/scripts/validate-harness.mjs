@@ -29,15 +29,12 @@ function own(object, key) {
 
 function validateContinuousIntegration(workflow, policy, issues) {
   const triggers = workflow.on;
-  if (!triggers || !sameMembers(Object.keys(triggers), policy.triggers)) {
-    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成触发器必须与 Manifest 完全一致。', policy.workflow);
-  }
-  if (!own(triggers, 'pull_request')) {
+  if (!triggers || !own(triggers, 'pull_request') || !own(triggers, 'push')) {
     issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成必须在 pull_request 上运行。', policy.workflow);
   }
   const pushBranches = triggers?.push?.branches || [];
-  if (!sameMembers(pushBranches, policy.protectedBranches)) {
-    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成 push 分支必须与 Manifest 完全一致。', policy.workflow);
+  if (!sameMembers(pushBranches, ['main'])) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成 push 只能绑定 main。', policy.workflow);
   }
   if (workflow.permissions?.contents !== 'read') {
     issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成默认权限必须收敛为 contents: read。', policy.workflow);
@@ -64,18 +61,32 @@ function validateContinuousIntegration(workflow, policy, issues) {
     issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成 Node.js 环境与 Manifest 不一致。', policy.workflow);
   }
   const runSteps = steps.filter((step) => typeof step.run === 'string').map((step) => step.run.trim());
-  const expectedRuns = [policy.installCommand, policy.browserInstallCommand, 'node ' + policy.runner];
-  if (JSON.stringify(runSteps) !== JSON.stringify(expectedRuns)) {
-    issue(issues, 'AIH_CI_POLICY_INVALID', '持续集成必须按 Manifest 安装依赖与浏览器，再调用 Resolver 驱动执行器。', policy.workflow);
+  if (
+    !runSteps.includes(policy.installCommand)
+    || !runSteps.includes(policy.browserInstallCommand)
+    || !runSteps.some((run) => run.includes(policy.runner + ' --context pull-request'))
+    || !runSteps.some((run) => run.includes(policy.runner + ' --context main'))
+    || runSteps.some((run) => run.includes('--context release'))
+  ) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', 'PR 与 main 必须使用独立上下文，普通 CI 不得请求 release。', policy.workflow);
   }
 }
 
-function validateReleasePolicy(policy, continuousIntegration, issues) {
-  if (policy.runner !== continuousIntegration.runner
-    || policy.flag !== '--release'
-    || policy.intent !== 'readiness'
-    || continuousIntegration.intent !== 'checkpoint') {
-    issue(issues, 'AIH_CI_POLICY_INVALID', '普通 CI 必须使用 checkpoint，只有显式 --release 入口可以使用 readiness。', continuousIntegration.workflow);
+function validateReleasePolicy(workflow, policy, continuousIntegration, issues) {
+  if (
+    policy.runner !== continuousIntegration.runner
+    || policy.executionContext !== 'release'
+    || policy.publishes !== false
+    || policy.workflow === continuousIntegration.workflow
+    || !own(workflow.on, 'workflow_dispatch')
+  ) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', 'Release 必须使用隔离的显式入口，且不得自动发布。', policy.workflow);
+  }
+  const runSteps = Object.values(workflow.jobs || {}).flatMap((job) => job.steps || [])
+    .filter((step) => typeof step.run === 'string')
+    .map((step) => step.run.trim());
+  if (!runSteps.some((run) => run.includes(policy.runner + ' --context release'))) {
+    issue(issues, 'AIH_CI_POLICY_INVALID', 'Release workflow 必须显式请求 release 上下文。', policy.workflow);
   }
 }
 
@@ -137,12 +148,22 @@ export async function validateScaffold(rootInput = process.cwd()) {
   let manifest;
   let projectSchema;
   let manifestSchema;
+  let consistencyReportSchema;
+  let evidenceReportSchema;
+  let templateConsistencyReportSchema;
+  let templateEvidenceReportSchema;
+  let handoffReceiptSchema;
   try {
-    [project, manifest, projectSchema, manifestSchema] = await Promise.all([
+    [project, manifest, projectSchema, manifestSchema, consistencyReportSchema, evidenceReportSchema, templateConsistencyReportSchema, templateEvidenceReportSchema, handoffReceiptSchema] = await Promise.all([
       readYaml(root, 'psp.project.yaml'),
       readJson(root, '.psp/harness/harness.manifest.json'),
       readJson(root, '.psp/harness/schemas/project.schema.json'),
       readJson(root, '.psp/harness/schemas/harness-manifest.schema.json'),
+      readJson(root, '.psp/harness/schemas/consistency-report.schema.json'),
+      readJson(root, '.psp/harness/schemas/evidence-report.schema.json'),
+      readJson(root, 'templates/workspace/.psp/harness/schemas/consistency-report.schema.json'),
+      readJson(root, 'templates/workspace/.psp/harness/schemas/evidence-report.schema.json'),
+      readJson(root, 'templates/workspace/.psp/harness/schemas/handoff-receipt.schema.json'),
     ]);
   } catch (error) {
     return { status: 'FAIL', issues: [{ code: 'AIH_MANIFEST_UNREADABLE', message: error.message }] };
@@ -153,10 +174,26 @@ export async function validateScaffold(rootInput = process.cwd()) {
   if (!validateProject(project)) issue(issues, 'AIH_SCHEMA_INVALID', '根项目绑定不符合脚手架 Schema：' + schemaMessages(validateProject.errors));
   const validateManifest = ajv.compile(manifestSchema);
   if (!validateManifest(manifest)) issue(issues, 'AIH_SCHEMA_INVALID', '根 Manifest 不符合脚手架 Schema：' + schemaMessages(validateManifest.errors));
+  try {
+    ajv.compile(consistencyReportSchema);
+    ajv.compile(evidenceReportSchema);
+    ajv.compile(handoffReceiptSchema);
+  } catch (error) {
+    issue(issues, 'AIH_SCHEMA_INVALID', 'Harness 报告或 Receipt Schema 无法编译：' + error.message);
+  }
+  if (JSON.stringify(consistencyReportSchema) !== JSON.stringify(templateConsistencyReportSchema)) {
+    issue(issues, 'AIH_SCHEMA_INVALID', '根与工作区模板的 Consistency Report Schema 使用同一 $id 但契约不一致。');
+  }
+  if (JSON.stringify(evidenceReportSchema) !== JSON.stringify(templateEvidenceReportSchema)) {
+    issue(issues, 'AIH_SCHEMA_INVALID', '根与工作区模板的 Evidence Report Schema 使用同一 $id 但契约不一致。');
+  }
   if (issues.length > 0) return { status: 'FAIL', issues };
 
   if (project.kind !== 'PSPScaffoldProject' || manifest.repositoryKind !== 'scaffold') {
     issue(issues, 'AIH_SCAFFOLD_CONTEXT_INVALID', '根项目与根 Manifest 必须明确绑定为脚手架上下文。');
+  }
+  if (project.harness.protocol !== 'pre-sdd-harness/v3' || manifest.standard.protocol !== 'pre-sdd-harness/v3') {
+    issue(issues, 'AIH_PROTOCOL_UNSUPPORTED', '根项目与 Manifest 必须只绑定 pre-sdd-harness/v3。');
   }
   if (project.harness.manifest !== manifest.entrypoints.manifest) {
     issue(issues, 'AIH_PROJECT_BINDING_INVALID', '根项目绑定的 Manifest 与 Manifest 自身入口不一致。');
@@ -177,6 +214,7 @@ export async function validateScaffold(rootInput = process.cwd()) {
     ...manifest.readOrder,
     manifest.scaffoldPolicy.continuousIntegration.workflow,
     manifest.scaffoldPolicy.continuousIntegration.runner,
+    manifest.scaffoldPolicy.releaseValidation.workflow,
     manifest.scaffoldPolicy.releaseValidation.runner,
     project.runtime.entrypoint,
     project.runtime.dispatcher,
@@ -214,7 +252,9 @@ export async function validateScaffold(rootInput = process.cwd()) {
   if (new Set(scopeIds).size !== scopeIds.length) issue(issues, 'AIH_SCOPE_INVALID', 'Scope id 重复。');
   for (const scope of manifest.scopes) {
     if (!knownProfiles.has(scope.defaultProfile)
+      || !knownProfiles.has(scope.consistencyProfile)
       || !knownProfiles.has(scope.checkpointProfile)
+      || !knownProfiles.has(scope.mainProfile)
       || !knownProfiles.has(scope.readinessProfile)) {
       issue(issues, 'AIH_SCOPE_INVALID', 'Scope 引用未知 Profile：' + scope.id);
     }
@@ -222,8 +262,9 @@ export async function validateScaffold(rootInput = process.cwd()) {
 
   try {
     const workflow = await readYaml(root, manifest.scaffoldPolicy.continuousIntegration.workflow);
+    const releaseWorkflow = await readYaml(root, manifest.scaffoldPolicy.releaseValidation.workflow);
     validateContinuousIntegration(workflow, manifest.scaffoldPolicy.continuousIntegration, issues);
-    validateReleasePolicy(manifest.scaffoldPolicy.releaseValidation, manifest.scaffoldPolicy.continuousIntegration, issues);
+    validateReleasePolicy(releaseWorkflow, manifest.scaffoldPolicy.releaseValidation, manifest.scaffoldPolicy.continuousIntegration, issues);
   } catch (error) {
     issue(issues, 'AIH_CI_POLICY_INVALID', '无法读取持续集成工作流：' + error.message, manifest.scaffoldPolicy.continuousIntegration.workflow);
   }
@@ -280,6 +321,9 @@ export async function validateScaffold(rootInput = process.cwd()) {
   if (templateProject && templateManifest) {
     if (templateProject.kind !== governanceModel.userHarness.projectKind) {
       issue(issues, 'AIH_HARNESS_BOUNDARY_INVALID', '工作区模板项目类型与 User Harness 声明不一致。');
+    }
+    if (templateProject.harness?.protocol !== 'pre-sdd-harness/v3' || templateManifest.standard?.protocol !== 'pre-sdd-harness/v3') {
+      issue(issues, 'AIH_PROTOCOL_UNSUPPORTED', '工作区模板必须只绑定 pre-sdd-harness/v3。');
     }
     if (templateProject.kind !== 'PSPProject' || templateProject.harness?.manifest !== project.template.manifest) {
       issue(issues, 'AIH_TEMPLATE_INVALID', '模板必须是拥有本地 Manifest 的 PSPProject。');

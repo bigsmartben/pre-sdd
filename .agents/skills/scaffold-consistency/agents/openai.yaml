@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scaffold Consistency"
+  short_description: "Read-only scaffold projection consistency analysis"
+  default_prompt: "Use $scaffold-consistency to inspect scaffold, template, runtime, and package consistency without modifying files."

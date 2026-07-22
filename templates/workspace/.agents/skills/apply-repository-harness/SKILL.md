@@ -1,30 +1,30 @@
 ---
 name: apply-repository-harness
-description: Resolve repository changes through the project-bound Harness manifest, run every returned validation command, and report manifest-shaped gate evidence. Use when Codex implements or reviews repository changes, checks readiness, selects required validation, or prepares a completion handoff.
+description: Resolve generated-workspace changes through the local Harness Standard v3 project binding, execute the returned plan, and report gate evidence. Use for repository changes, validation planning, or a user-explicit Handoff preflight; never infer approval or advance downstream work.
 ---
 
-# Apply Repository Harness
+# Apply Repository Harness v3
 
 ## Workflow
 
-1. Read the applicable AGENTS.md chain, then read psp.project.yaml, `.psp/harness/HARNESS.md` and the manifest bound by the project file.
-2. Preserve unrelated user changes and collect every intended repository-relative path in POSIX form.
-3. Run:
+1. Read the applicable `AGENTS.md`, `psp.project.yaml`, `.psp/harness/HARNESS.md`, and the bound Manifest. Require `pre-sdd-harness/v3`.
+2. Preserve unrelated changes and collect intended POSIX repository-relative paths.
+3. For ordinary edits run:
 
-       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --intent change|readiness --json
+       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --context local-edit --json
 
-   Use `readiness` only when claiming ready, consumable, deliverable, or formal handoff status.
-4. Stop target writes when the resolver returns `BLOCKED`. Report its cataloged blockers; do not infer another Scope or Profile.
-5. 当 resolver 返回 `upstreamScopes` 时，先执行其 `upstreamCommands`。任何 FAIL、BLOCKED 或 NOT_RUN 都禁止生成下游事实，只报告对应上游缺口。
-6. For explicit pure-workspace initialization, use the manifest-bound workspace operation: run `npm run init:workspace -- --dry-run`, review every bound stage root, then run `npm run init:workspace`. This operation may create only workspace markers and must leave every available stage `uninitialized`.
-7. When the bound stage is `uninitialized`, do not create user artifacts unless the user explicitly starts that stage. Resolve the stage operation from the Manifest, run its `--dry-run` form, review every target, then run the same registered operation without `--dry-run`. Stage initialization never executes readiness or handoff automatically. Do not hardcode a domain command, Profile, template, or DAG rule in this Skill.
-8. Implement only the artifact or area explicitly requested by the user. Never fill a downstream artifact to compensate for an unready upstream dependency. Collect actual changed paths and resolve them again before verification.
-9. Run every returned validation command in order. Read `evidenceReport.requiredFields` and `evidenceReport.validationStates` from the manifest and use them for the technical report.
-10. Only when the user explicitly requests a formal handoff and all DAG-derived readiness commands pass, execute `npm run handoff -- --from <source-scope> --to <consumer-scope> --json`. Only a fresh `PASS` receipt authorizes a conversational handoff. Include the current artifact, consumer, and an explicit example of the user request that would start the next task, then end without starting it.
+4. Stop writes on `BLOCKED`; otherwise implement only the requested Artifact or Area. `local-edit` must not expand through Dependency or Handoff edges.
+5. Initialize a workspace or stage only after the user explicitly requests that Operation. Use its `--dry-run` first and never chain readiness or Handoff.
+6. Resolve all actual paths again and execute every `plan` item in order. Preserve `selectedBy`, `scopeExpansionPath`, cost, cache, timeout, duration, and `NOT_RUN` evidence.
+7. Activate the `project-consistency` Skill only for an explicit user request. The separately registered read-only Command may run when a Handoff Profile or strict CI/CD Profile schedules it; never schedule it from hooks or ordinary `local-edit`.
+8. When the user explicitly requests Handoff, run only preflight first:
+
+       npm run handoff -- --from <source> --to <consumer> --json
+
+   Show validation, risks, hashes, and the token, then stop. Confirm only after a new explicit user decision by passing `--confirm --actor <identity> --preflight-token <token>` and one `--accept-risk <code>` for every displayed risk. A valid Receipt still has `downstreamAction: NOT_RUN`.
 
 ## Evidence
 
-- Report each exact command with its validation state.
-- For failure, include the stable blocker code and shortest reproducible output.
-- Never describe structure-only validation as delivery readiness.
-- Keep the Harness evidence report and non-persistent handoff receipt separate from the conversational handoff. Harness evidence contains only Scope, Changes, Validation, and Residuals.
+- Validation states are only `PASS`, `FAIL`, `BLOCKED`, and `NOT_RUN`.
+- Keep validation, user decision, and Receipt status separate.
+- Never treat structure PASS, risk acceptance, or Handoff as downstream execution or release authorization.

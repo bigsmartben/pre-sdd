@@ -7,7 +7,7 @@ description: 在 PSP 仓库中编写、审查或验证 Architecture Package、Sy
 
 ## 边界
 
-本 Skill 是 Architecture Design Domain（架构设计领域）的仓库级封装，拥有架构设计工作流和本目录中的领域资源。Harness 只拥有输入输出绑定、路径与 Scope、工程命令、依赖、生命周期、阻断码协议和确定执行的 handoff；不要把架构语义写入 Harness。
+本 Skill 是 Architecture Design Domain（架构设计领域）的仓库级封装，拥有架构设计工作流和本目录中的领域资源。Harness 只登记输入输出绑定、路径与 Scope、工程命令、Dependency/Handoff 边、生命周期和阻断码；Dependency 语义由本 Skill 或一致性 Skill 解释，Handoff 授权由用户决定。
 
 ## 资源路由
 
@@ -44,7 +44,7 @@ Technical Validation 的真实代码固定放在 `技术验证/cases/EXP-NNN.cas
 4. 在 Architecture Package 明确输入模式：`independent` 只使用 Architecture 本地输入；`reference` 必须记录 `product-design/capabilities`、固定 SemVer 和 `access: read-only`。引用只用于一致性校验，不得检查或控制 Product Design 生命周期，也不得修改、补齐或锁定 01。
 5. 对四个内部模型产物，先在工作区外临时位置准备候选 YAML，再解析 Manifest 登记的 artifact operation；`--dry-run` 只预检 Schema 与目标路径，正式写入不要求旧版本 hash。operation 从同一候选数据生成目标 YAML 与 Markdown；不得直接编辑两者，也不得在日常更新中运行 `render:architecture`。Technical Validation 只从 System Boundary 提取标记为需要技术验证的关键能力。每个关键能力必须映射到已选择的技术方案，以及当前真实代码的测试通过结论；修改实验代码后直接重新执行，不维护源码 hash 凭证。
 6. 对全部实际变更路径重新调用 Resolver，并按 Manifest 返回顺序执行所有验证命令；Skill 不维护静态命令清单，也不自行判断 readiness。
-7. 当前产物 readiness 全部通过且 Manifest 为当前产物声明了合法移交边时，必须执行登记的 handoff operation；不得保存用户审批或自动初始化消费者。Manifest 未声明消费者时，在 readiness 通过后结束当前范围。
+7. 当前产物完成后结束当前范围。只有用户显式请求 Handoff 时才执行 preflight，展示检查与风险后等待确认；确认形成 Receipt 也不得自动初始化或执行消费者。
 
 ## 领域约束
 

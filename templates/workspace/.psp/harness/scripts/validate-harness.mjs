@@ -40,7 +40,7 @@ const REQUIRED_CODES = [
   'AIH_HARNESS_COUPLED',
   'AIH_HOOK_DEGRADED',
   'AIH_RUNTIME_UNAVAILABLE',
-  'AIH_RUNTIME_INCOMPATIBLE',
+  'AIH_PROTOCOL_UNSUPPORTED',
   'AIH_VALIDATION_FAILED',
   'AIH_ARTIFACT_TRANSACTION_FAILED',
   'AIH_USER_CHANGE_COLLISION',
@@ -60,6 +60,14 @@ const REQUIRED_CODES = [
   'AIH_DAG_EDGE_CONFLICT',
   'AIH_DAG_CYCLE',
   'AIH_HANDOFF_UNREACHABLE',
+  'AIH_EXECUTION_CONTEXT_INVALID',
+  'AIH_COST_POLICY_EXCEEDED',
+  'AIH_COMMAND_TIMEOUT',
+  'AIH_SOURCE_IDENTITY_INVALID',
+  'AIH_HANDOFF_CONFIRMATION_INVALID',
+  'AIH_RISK_ACCEPTANCE_REQUIRED',
+  'AIH_RECEIPT_TAMPERED',
+  'AIH_RECEIPT_STATE_INVALID',
 ];
 
 function block(code, message, location) {
@@ -135,10 +143,13 @@ let projectValid = false;
 if (project && manifest) {
   try {
     ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-    const [manifestSchema, projectSchema, contractSchema] = await Promise.all([
+    const [manifestSchema, projectSchema, contractSchema, handoffReceiptSchema, consistencyReportSchema, evidenceReportSchema] = await Promise.all([
       readJson(root, manifest.schemas.manifest),
       readJson(root, manifest.schemas.project),
       readJson(root, manifest.schemas.contract),
+      readJson(root, manifest.schemas.handoffReceipt),
+      readJson(root, manifest.schemas.consistencyReport),
+      readJson(root, manifest.schemas.evidenceReport),
     ]);
     const validateManifest = ajv.compile(manifestSchema);
     manifestValid = validateManifest(manifest);
@@ -146,6 +157,9 @@ if (project && manifest) {
     const validateProject = ajv.compile(projectSchema);
     projectValid = validateProject(project);
     if (!projectValid) schemaErrors(validateProject, 'AIH_PROJECT_BINDING_INVALID', 'psp.project.yaml');
+    ajv.compile(handoffReceiptSchema);
+    ajv.compile(consistencyReportSchema);
+    ajv.compile(evidenceReportSchema);
 
     const validateContract = ajv.compile(contractSchema);
     for (const registry of manifest.artifactRegistry || []) {
@@ -448,7 +462,14 @@ if (manifest && manifestValid) {
       }
     }
     if (scope.status === 'active') {
-      if (!profiles.has(scope.defaultProfile) || !profiles.has(scope.readinessProfile)) {
+      if (
+        !profiles.has(scope.defaultProfile)
+        || !profiles.has(scope.consistencyProfile)
+        || !profiles.has(scope.handoffProfile)
+        || !profiles.has(scope.checkpointProfile)
+        || !profiles.has(scope.mainProfile)
+        || !profiles.has(scope.readinessProfile)
+      ) {
         block('AIH_SCOPE_INVALID', 'Scope 引用未知 Profile：' + scope.id, scope.id);
       }
       if (scope.uninitializedProfile && !profiles.has(scope.uninitializedProfile)) {
@@ -469,7 +490,9 @@ if (manifest && manifestValid) {
   }
   for (const profile of profiles.values()) {
     if (profile.commands.includes('project-consistency')) {
-      block('AIH_PROFILE_INVALID', 'project-consistency 只能由用户显式调用，不得加入 validation Profile。', profile.id);
+      if (profile.allowedContexts.includes('local-edit')) {
+        block('AIH_PROFILE_INVALID', 'project-consistency 不得进入普通 local-edit Profile。', profile.id);
+      }
     }
   }
 
@@ -504,22 +527,27 @@ if (manifest && manifestValid) {
   }
 
   const adjacency = new Map([...dagNodes.keys()].map((id) => [id, []]));
-  const edgePairs = new Map();
+  const edgeIdentities = new Set();
   for (const edge of manifest.projectDag.edges) {
-    const location = edge.from + '->' + edge.to;
+    const pair = edge.from + '->' + edge.to;
+    const location = pair + ':' + edge.type;
     const fromNode = dagNodes.get(edge.from);
     const toNode = dagNodes.get(edge.to);
     if (!fromNode || !toNode) {
       block('AIH_DAG_NODE_UNKNOWN', '项目 DAG 边引用未知节点：' + location, location);
       continue;
     }
-    const previous = edgePairs.get(location);
-    if (previous) {
-      block('AIH_DAG_EDGE_CONFLICT', '项目 DAG 对同一节点对声明了重复或冲突边：' + location, location);
+    if (edgeIdentities.has(location)) {
+      block('AIH_DAG_EDGE_CONFLICT', '项目 DAG 边身份重复：' + location, location);
       continue;
     }
-    edgePairs.set(location, edge.type);
-    adjacency.get(edge.from).push(edge.to);
+    edgeIdentities.add(location);
+    if (edge.type === 'dependency') {
+      if (edge.analysisCommand !== 'project-consistency') block('AIH_DAG_EDGE_CONFLICT', 'Dependency 必须登记一致性分析命令。', location);
+      adjacency.get(edge.from).push(edge.to);
+    } else if (!profiles.has(edge.profile) || !profiles.get(edge.profile).allowedContexts.includes('handoff')) {
+      block('AIH_PROFILE_INVALID', 'Handoff 边必须登记 handoff Profile。', location);
+    }
     if (toNode.stage === 'architecture-design' && fromNode.stage === 'product-design') {
       block('AIH_HARNESS_COUPLED', 'Architecture Design DAG 节点不得依赖 Product Design 生命周期节点。', location);
     }
@@ -673,12 +701,12 @@ if (manifest && manifestValid) {
   }
 
   if (project && projectValid) {
-    const selfChecks = [['AGENTS.md', 'change', 'READY']];
+    const selfChecks = [['AGENTS.md', 'local-edit', 'READY']];
     const workspaceScope = manifest.scopes.find((scope) => scope.selector?.type === 'workspace');
     if (workspaceScope) {
       for (const stage of Object.values(project.stages)) {
         if (stage.status !== 'unavailable') {
-          selfChecks.push([stage.root + '/' + workspaceScope.selector.marker, 'change', 'READY']);
+          selfChecks.push([stage.root + '/' + workspaceScope.selector.marker, 'local-edit', 'READY']);
         }
       }
     }
@@ -687,15 +715,15 @@ if (manifest && manifestValid) {
         const firstId = Object.keys(stage.artifacts)[0];
         selfChecks.push([
           artifactPaths(project, firstId, stageId).authorityPath,
-          'change',
+          'local-edit',
           stage.status === 'published' ? 'BLOCKED' : 'READY',
           stage.status === 'published' ? 'AIH_STAGE_LOCKED' : undefined,
         ]);
-        selfChecks.push([artifactPaths(project, firstId, stageId).authorityPath, 'readiness', 'READY']);
+        selfChecks.push([artifactPaths(project, firstId, stageId).authorityPath, 'release', 'READY']);
         for (const area of Object.values(stage.areas || {})) {
           selfChecks.push([
             stage.root + '/' + area.root,
-            'change',
+            'local-edit',
             stage.status === 'published' ? 'BLOCKED' : 'READY',
             stage.status === 'published' ? 'AIH_STAGE_LOCKED' : undefined,
           ]);
@@ -712,11 +740,11 @@ if (manifest && manifestValid) {
           return dependencyStage && dependencyStage !== stageId && !stageIsReadable(project.stages?.[dependencyStage]);
         });
         selfChecks.push(hasUnreadyUpstream
-          ? [firstPath, 'change', 'BLOCKED', 'AIH_UPSTREAM_NOT_READY']
-          : [firstPath, 'change', 'READY']);
-        selfChecks.push([firstPath, 'readiness', 'BLOCKED', 'AIH_STAGE_UNINITIALIZED']);
+          ? [firstPath, 'local-edit', 'BLOCKED', 'AIH_UPSTREAM_NOT_READY']
+          : [firstPath, 'local-edit', 'READY']);
+        selfChecks.push([firstPath, 'release', 'BLOCKED', 'AIH_STAGE_UNINITIALIZED']);
       } else {
-        selfChecks.push([stage.root + '/README.md', 'change', 'BLOCKED', stage.blockerCode]);
+        selfChecks.push([stage.root + '/README.md', 'local-edit', 'BLOCKED', stage.blockerCode]);
       }
     }
     for (const [path, intent, status, code] of selfChecks) {

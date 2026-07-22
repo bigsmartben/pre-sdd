@@ -19,6 +19,22 @@ pre-sdd init .
 
 确认存在 `01-product-design` 和 `02-architecture-design`。文件存在不等于任务完成。
 
+### Harness Standard v3 的三个不同结论
+
+| 结论 | 含义 | 例子 |
+|---|---|---|
+| 工程检查通过（Validation PASS） | 当前 Profile（配置档）登记的检查已通过 | PR checkpoint 通过，但不会自动发布 |
+| 用户允许推进（Handoff confirmed） | 用户看过固定来源、检查结果与风险，并允许指定消费者使用该版本 | 确认 Use Cases → Visual Spec 的 Handoff Receipt（移交收据） |
+| 允许发布（Release credential） | 显式 Release 工作流的全仓门禁通过 | 形成 `validated-scaffold-change`，仍不自动打标签或发布 |
+
+Handoff 只在用户明确请求后运行 preflight（预检）。预检会展示来源版本、内容哈希、验证结果、风险和确认 token；用户随后明确确认或拒绝。确认生成的 Receipt 始终记录 `downstreamAction: NOT_RUN`，不会初始化、修改或执行下游。例如：
+
+```text
+请预检 Use Cases 到 Visual Spec 的 Handoff，只展示结果和风险，不执行下游。
+```
+
+查看预检后再单独确认；若要接受某项领域风险，必须逐项说清楚。结构或安全 blocker（阻断项）不能通过确认绕过。
+
 ## 1. 产品设计 SOP
 
 ### 1.1 Use Cases（用例）

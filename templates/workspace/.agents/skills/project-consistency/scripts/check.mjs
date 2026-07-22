@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { parse as parseYaml } from 'yaml';
 import { executeRegisteredCommand } from '../../../../.psp/harness/scripts/lib/execute-command.mjs';
 import {
@@ -14,6 +15,14 @@ const VALIDATION_STATES = new Set(['PASS', 'FAIL', 'BLOCKED', 'NOT_RUN']);
 
 function evidence(code, message, location, source = 'project-consistency') {
   return { code, message, ...(location ? { location } : {}), source };
+}
+
+async function validateReport(root, manifest, report) {
+  const schema = JSON.parse(await readFile(repositoryFile(root, manifest.schemas.consistencyReport), 'utf8'));
+  const validate = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(schema);
+  if (validate(report)) return report;
+  const details = (validate.errors || []).map((error) => (error.instancePath || '/') + ' ' + error.message).join('; ');
+  throw Object.assign(new Error('Consistency Report 不符合登记 Schema：' + details), { code: 'AIH_SCHEMA_INVALID' });
 }
 
 function parseArguments(argv) {
@@ -57,23 +66,25 @@ function analyzeDag(manifest) {
   const outgoing = new Map(nodeOrder.map((id) => [id, []]));
   const incoming = new Map(nodeOrder.map((id) => [id, []]));
   const indegree = new Map(nodeOrder.map((id) => [id, 0]));
-  const pairs = new Set();
-  const edges = [];
+  const identities = new Set();
+  const dependencyEdges = [];
   for (const edge of manifest.projectDag?.edges || []) {
-    const location = edge.from + '->' + edge.to;
+    const location = edge.from + '->' + edge.to + ':' + edge.type;
     if (!nodes.has(edge.from) || !nodes.has(edge.to)) {
       blockers.push(evidence('AIH_DAG_NODE_UNKNOWN', '项目 DAG 边引用未知节点：' + location, location));
       continue;
     }
-    if (pairs.has(location)) {
-      blockers.push(evidence('AIH_DAG_EDGE_CONFLICT', '项目 DAG 对同一节点对声明了重复或冲突边：' + location, location));
+    if (identities.has(location)) {
+      blockers.push(evidence('AIH_DAG_EDGE_CONFLICT', '项目 DAG 边身份重复：' + location, location));
       continue;
     }
-    pairs.add(location);
-    edges.push(edge);
-    outgoing.get(edge.from).push(edge);
-    incoming.get(edge.to).push(edge);
-    indegree.set(edge.to, indegree.get(edge.to) + 1);
+    identities.add(location);
+    if (edge.type === 'dependency') {
+      dependencyEdges.push(edge);
+      outgoing.get(edge.from).push(edge);
+      incoming.get(edge.to).push(edge);
+      indegree.set(edge.to, indegree.get(edge.to) + 1);
+    }
   }
 
   const ready = nodeOrder.filter((id) => indegree.get(id) === 0);
@@ -92,7 +103,7 @@ function analyzeDag(manifest) {
       if (!topologicalOrder.includes(nodeId)) topologicalOrder.push(nodeId);
     }
   }
-  return { blockers, nodes, edges, outgoing, incoming, topologicalOrder };
+  return { blockers, nodes, edges: dependencyEdges, outgoing, incoming, topologicalOrder };
 }
 
 function downstreamClosure(dag, requested) {
@@ -381,7 +392,8 @@ export async function checkProjectConsistency(root, options = {}) {
     || nodeResults.some((node) => ['FAIL', 'BLOCKED'].includes(node.status))
     || edgeResults.some((edge) => edge.status === 'BLOCKED');
 
-  return {
+  return validateReport(root, manifest, {
+    protocol: manifest.standard?.protocol,
     status: blocked ? 'BLOCKED' : 'PASS',
     mode: requested.length > 0 ? 'scoped' : 'full-project',
     scope: {
@@ -411,7 +423,13 @@ export async function checkProjectConsistency(root, options = {}) {
     },
     handoff: 'NOT_RUN',
     initialization: 'NOT_RUN',
-  };
+    dependencies: edgeResults,
+    diagnostics: deduplicatedResiduals,
+    acceptedRisks: [],
+    suggestedOperations: blocked
+      ? ['显式调用拥有对应 Artifact 的领域 Operation 修复，再重新运行 project-consistency。']
+      : [],
+  });
 }
 
 async function main() {
@@ -429,6 +447,7 @@ async function main() {
     result = await checkProjectConsistency(root, { scopes: args.scopes });
   } catch (error) {
     result = {
+      protocol: 'pre-sdd-harness/v3',
       status: 'BLOCKED',
       scope: { requested: args.scopes, selected: [], topologicalOrder: [] },
       changes: [],
@@ -437,6 +456,10 @@ async function main() {
       sideEffects: { status: 'NOT_RUN', changedPaths: [] },
       handoff: 'NOT_RUN',
       initialization: 'NOT_RUN',
+      dependencies: [],
+      diagnostics: [evidence(error.code || 'AIH_VALIDATION_FAILED', error.message, 'project-consistency')],
+      acceptedRisks: [],
+      suggestedOperations: [],
     };
   }
   if (args.json) console.log(JSON.stringify(result, null, 2));

@@ -32,5 +32,11 @@ jobs:
         run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
-      - name: Run Resolver-governed validation
-        run: node .psp/harness/scripts/run-ci-validation.mjs
+      - name: Run affected PR checkpoint
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node .psp/harness/scripts/run-ci-validation.mjs --context pull-request
+      - name: Run full main checkpoint
+        if: github.event_name == 'push'
+        run: node .psp/harness/scripts/run-ci-validation.mjs --context main

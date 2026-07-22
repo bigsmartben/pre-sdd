@@ -1,4 +1,5 @@
 import picomatch from 'picomatch';
+import { createHash } from 'node:crypto';
 import {
   artifactPaths,
   joinRepositoryPath,
@@ -17,6 +18,18 @@ function catalogBlocker(catalog, code, location, message) {
     ...(location ? { location } : {}),
     ...(message ? { message } : {}),
   };
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+}
+
+function digest(value) {
+  return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 }
 
 function areaPatterns(project, stageId, areaIds = []) {
@@ -84,15 +97,24 @@ function commandsForProfiles(manifest, profiles, profileIds) {
   return (manifest.commands || []).filter((command) => requested.has(command.id));
 }
 
-export function resolveHarness(manifest, project, inputPaths, intent, root) {
+export function resolveHarness(manifest, project, inputPaths, intent, root, options = {}) {
   const blockers = [];
   const catalog = new Map((manifest.blockers || []).map((item) => [item.code, item]));
   const profiles = new Map((manifest.validationProfiles || []).map((item) => [item.id, item]));
   const scopes = new Map((manifest.scopes || []).map((item) => [item.id, item]));
   const normalizedInputs = [];
 
-  if (!['change', 'readiness'].includes(intent)) {
-    blockers.push(catalogBlocker(catalog, 'AIH_PATH_INVALID', 'intent', '不支持的 intent：' + intent));
+  const executionContext = intent;
+  const allowedContexts = new Set([
+    'local-edit',
+    'explicit-consistency',
+    'handoff',
+    'pull-request',
+    'main',
+    'release',
+  ]);
+  if (!allowedContexts.has(executionContext)) {
+    blockers.push(catalogBlocker(catalog, 'AIH_EXECUTION_CONTEXT_INVALID', 'executionContext', '不支持的执行上下文：' + executionContext));
   }
   if (!Array.isArray(inputPaths) || inputPaths.length === 0) {
     blockers.push(catalogBlocker(catalog, 'AIH_SCOPE_UNRESOLVED', 'paths', '至少需要一个 --path。'));
@@ -159,7 +181,7 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
       continue;
     }
     if (
-      intent === 'readiness'
+      ['handoff', 'release'].includes(executionContext)
       && !['static', 'workspace', 'domain'].includes(scope.selector.type)
       && project.stages?.[scope.selector.stage]?.status === 'uninitialized'
     ) {
@@ -167,11 +189,11 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
         catalog,
         'AIH_STAGE_UNINITIALIZED',
         scope.selector.stage,
-        '阶段尚未初始化，不能执行 readiness：' + scope.selector.stage,
+        '阶段尚未初始化，不能执行 ' + executionContext + '：' + scope.selector.stage,
       ));
     }
     if (
-      intent === 'change'
+      executionContext === 'local-edit'
       && !['static', 'workspace', 'domain'].includes(scope.selector.type)
       && project.stages?.[scope.selector.stage]?.status === 'published'
     ) {
@@ -216,12 +238,23 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
           '下游变更要求依赖阶段先达到 active 或 published：' + dependencyStage,
         ));
       }
-      if (!upstreamProfiles.includes(dependency.readinessProfile)) {
-        upstreamProfiles.push(dependency.readinessProfile);
+      const dependencyProfile = executionContext === 'release'
+        ? dependency.readinessProfile
+        : executionContext === 'main'
+          ? (dependency.mainProfile || dependency.checkpointProfile || dependency.readinessProfile)
+          : executionContext === 'pull-request'
+            ? (dependency.checkpointProfile || dependency.readinessProfile)
+            : executionContext === 'handoff'
+              ? (dependency.handoffProfile || dependency.readinessProfile)
+              : (dependency.consistencyProfile || dependency.checkpointProfile || dependency.readinessProfile);
+      if (!upstreamProfiles.includes(dependencyProfile)) {
+        upstreamProfiles.push(dependencyProfile);
       }
     }
   }
-  for (const scope of selected) visitDependencies(scope);
+  if (['explicit-consistency', 'handoff', 'pull-request', 'main', 'release'].includes(executionContext)) {
+    for (const scope of selected) visitDependencies(scope);
+  }
 
   const selectedProfiles = [...upstreamProfiles];
   for (const scope of selected) {
@@ -229,16 +262,105 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
       const stageState = ['static', 'workspace', 'domain'].includes(scope.selector.type)
       ? null
       : project.stages?.[scope.selector.stage]?.status;
-    const profileId = intent === 'readiness'
+    const profileId = executionContext === 'release'
       ? scope.readinessProfile
-      : stageState === 'uninitialized'
-        ? (scope.uninitializedProfile || scope.defaultProfile)
-        : scope.defaultProfile;
+      : executionContext === 'main'
+        ? (scope.mainProfile || scope.checkpointProfile || scope.readinessProfile)
+        : executionContext === 'pull-request'
+          ? (scope.checkpointProfile || scope.readinessProfile)
+          : executionContext === 'handoff'
+            ? (scope.handoffProfile || scope.readinessProfile)
+            : executionContext === 'explicit-consistency'
+              ? (scope.consistencyProfile || scope.checkpointProfile || scope.readinessProfile)
+              : stageState === 'uninitialized'
+                ? (scope.uninitializedProfile || scope.defaultProfile)
+                : scope.defaultProfile;
     if (!selectedProfiles.includes(profileId)) selectedProfiles.push(profileId);
   }
 
   const upstreamCommandList = commandsForProfiles(manifest, profiles, upstreamProfiles);
   const orderedCommands = commandsForProfiles(manifest, profiles, selectedProfiles);
+  const inputDigest = options.inputDigest || createHash('sha256').update(normalizedInputs.slice().sort().join('\n')).digest('hex');
+  const standardDigest = digest(manifest.standard);
+  const dependencyDigest = digest({
+    scopes: upstreamScopes.map((id) => scopes.get(id)),
+    profiles: upstreamProfiles.map((id) => profiles.get(id)),
+    edges: (manifest.projectDag?.edges || []).filter((edge) => edge.type === 'dependency' && upstreamScopes.includes(edge.from)),
+    stages: Object.fromEntries([...new Set(upstreamScopes.map((id) => scopeStage(scopes.get(id))).filter(Boolean))]
+      .map((id) => [id, project.stages?.[id]])),
+    sourceDigest: options.dependencyDigest || digest([]),
+  });
+  const runtimeDigest = options.runtimeDigest || digest(manifest.runtime);
+  const costRank = { quick: 0, standard: 1, full: 2 };
+  const contextLimit = ['local-edit'].includes(executionContext)
+    ? 'quick'
+    : ['explicit-consistency', 'handoff', 'pull-request'].includes(executionContext)
+      ? 'standard'
+      : 'full';
+  const plan = [];
+  const plannedKeys = new Set();
+  for (const command of orderedCommands) {
+    const owningProfiles = selectedProfiles
+      .map((id) => profiles.get(id))
+      .filter((profile) => profile?.commands.includes(command.id));
+    const profile = owningProfiles[0];
+    if (!profile?.allowedContexts?.includes(executionContext) || !command.allowedContexts?.includes(executionContext)) {
+      blockers.push(catalogBlocker(catalog, 'AIH_EXECUTION_CONTEXT_INVALID', command.id, '命令或 Profile 不允许在 ' + executionContext + ' 执行。'));
+      continue;
+    }
+    if (costRank[command.costClass] > costRank[contextLimit] || costRank[profile.costClass] > costRank[contextLimit]) {
+      blockers.push(catalogBlocker(catalog, 'AIH_COST_POLICY_EXCEEDED', command.id, '命令成本 ' + command.costClass + ' 超出 ' + executionContext + ' 上限 ' + contextLimit + '。'));
+      continue;
+    }
+    const profileVersion = profile.version;
+    const deduplicationKey = command.id + ':' + inputDigest + ':' + profileVersion;
+    if (plannedKeys.has(deduplicationKey)) continue;
+    plannedKeys.add(deduplicationKey);
+    const bindings = {
+      standardDigest,
+      profileDigest: digest(owningProfiles),
+      executorDigest: options.executorDigests?.[command.id] || digest(command.executor),
+      sourceDigest: inputDigest,
+      dependencyDigest,
+      runtimeDigest,
+    };
+    const cacheKey = digest({ commandId: command.id, bindings });
+    const sourceScope = selected.find((scope) => owningProfiles.some((item) => [
+      scope.defaultProfile,
+      scope.uninitializedProfile,
+      scope.consistencyProfile,
+      scope.handoffProfile,
+      scope.checkpointProfile,
+      scope.mainProfile,
+      scope.readinessProfile,
+    ].includes(item.id)))?.id || selected[0]?.id || null;
+    const dependencyPath = sourceScope && upstreamScopes.length > 0
+      ? [...upstreamScopes, sourceScope]
+      : (sourceScope ? [sourceScope] : []);
+    plan.push({
+      commandId: command.id,
+      command: command.run,
+      selectedBy: [
+        ...owningProfiles.map((item) => 'profile:' + item.id),
+        ...selected.map((item) => 'direct-scope:' + item.id),
+        ...upstreamScopes.map((item) => 'dependency:' + item),
+      ],
+      sourceScope,
+      scopeExpansionPath: dependencyPath,
+      executionContext,
+      costClass: command.costClass,
+      timeoutMs: Math.min(command.timeoutMs, profile.timeoutMs),
+      inputDigest,
+      profileVersion,
+      cache: {
+        key: cacheKey,
+        policy: command.cache.mode,
+        status: command.cache.mode === 'disabled' ? 'BYPASS' : 'MISS',
+        reason: command.cache.mode === 'disabled' ? 'cache-disabled' : 'operation-cache-empty',
+        bindings,
+      },
+    });
+  }
   const downstreamConsumers = [];
   const selectedScopeIds = new Set(selected.map((scope) => scope.id));
   for (const selectedScope of selected) {
@@ -256,6 +378,8 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
 
   return {
     status: blockers.length === 0 ? 'READY' : 'BLOCKED',
+    protocol: manifest.standard?.protocol,
+    executionContext,
     scopes: selected.map((scope) => scope.id),
     upstreamScopes,
     downstreamConsumers,
@@ -263,8 +387,16 @@ export function resolveHarness(manifest, project, inputPaths, intent, root) {
     upstreamCommandIds: upstreamCommandList.map((command) => command.id),
     upstreamCommands: upstreamCommandList.map((command) => command.run),
     profiles: selectedProfiles,
-    commandIds: orderedCommands.map((command) => command.id),
-    commands: orderedCommands.map((command) => command.run),
+    plan,
+    commandIds: plan.map((item) => item.commandId),
+    commands: plan.map((item) => item.command),
+    evidence: {
+      plannedCommandCount: plan.length,
+      executedCommandCount: 0,
+      cacheHitCount: 0,
+      notRunCount: 0,
+      totalDurationMs: 0,
+    },
     blockers,
   };
 }

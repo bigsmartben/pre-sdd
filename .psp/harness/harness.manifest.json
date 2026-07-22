@@ -1,7 +1,7 @@
 {
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
-  "version": "13.3.0",
+  "version": "14.0.0",
   "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -13,13 +13,20 @@
   },
   "schemas": {
     "manifest": ".psp/harness/schemas/harness-manifest.schema.json",
-    "project": ".psp/harness/schemas/project.schema.json"
+    "project": ".psp/harness/schemas/project.schema.json",
+    "consistencyReport": ".psp/harness/schemas/consistency-report.schema.json",
+    "evidenceReport": ".psp/harness/schemas/evidence-report.schema.json"
   },
   "adapters": {
     "codexProject": ".codex/config.toml",
     "hookConfig": ".codex/hooks.json",
-    "hookScripts": [".codex/hooks/validate-harness.mjs"],
-    "repositorySkills": [".agents/skills/apply-repository-harness/SKILL.md"]
+    "hookScripts": [
+      ".codex/hooks/validate-harness.mjs"
+    ],
+    "repositorySkills": [
+      ".agents/skills/apply-repository-harness/SKILL.md",
+      ".agents/skills/scaffold-consistency/SKILL.md"
+    ]
   },
   "readOrder": [
     "AGENTS.md",
@@ -54,7 +61,10 @@
     },
     "rootSkills": {
       "root": ".agents/skills",
-      "allowed": ["apply-repository-harness"]
+      "allowed": [
+        "apply-repository-harness",
+        "scaffold-consistency"
+      ]
     },
     "templateSkills": {
       "root": "templates/workspace/.agents/skills",
@@ -74,49 +84,131 @@
       {
         "id": "scaffold-instructions",
         "path": "AGENTS.md",
-        "requiredText": ["脚手架源仓库（Scaffold Repository）", "Maintainer Harness（维护者治理层）", "PSPScaffoldProject", "不得改用包内模板副本"],
-        "forbiddenText": ["仓库交付链为"]
+        "requiredText": [
+          "脚手架源仓库（Scaffold Repository）",
+          "Maintainer Harness（维护者治理层）",
+          "PSPScaffoldProject",
+          "不得改用包内模板副本"
+        ],
+        "forbiddenText": [
+          "仓库交付链为"
+        ]
       },
       {
         "id": "workspace-instructions",
         "path": "templates/workspace/AGENTS.md",
-        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "Canonical UI Prototype", "PSPProject", "Manifest 未声明消费者时"],
-        "forbiddenText": ["PSPScaffoldProject"]
+        "requiredText": [
+          "生成工作区（Generated Workspace）",
+          "User Harness（使用者治理层）",
+          "Canonical UI Prototype",
+          "PSPProject",
+          "Handoff 只在用户显式请求时"
+        ],
+        "forbiddenText": [
+          "PSPScaffoldProject"
+        ]
       },
       {
         "id": "scaffold-standard",
         "path": ".psp/harness/HARNESS-BOUNDARY.md",
-        "requiredText": ["双 Harness（双治理层）模型", "Maintainer Harness（维护者治理层）", "User Harness（使用者治理层）", "四层模型", "用户命令面与工作区生命周期", "生成仓库本地拥有运行配置、领域 Skill 与执行事实", "既有工作区不提供 update（更新）、upgrade（升级）、migrate（迁移）或 sync（同步）操作", "AIH_EXECUTOR_AUTHORITY_INVALID", "持续集成工作流从 Manifest"],
-        "forbiddenText": ["根 Manifest 只登记领域"]
+        "requiredText": [
+          "Harness Standard v3（Harness 上位规范）",
+          "Maintainer Harness（维护者治理层）",
+          "User Harness（使用者治理层）",
+          "四层模型",
+          "用户命令面与工作区生命周期",
+          "生成仓库本地拥有运行配置、领域 Skill 与执行事实",
+          "既有工作区不提供 update（更新）、upgrade（升级）、migrate（迁移）或 sync（同步）操作",
+          "AIH_EXECUTOR_AUTHORITY_INVALID",
+          "PR、main 与 Release Adapter"
+        ],
+        "forbiddenText": [
+          "根 Manifest 只登记领域"
+        ]
       },
       {
         "id": "scaffold-readme",
         "path": "README.md",
-        "requiredText": ["开发者视角（Developer View）", "双 Harness（双治理层）模型", "Maintainer Harness（维护者治理层）", "User Harness（使用者治理层）", "脚手架源仓库（Scaffold Repository）", "工作区模板（Workspace Template）", "目标工作区本地文件", "既有工作区不提供更新或升级操作", "^20.19.0 || >=22.12.0", "最大门禁集合", ".psp/harness/scripts/run-ci-validation.mjs", "QUICKSTART.md"],
-        "forbiddenText": ["根目录是软件包源码、开发 Harness 和仓库领域 Skill"]
+        "requiredText": [
+          "开发者视角（Developer View）",
+          "双 Harness（双治理层）模型",
+          "Maintainer Harness（维护者治理层）",
+          "User Harness（使用者治理层）",
+          "脚手架源仓库（Scaffold Repository）",
+          "工作区模板（Workspace Template）",
+          "目标工作区本地文件",
+          "既有工作区不提供更新或升级操作",
+          "^20.19.0 || >=22.12.0",
+          "最大门禁集合",
+          ".psp/harness/scripts/run-ci-validation.mjs",
+          "QUICKSTART.md"
+        ],
+        "forbiddenText": [
+          "根目录是软件包源码、开发 Harness 和仓库领域 Skill"
+        ]
       },
       {
         "id": "scaffold-quickstart",
         "path": "QUICKSTART.md",
-        "requiredText": ["使用者视角（User View）", "会改变状态的公共操作只有三项", "npm install --global git+https://github.com/bigsmartben/pre-sdd.git", "pre-sdd init", "git init", "文件存在不等于", "01-product-design", "02-architecture-design", "架构设计拥有独立生命周期", "本轮只完成"],
-        "forbiddenText": ["pre-sdd harness", "npm exec", "npm run", ".psp/harness/scripts/run-ci-validation.mjs"]
+        "requiredText": [
+          "使用者视角（User View）",
+          "会改变状态的公共操作只有三项",
+          "npm install --global git+https://github.com/bigsmartben/pre-sdd.git",
+          "pre-sdd init",
+          "git init",
+          "文件存在不等于",
+          "01-product-design",
+          "02-architecture-design",
+          "架构设计拥有独立生命周期",
+          "本轮只完成"
+        ],
+        "forbiddenText": [
+          "pre-sdd harness",
+          "npm exec",
+          "npm run",
+          ".psp/harness/scripts/run-ci-validation.mjs"
+        ]
       },
       {
         "id": "workspace-readme",
         "path": "templates/workspace/README.md",
-        "requiredText": ["生成工作区（Generated Workspace）", "User Harness（使用者治理层）", "不是 `pre-sdd` 脚手架源仓库", "文件已经存在不等于", "必须执行本次 handoff", "本地 Manifest 声明的路径加载", "本工作区不提供更新、升级、迁移或同步操作"],
-        "forbiddenText": ["npm install --global"]
+        "requiredText": [
+          "生成工作区（Generated Workspace）",
+          "User Harness（使用者治理层）",
+          "不是 `pre-sdd` 脚手架源仓库",
+          "文件已经存在不等于",
+          "只有使用者显式请求时才运行 preflight",
+          "本地 Manifest 声明的路径加载",
+          "本工作区不提供更新、升级、迁移或同步操作"
+        ],
+        "forbiddenText": [
+          "npm install --global"
+        ]
       },
       {
         "id": "workspace-harness-boundary",
         "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
-        "requiredText": ["生成工作区 Harness 职责边界", "User Harness（使用者治理层）", "本地执行事实", "package.json` 与 `package-lock.json", "不提供更新、升级、迁移或同步操作", "不得改用包内 `templates/workspace/` 副本"],
-        "forbiddenText": ["脚手架固化要求"]
+        "requiredText": [
+          "Harness Standard v3 — User Harness Profile",
+          "User Harness（使用者治理层）",
+          "本地运行事实",
+          "package.json",
+          "不初始化、不修改、不执行下游",
+          "不得执行包内 `templates/workspace/` 副本"
+        ],
+        "forbiddenText": [
+          "脚手架固化要求"
+        ]
       }
     ],
     "templatePurity": {
       "stageMarker": ".gitkeep",
-      "forbiddenDirectoryNames": ["node_modules", "dist", ".vite", "evidence"]
+      "forbiddenDirectoryNames": [
+        "node_modules",
+        "dist",
+        ".vite",
+        "evidence"
+      ]
     },
     "packageScripts": [
       "validate:harness",
@@ -133,7 +225,8 @@
       "test:package",
       "test",
       "check",
-      "pack:check"
+      "pack:check",
+      "check:scaffold-consistency"
     ],
     "execution": {
       "runtimeAuthority": "generated-workspace-snapshot",
@@ -147,10 +240,19 @@
     "continuousIntegration": {
       "workflow": ".github/workflows/harness-governance.yml",
       "runner": ".psp/harness/scripts/run-ci-validation.mjs",
-      "intent": "checkpoint",
+      "contexts": {
+        "pullRequest": {
+          "trigger": "pull_request",
+          "executionContext": "pull-request",
+          "scope": "affected"
+        },
+        "main": {
+          "trigger": "push:main",
+          "executionContext": "main",
+          "scope": "repository"
+        }
+      },
       "job": "harness-governance",
-      "triggers": ["pull_request", "push"],
-      "protectedBranches": ["main"],
       "runsOn": "ubuntu-latest",
       "nodeVersion": "22",
       "checkoutAction": "actions/checkout@v4",
@@ -160,9 +262,12 @@
       "timeoutMinutes": 60
     },
     "releaseValidation": {
+      "workflow": ".github/workflows/harness-release.yml",
       "runner": ".psp/harness/scripts/run-ci-validation.mjs",
-      "flag": "--release",
-      "intent": "readiness"
+      "executionContext": "release",
+      "scope": "repository",
+      "credential": "validated-scaffold-change",
+      "publishes": false
     }
   },
   "commands": [
@@ -171,99 +276,533 @@
       "npmScript": "validate:harness",
       "run": "npm run validate:harness",
       "purpose": "校验脚手架项目绑定、模板纯净性、上下文隔离与工程命令",
-      "blocking": true
+      "blocking": true,
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-consistency",
+      "npmScript": "check:scaffold-consistency",
+      "run": "npm run check:scaffold-consistency",
+      "purpose": "只读检查脚手架、模板、运行时与包投影一致性。",
+      "blocking": true,
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-harness",
       "npmScript": "test:harness",
       "run": "npm run test:harness",
       "purpose": "运行脚手架硬治理回归测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 120000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-workspace-harness",
       "npmScript": "test:workspace:harness",
       "run": "npm run test:workspace:harness",
       "purpose": "在临时生成工作区运行 User Harness 回归测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-template-harness",
       "npmScript": "test:template:harness",
       "run": "npm run test:template:harness",
       "purpose": "在操作系统临时目录的模板副本运行 User Harness 快速测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-template-product",
       "npmScript": "test:template:product",
       "run": "npm run test:template:product",
       "purpose": "在操作系统临时目录的模板副本运行 Product Design 快速测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-template-architecture",
       "npmScript": "test:template:architecture",
       "run": "npm run test:template:architecture",
       "purpose": "在操作系统临时目录的模板副本运行 Architecture Design 快速测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-workspace-product",
       "npmScript": "test:workspace:product",
       "run": "npm run test:workspace:product",
       "purpose": "在临时生成工作区运行 Product Design 领域回归测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-workspace-architecture",
       "npmScript": "test:workspace:architecture",
       "run": "npm run test:workspace:architecture",
       "purpose": "在临时生成工作区运行 Architecture Design 领域回归测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-package",
       "npmScript": "test:package",
       "run": "npm run test:package",
       "purpose": "在临时目录验证初始化、生成工作区本地执行与包行为",
-      "blocking": true
+      "blocking": true,
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-package-fast",
       "npmScript": "test:package:fast",
       "run": "npm run test:package:fast",
       "purpose": "运行不含全局安装、浏览器和完整构建的包级快速测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "test-package-slow",
       "npmScript": "test:package:slow",
       "run": "npm run test:package:slow",
       "purpose": "运行隔离全局安装、浏览器与完整工作区构建包级慢测试",
-      "blocking": true
+      "blocking": true,
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     },
     {
       "id": "pack-check",
       "npmScript": "pack:check",
       "run": "npm run pack:check",
       "purpose": "校验 npm 包发布清单",
-      "blocking": true
+      "blocking": true,
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
     }
   ],
   "validationProfiles": [
-    {"id": "scaffold-structure", "commands": ["harness"]},
-    {"id": "scaffold-governance", "commands": ["harness", "test-harness"]},
-    {"id": "template-harness", "commands": ["harness", "test-template-harness"]},
-    {"id": "template-product", "commands": ["harness", "test-template-product"]},
-    {"id": "template-architecture", "commands": ["harness", "test-template-architecture"]},
-    {"id": "template-shared-change", "commands": ["harness", "test-template-harness", "test-template-product", "test-template-architecture"]},
-    {"id": "workspace-harness", "commands": ["harness", "test-workspace-harness"]},
-    {"id": "workspace-product", "commands": ["harness", "test-workspace-product"]},
-    {"id": "workspace-architecture", "commands": ["harness", "test-workspace-architecture"]},
-    {"id": "workspace-template-checkpoint", "commands": ["harness", "test-workspace-harness", "test-workspace-product", "test-workspace-architecture"]},
-    {"id": "scaffold-runtime", "commands": ["harness", "test-harness", "test-package"]},
-    {"id": "scaffold-package", "commands": ["harness", "test-harness", "test-package", "pack-check"]}
+    {
+      "id": "scaffold-structure",
+      "commands": [
+        "harness"
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-governance",
+      "commands": [
+        "harness",
+        "test-harness"
+      ],
+      "version": "3.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "template-harness",
+      "commands": [
+        "harness",
+        "test-template-harness"
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "template-product",
+      "commands": [
+        "harness",
+        "test-template-product"
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "template-architecture",
+      "commands": [
+        "harness",
+        "test-template-architecture"
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "template-shared-change",
+      "commands": [
+        "harness",
+        "test-template-harness",
+        "test-template-product",
+        "test-template-architecture"
+      ],
+      "version": "3.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "workspace-harness",
+      "commands": [
+        "harness",
+        "test-workspace-harness"
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "workspace-product",
+      "commands": [
+        "harness",
+        "test-workspace-product"
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "workspace-architecture",
+      "commands": [
+        "harness",
+        "test-workspace-architecture"
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "workspace-template-checkpoint",
+      "commands": [
+        "harness",
+        "test-workspace-harness",
+        "test-workspace-product",
+        "test-workspace-architecture"
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-runtime",
+      "commands": [
+        "harness",
+        "test-harness",
+        "test-package"
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-package",
+      "commands": [
+        "harness",
+        "scaffold-consistency",
+        "test-harness",
+        "test-workspace-harness",
+        "test-workspace-product",
+        "test-workspace-architecture",
+        "test-package",
+        "pack-check"
+      ],
+      "version": "3.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-consistency",
+      "commands": [
+        "harness",
+        "scaffold-consistency"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 900000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-runtime-checkpoint",
+      "commands": [
+        "harness",
+        "test-harness",
+        "test-package-fast"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-main",
+      "commands": [
+        "harness",
+        "scaffold-consistency",
+        "test-harness",
+        "test-workspace-harness",
+        "test-workspace-product",
+        "test-workspace-architecture",
+        "test-package"
+      ],
+      "version": "3.0.0",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "costClass": "full",
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "scaffold-governance-checkpoint",
+      "version": "3.0.0",
+      "commands": [
+        "harness",
+        "scaffold-consistency",
+        "test-harness"
+      ],
+      "allowedContexts": [
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    }
   ],
   "scopes": [
     {
@@ -274,11 +813,24 @@
       "status": "active",
       "selector": {
         "type": "static",
-        "paths": ["AGENTS.md", "README.md", "QUICKSTART.md", "psp.project.yaml", ".gitignore", ".agents/skills/**", ".codegraph/**", ".codex/**", ".github/**", ".psp/harness/**"]
+        "paths": [
+          "AGENTS.md",
+          "README.md",
+          "QUICKSTART.md",
+          "psp.project.yaml",
+          ".gitignore",
+          ".agents/skills/**",
+          ".codegraph/**",
+          ".codex/**",
+          ".github/**",
+          ".psp/harness/**"
+        ]
       },
       "defaultProfile": "scaffold-governance",
-      "checkpointProfile": "scaffold-governance",
-      "readinessProfile": "scaffold-package"
+      "checkpointProfile": "scaffold-governance-checkpoint",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
     },
     {
       "id": "scaffold-runtime",
@@ -286,10 +838,20 @@
       "selectionGroup": "scaffold-runtime",
       "priority": 100,
       "status": "active",
-      "selector": {"type": "static", "paths": ["package.json", "package-lock.json", "bin/**", "runtime/**"]},
-      "defaultProfile": "scaffold-governance",
-      "checkpointProfile": "scaffold-runtime",
-      "readinessProfile": "scaffold-package"
+      "selector": {
+        "type": "static",
+        "paths": [
+          "package.json",
+          "package-lock.json",
+          "bin/**",
+          "runtime/**"
+        ]
+      },
+      "defaultProfile": "scaffold-structure",
+      "checkpointProfile": "scaffold-runtime-checkpoint",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
     },
     {
       "id": "workspace-product",
@@ -297,10 +859,22 @@
       "selectionGroup": "workspace-template",
       "priority": 300,
       "status": "active",
-      "selector": {"type": "static", "paths": ["templates/workspace/.agents/skills/product-design/**", "templates/workspace/.agents/skills/capture-figma-design-source/**", "templates/workspace/.agents/skills/organize-figma-assets/**", "templates/workspace/.agents/skills/figma-component-from-design/**", "templates/workspace/.agents/skills/implement-figma-lit-page/**", "templates/workspace/.agents/skills/repair-canonical-ui-visual/**"]},
-      "defaultProfile": "template-product",
-      "checkpointProfile": "workspace-product",
-      "readinessProfile": "scaffold-package"
+      "selector": {
+        "type": "static",
+        "paths": [
+          "templates/workspace/.agents/skills/product-design/**",
+          "templates/workspace/.agents/skills/capture-figma-design-source/**",
+          "templates/workspace/.agents/skills/organize-figma-assets/**",
+          "templates/workspace/.agents/skills/figma-component-from-design/**",
+          "templates/workspace/.agents/skills/implement-figma-lit-page/**",
+          "templates/workspace/.agents/skills/repair-canonical-ui-visual/**"
+        ]
+      },
+      "defaultProfile": "scaffold-structure",
+      "checkpointProfile": "template-product",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
     },
     {
       "id": "workspace-architecture",
@@ -308,10 +882,17 @@
       "selectionGroup": "workspace-template",
       "priority": 300,
       "status": "active",
-      "selector": {"type": "static", "paths": ["templates/workspace/.agents/skills/architecture-design/**"]},
-      "defaultProfile": "template-architecture",
-      "checkpointProfile": "workspace-architecture",
-      "readinessProfile": "scaffold-package"
+      "selector": {
+        "type": "static",
+        "paths": [
+          "templates/workspace/.agents/skills/architecture-design/**"
+        ]
+      },
+      "defaultProfile": "scaffold-structure",
+      "checkpointProfile": "template-architecture",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
     },
     {
       "id": "workspace-user-harness",
@@ -319,10 +900,18 @@
       "selectionGroup": "workspace-template",
       "priority": 300,
       "status": "active",
-      "selector": {"type": "static", "paths": ["templates/workspace/.psp/harness/**", "templates/workspace/.agents/skills/apply-repository-harness/**"]},
-      "defaultProfile": "template-harness",
-      "checkpointProfile": "workspace-template-checkpoint",
-      "readinessProfile": "scaffold-package"
+      "selector": {
+        "type": "static",
+        "paths": [
+          "templates/workspace/.psp/harness/**",
+          "templates/workspace/.agents/skills/apply-repository-harness/**"
+        ]
+      },
+      "defaultProfile": "scaffold-structure",
+      "checkpointProfile": "template-harness",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
     },
     {
       "id": "workspace-template",
@@ -330,10 +919,17 @@
       "selectionGroup": "workspace-template",
       "priority": 100,
       "status": "active",
-      "selector": {"type": "static", "paths": ["templates/workspace/**"]},
-      "defaultProfile": "template-shared-change",
-      "checkpointProfile": "workspace-template-checkpoint",
-      "readinessProfile": "scaffold-package"
+      "selector": {
+        "type": "static",
+        "paths": [
+          "templates/workspace/**"
+        ]
+      },
+      "defaultProfile": "scaffold-structure",
+      "checkpointProfile": "template-shared-change",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
     },
     {
       "id": "package-tests",
@@ -341,35 +937,215 @@
       "selectionGroup": "package-tests",
       "priority": 100,
       "status": "active",
-      "selector": {"type": "static", "paths": ["tests/package/**"]},
-      "defaultProfile": "scaffold-runtime",
-      "checkpointProfile": "scaffold-runtime",
-      "readinessProfile": "scaffold-package"
+      "selector": {
+        "type": "static",
+        "paths": [
+          "tests/package/**"
+        ]
+      },
+      "defaultProfile": "scaffold-structure",
+      "checkpointProfile": "scaffold-runtime-checkpoint",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
     }
   ],
   "evidenceReport": {
-    "requiredFields": ["scope", "changes", "validation", "residuals"],
-    "validationStates": ["PASS", "FAIL", "BLOCKED", "NOT_RUN"]
+    "schema": ".psp/harness/schemas/evidence-report.schema.json",
+    "requiredFields": [
+      "scope",
+      "changes",
+      "validation",
+      "residuals"
+    ],
+    "validationStates": [
+      "PASS",
+      "FAIL",
+      "BLOCKED",
+      "NOT_RUN"
+    ],
+    "metrics": [
+      "plannedCommandCount",
+      "executedCommandCount",
+      "cacheHitCount",
+      "notRunCount",
+      "totalDurationMs"
+    ]
   },
   "blockers": [
-    {"code": "AIH_PROJECT_BINDING_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架项目绑定缺失、越界或引用无效"},
-    {"code": "AIH_MANIFEST_UNREADABLE", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架 Manifest 缺失或不是有效 JSON"},
-    {"code": "AIH_SCHEMA_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架或工作区模板的 Schema 校验失败"},
-    {"code": "AIH_ENTRYPOINT_MISSING", "severity": "high", "owner": "scaffold-harness", "meaning": "声明的脚手架、模板或运行时入口不存在"},
-    {"code": "AIH_COMMAND_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "工程命令缺失、重复或与 package.json 不一致"},
-    {"code": "AIH_PROFILE_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "验证 Profile 重复或引用未知工程命令"},
-    {"code": "AIH_SCOPE_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "Scope 重复或引用未知验证 Profile"},
-    {"code": "AIH_SCOPE_UNRESOLVED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "变更路径无法归入任何脚手架 Scope"},
-    {"code": "AIH_PATH_INVALID", "severity": "high", "owner": "scaffold-harness", "meaning": "输入路径不是合法的仓库相对 POSIX 路径"},
-    {"code": "AIH_PATH_OUTSIDE_ROOT", "severity": "blocker", "owner": "scaffold-harness", "meaning": "解析路径位于脚手架仓库根目录之外"},
-    {"code": "AIH_SCAFFOLD_CONTEXT_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "脚手架根仓库与生成工作区职责或 Agent 入口发生混用"},
-    {"code": "AIH_HARNESS_BOUNDARY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "Maintainer Harness 与 User Harness 的项目绑定、权威来源或生命周期隔离发生混用"},
-    {"code": "AIH_EXTERNAL_FRAMEWORK_BOUNDARY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板绑定了脚手架范围外的外部框架生命周期"},
-    {"code": "AIH_TEMPLATE_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板绑定、初始阶段状态或本地治理结构无效"},
-    {"code": "AIH_TEMPLATE_POLLUTED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "工作区模板含用户实例、依赖目录、构建输出或运行证据"},
-    {"code": "AIH_EXECUTOR_AUTHORITY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "运行时没有执行生成工作区 Manifest 声明的本地执行器"},
-    {"code": "AIH_CI_POLICY_INVALID", "severity": "blocker", "owner": "scaffold-harness", "meaning": "持续集成工作流未按 Manifest 调用 Resolver 驱动的统一门禁"},
-    {"code": "AIH_RELEASE_INTENT_REQUIRED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "readiness 未通过显式发布入口请求，或发布标记被用于非 readiness 意图"},
-    {"code": "AIH_VALIDATION_FAILED", "severity": "blocker", "owner": "scaffold-harness", "meaning": "必需脚手架工程门禁返回非零"}
-  ]
+    {
+      "code": "AIH_PROJECT_BINDING_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "脚手架项目绑定缺失、越界或引用无效",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_MANIFEST_UNREADABLE",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "脚手架 Manifest 缺失或不是有效 JSON",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_SCHEMA_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "脚手架或工作区模板的 Schema 校验失败",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_ENTRYPOINT_MISSING",
+      "severity": "high",
+      "owner": "scaffold-harness",
+      "meaning": "声明的脚手架、模板或运行时入口不存在",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_COMMAND_INVALID",
+      "severity": "high",
+      "owner": "scaffold-harness",
+      "meaning": "工程命令缺失、重复或与 package.json 不一致",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_PROFILE_INVALID",
+      "severity": "high",
+      "owner": "scaffold-harness",
+      "meaning": "验证 Profile 重复或引用未知工程命令",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_SCOPE_INVALID",
+      "severity": "high",
+      "owner": "scaffold-harness",
+      "meaning": "Scope 重复或引用未知验证 Profile",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_SCOPE_UNRESOLVED",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "变更路径无法归入任何脚手架 Scope",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_PATH_INVALID",
+      "severity": "high",
+      "owner": "scaffold-harness",
+      "meaning": "输入路径不是合法的仓库相对 POSIX 路径",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_PATH_OUTSIDE_ROOT",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "解析路径位于脚手架仓库根目录之外",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_SCAFFOLD_CONTEXT_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "脚手架根仓库与生成工作区职责或 Agent 入口发生混用",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_HARNESS_BOUNDARY_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "Maintainer Harness 与 User Harness 的项目绑定、权威来源或生命周期隔离发生混用",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_EXTERNAL_FRAMEWORK_BOUNDARY_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "工作区模板绑定了脚手架范围外的外部框架生命周期",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_TEMPLATE_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "工作区模板绑定、初始阶段状态或本地治理结构无效",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_TEMPLATE_POLLUTED",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "工作区模板含用户实例、依赖目录、构建输出或运行证据",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_EXECUTOR_AUTHORITY_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "运行时没有执行生成工作区 Manifest 声明的本地执行器",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_CI_POLICY_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "持续集成工作流未按 Manifest 调用 Resolver 驱动的统一门禁",
+      "gateClass": "ci-cd-policy"
+    },
+    {
+      "code": "AIH_RELEASE_INTENT_REQUIRED",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "readiness 未通过显式发布入口请求，或发布标记被用于非 readiness 意图",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_VALIDATION_FAILED",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "meaning": "必需脚手架工程门禁返回非零",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_PROTOCOL_UNSUPPORTED",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "gateClass": "safety-structure",
+      "meaning": "只支持 Harness Standard v3。"
+    },
+    {
+      "code": "AIH_EXECUTION_CONTEXT_INVALID",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "gateClass": "safety-structure",
+      "meaning": "执行上下文未声明或不允许。"
+    },
+    {
+      "code": "AIH_COST_POLICY_EXCEEDED",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "gateClass": "safety-structure",
+      "meaning": "命令成本超过当前执行上下文上限。"
+    },
+    {
+      "code": "AIH_COMMAND_TIMEOUT",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "gateClass": "safety-structure",
+      "meaning": "命令超过声明的稳定超时。"
+    },
+    {
+      "code": "AIH_SCAFFOLD_CONSISTENCY_FAILED",
+      "severity": "blocker",
+      "owner": "scaffold-harness",
+      "gateClass": "safety-structure",
+      "meaning": "脚手架投影一致性检查失败。"
+    }
+  ],
+  "standard": {
+    "protocol": "pre-sdd-harness/v3",
+    "version": "3.0.0",
+    "authority": ".psp/harness/HARNESS-BOUNDARY.md",
+    "profile": "maintainer"
+  }
 }

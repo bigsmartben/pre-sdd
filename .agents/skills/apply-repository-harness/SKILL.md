@@ -12,13 +12,13 @@ description: 在 pre-sdd 脚手架源仓库中实施或审查模板、运行时�
 3. 保留无关用户改动，收集全部预计变更的仓库相对 POSIX 路径。
 4. 运行：
 
-       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --intent change|checkpoint --json
+       node .psp/harness/scripts/resolve-validation.mjs --path <path>... --context local-edit|explicit-consistency|pull-request|main|release --json
 
-   只有正式发布前使用 `node .psp/harness/scripts/run-ci-validation.mjs --release`；不得直接把普通验证升级为 `readiness`。
+   编辑使用 `local-edit`；只有用户显式请求时使用 `explicit-consistency`；PR、main 与 release 由各自 Adapter 显式请求，不得隐式升级。
 
 5. resolver 返回 `BLOCKED` 时停止对应写入；否则只实施用户要求的脚手架工程变更。
-6. 编辑循环使用 `change`；一个任务或 Issue、PR 或普通 CI 形成稳定检查点时使用 `checkpoint`；只有显式发布前验证使用 `readiness`。
-7. 对全部实际变更路径重新解析，按返回顺序执行每条验证命令。只有显式发布入口的 `readiness` PASS 可以形成 `validated-scaffold-change`；其他意图通过只表示当前影响范围通过。
+6. `local-edit` 只允许 quick 成本；PR 最多 standard；main/release 才允许 full。不得让普通编辑自动执行 `scaffold-consistency`、全仓或包级慢测试。
+7. 对全部实际变更路径重新解析，按 `plan` 顺序执行每条命令；报告选择原因、范围扩展、缓存和耗时。只有隔离的 `release` PASS 可以形成 `validated-scaffold-change`。
 8. 只报告脚手架工程门禁，不运行产品或架构 handoff。
 
 ## 证据

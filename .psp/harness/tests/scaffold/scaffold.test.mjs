@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { validateScaffold } from '../../scripts/validate-harness.mjs';
-import { npmInvocation } from '../../scripts/run-ci-validation.mjs';
+import { npmInvocation, validateEvidenceReport } from '../../scripts/run-ci-validation.mjs';
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../..');
 const temporaryRoots = [];
@@ -27,11 +27,10 @@ async function fixture() {
   return root;
 }
 
-function resolvePaths(paths, intent = 'change') {
+function resolvePaths(paths, executionContext = 'local-edit') {
   const args = ['.psp/harness/scripts/resolve-validation.mjs'];
   for (const path of paths) args.push('--path', path);
-  args.push('--intent', intent, '--json');
-  if (intent === 'readiness') args.push('--release');
+  args.push('--context', executionContext, '--json');
   return spawnSync(process.execPath, args, {
     cwd: repositoryRoot,
     encoding: 'utf8',
@@ -86,58 +85,71 @@ test('root and generated-workspace instructions are distinct contexts', async ()
   assert.match(workspaceInstructions, /Generated Workspace/);
 });
 
-test('resolver separates change, checkpoint, and readiness gates for Product Design changes', () => {
+test('resolver separates local-edit, pull-request, and release gates for Product Design changes', () => {
   const execution = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.intent, 'change');
+  assert.equal(result.executionContext, 'local-edit');
   assert.equal(result.completionEligible, false);
   assert.deepEqual(result.scopes, ['workspace-product']);
   assert.deepEqual(result.commands, [
     'npm run validate:harness',
-    'npm run test:template:product',
   ]);
+  assert.ok(result.plan.every((item) => item.costClass === 'quick'));
+  assert.ok(result.plan.every((item) => item.selectedBy.length > 0 && item.cache.key));
+  for (const item of result.plan) {
+    assert.deepEqual(Object.keys(item.cache.bindings).sort(), [
+      'dependencyDigest',
+      'executorDigest',
+      'profileDigest',
+      'runtimeDigest',
+      'sourceDigest',
+      'standardDigest',
+    ]);
+    assert.ok(Object.values(item.cache.bindings).every((digest) => /^[a-f0-9]{64}$/.test(digest)));
+  }
 
-  const checkpoint = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md'], 'checkpoint');
+  const checkpoint = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md'], 'pull-request');
   assert.equal(checkpoint.status, 0, checkpoint.stderr);
   const checkpointResult = JSON.parse(checkpoint.stdout);
-  assert.equal(checkpointResult.intent, 'checkpoint');
+  assert.equal(checkpointResult.executionContext, 'pull-request');
   assert.equal(checkpointResult.completionEligible, false);
   assert.deepEqual(checkpointResult.commands, [
     'npm run validate:harness',
-    'npm run test:workspace:product',
+    'npm run test:template:product',
   ]);
 
-  const readiness = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md'], 'readiness');
+  const readiness = resolvePaths(['templates/workspace/.agents/skills/product-design/SKILL.md'], 'release');
   assert.equal(readiness.status, 0, readiness.stderr);
   const readinessResult = JSON.parse(readiness.stdout);
-  assert.equal(readinessResult.intent, 'readiness');
+  assert.equal(readinessResult.executionContext, 'release');
   assert.equal(readinessResult.completionEligible, true);
   assert.deepEqual(readinessResult.commands, [
     'npm run validate:harness',
+    'npm run check:scaffold-consistency',
     'npm run test:harness',
+    'npm run test:workspace:harness',
+    'npm run test:workspace:product',
+    'npm run test:workspace:architecture',
     'npm run test:package',
     'npm run pack:check',
   ]);
 });
 
-test('resolver uses targeted generated-workspace suites for shared template checkpoints', () => {
+test('local edit remains quick while PR uses targeted template suites', () => {
   const change = resolvePaths(['templates/workspace/package.json']);
   assert.equal(change.status, 0, change.stderr);
   assert.deepEqual(JSON.parse(change.stdout).commands, [
     'npm run validate:harness',
-    'npm run test:template:harness',
-    'npm run test:template:product',
-    'npm run test:template:architecture',
   ]);
 
-  const checkpoint = resolvePaths(['templates/workspace/package.json'], 'checkpoint');
+  const checkpoint = resolvePaths(['templates/workspace/package.json'], 'pull-request');
   assert.equal(checkpoint.status, 0, checkpoint.stderr);
   assert.deepEqual(JSON.parse(checkpoint.stdout).commands, [
     'npm run validate:harness',
-    'npm run test:workspace:harness',
-    'npm run test:workspace:product',
-    'npm run test:workspace:architecture',
+    'npm run test:template:harness',
+    'npm run test:template:product',
+    'npm run test:template:architecture',
   ]);
 });
 
@@ -150,7 +162,7 @@ test('resolver governs the continuous-integration workflow', () => {
 });
 
 test('continuous-integration plan comes from Resolver commands', () => {
-  const execution = spawnSync(process.execPath, ['.psp/harness/scripts/run-ci-validation.mjs', '--plan', '--json'], {
+  const execution = spawnSync(process.execPath, ['.psp/harness/scripts/run-ci-validation.mjs', '--context', 'main', '--plan', '--json'], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     windowsHide: true,
@@ -158,10 +170,11 @@ test('continuous-integration plan comes from Resolver commands', () => {
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
   assert.equal(result.status, 'READY');
-  assert.equal(result.intent, 'checkpoint');
+  assert.equal(result.executionContext, 'main');
   assert.equal(result.completionEligible, false);
   assert.deepEqual(result.commands, [
     'npm run validate:harness',
+    'npm run check:scaffold-consistency',
     'npm run test:harness',
     'npm run test:workspace:harness',
     'npm run test:workspace:product',
@@ -170,8 +183,8 @@ test('continuous-integration plan comes from Resolver commands', () => {
   ]);
 });
 
-test('release validation requires an explicit flag and is the only repository-wide readiness plan', () => {
-  const execution = spawnSync(process.execPath, ['.psp/harness/scripts/run-ci-validation.mjs', '--release', '--plan', '--json'], {
+test('release validation requires an explicit isolated context and is the only credential-eligible plan', () => {
+  const execution = spawnSync(process.execPath, ['.psp/harness/scripts/run-ci-validation.mjs', '--context', 'release', '--plan', '--json'], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     windowsHide: true,
@@ -179,11 +192,15 @@ test('release validation requires an explicit flag and is the only repository-wi
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
   assert.equal(result.status, 'READY');
-  assert.equal(result.intent, 'readiness');
+  assert.equal(result.executionContext, 'release');
   assert.equal(result.completionEligible, true);
   assert.deepEqual(result.commands, [
     'npm run validate:harness',
+    'npm run check:scaffold-consistency',
     'npm run test:harness',
+    'npm run test:workspace:harness',
+    'npm run test:workspace:product',
+    'npm run test:workspace:architecture',
     'npm run test:package',
     'npm run pack:check',
   ]);
@@ -205,18 +222,37 @@ test('resolver blocks unmanaged and invalid paths', () => {
     assert.notEqual(execution.status, 0);
     assert.match(execution.stderr + execution.stdout, /AIH_(SCOPE_UNRESOLVED|PATH_INVALID|PATH_OUTSIDE_ROOT)/);
   }
-  const invalidIntent = resolvePaths(['README.md'], 'publish');
-  assert.notEqual(invalidIntent.status, 0);
-  assert.match(invalidIntent.stderr + invalidIntent.stdout, /AIH_PATH_INVALID/);
+  const invalidContext = resolvePaths(['README.md'], 'publish');
+  assert.notEqual(invalidContext.status, 0);
+  assert.match(invalidContext.stderr + invalidContext.stdout, /AIH_EXECUTION_CONTEXT_INVALID/);
 
-  const implicitReadiness = spawnSync(process.execPath, [
-    '.psp/harness/scripts/resolve-validation.mjs',
-    '--path', 'README.md',
-    '--intent', 'readiness',
-    '--json',
-  ], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });
-  assert.notEqual(implicitReadiness.status, 0);
-  assert.match(implicitReadiness.stderr + implicitReadiness.stdout, /AIH_RELEASE_INTENT_REQUIRED/);
+});
+
+test('Evidence Report schema gates command evidence and cache bindings', () => {
+  const execution = resolvePaths(['README.md']);
+  assert.equal(execution.status, 0, execution.stderr);
+  const receipt = JSON.parse(execution.stdout);
+  const validation = receipt.plan.map((item) => ({ ...item, status: 'PASS', durationMs: 1, blockers: [] }));
+  const report = {
+    protocol: receipt.protocol,
+    executionContext: receipt.executionContext,
+    status: 'PASS',
+    scope: receipt.scopes,
+    changes: ['README.md'],
+    validation,
+    residuals: [],
+    metrics: {
+      plannedCommandCount: validation.length,
+      executedCommandCount: validation.length,
+      cacheHitCount: 0,
+      notRunCount: 0,
+      totalDurationMs: validation.length,
+    },
+  };
+  assert.equal(validateEvidenceReport(repositoryRoot, report), report);
+  const invalid = structuredClone(report);
+  delete invalid.validation[0].cache.bindings.executorDigest;
+  assert.throws(() => validateEvidenceReport(repositoryRoot, invalid), (error) => error.code === 'AIH_SCHEMA_INVALID');
 });
 
 test('targeted workspace test runner rejects unknown suites before creating a workspace', () => {
@@ -325,11 +361,11 @@ test('validator blocks continuous integration without the declared Playwright br
   assert.ok(result.issues.some((item) => item.code === 'AIH_CI_POLICY_INVALID'));
 });
 
-test('validator blocks release readiness from the ordinary CI workflow', async () => {
+test('validator blocks release context from the ordinary CI workflow', async () => {
   const root = await fixture();
   const path = resolve(root, '.github/workflows/harness-governance.yml');
   const workflow = parseYaml(await readFile(path, 'utf8'));
-  workflow.jobs['harness-governance'].steps.at(-1).run += ' --release';
+  workflow.jobs['harness-governance'].steps.at(-1).run = 'node .psp/harness/scripts/run-ci-validation.mjs --context release';
   await writeFile(path, stringifyYaml(workflow), 'utf8');
   const result = await validateScaffold(root);
   assert.equal(result.status, 'FAIL');

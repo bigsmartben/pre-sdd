@@ -122,6 +122,13 @@ export async function loadProjectAndManifest(root) {
     throw error;
   }
   const manifest = await readJson(root, project.harness.manifest);
+  const projectProtocol = project.harness.protocol;
+  const manifestProtocol = manifest.standard?.protocol || manifest.runtime?.protocol;
+  if (projectProtocol !== 'pre-sdd-harness/v3' || manifestProtocol !== 'pre-sdd-harness/v3') {
+    const error = new Error('当前运行时只支持 pre-sdd-harness/v3 项目绑定与 Manifest。');
+    error.code = 'AIH_PROTOCOL_UNSUPPORTED';
+    throw error;
+  }
   return { project, manifest };
 }
 
