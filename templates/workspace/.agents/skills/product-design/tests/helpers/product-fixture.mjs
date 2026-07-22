@@ -60,7 +60,6 @@ export async function completeProductFixture(root) {
   capabilities.data.businessRules = [{
     id: 'BR-001',
     statement: '只有结构与引用全部有效的 Package 才能通过验证',
-    appliesTo: ['UC-001'],
   }];
   capabilities.data.useCases = [{
     id: 'UC-001',
@@ -105,24 +104,20 @@ export async function completeProductFixture(root) {
     id: 'IF-001',
     useCase: 'UC-001',
     name: '验证规格',
-    coveredScenarios: ['main', 'UC-001-EXC-01'],
     entryState: 'INT-STATE-001',
     completionStates: ['INT-STATE-002', 'INT-STATE-003'],
     transitions: [{
       id: 'IF-001-TRANS-01', scenarioRef: 'main', useCaseStepRefs: ['UC-001-STEP-01'],
-      from: 'INT-STATE-001', to: 'INT-STATE-002', userAction: '提交 Package 验证请求',
-      systemResponse: '完成检查并展示通过状态和证据', guard: '结构与引用全部有效', branchLabel: '成功', failureResponse: null,
+      from: 'INT-STATE-001', to: 'INT-STATE-002', guard: '结构与引用全部有效', branchLabel: '成功', failureResponse: null,
     }, {
       id: 'IF-001-TRANS-02', scenarioRef: 'UC-001-EXC-01', useCaseStepRefs: ['UC-001-EXC-01-STEP-01'],
-      from: 'INT-STATE-001', to: 'INT-STATE-003', userAction: '提交 Package 验证请求',
-      systemResponse: '停止交付判定并展示可定位错误', guard: '存在无法解析的引用', branchLabel: '失败',
-      failureResponse: { failure: 'Package 引用无效', retry: '修复引用后重新提交', recovery: '保留原始规格并定位错误', returnToState: 'INT-STATE-001' },
+      from: 'INT-STATE-001', to: 'INT-STATE-003', guard: '存在无法解析的引用', branchLabel: '失败',
+      failureResponse: { retry: '修复引用后重新提交', recovery: '保留原始规格并定位错误', returnToState: 'INT-STATE-001' },
     }],
   }];
   capabilities.data.lowFiUiBlueprints = [{
     id: 'BLUEPRINT-001',
     actor: 'ACTOR-001',
-    useCases: ['UC-001'],
     informationArchitecture: { entryScreen: 'LF-SCREEN-001', nodes: [{ screen: 'LF-SCREEN-001', parent: null }] },
     screens: [{
     id: 'LF-SCREEN-001',
@@ -159,6 +154,7 @@ export async function completeProductFixture(root) {
         label: '运行验证',
         purpose: '提交当前 Package 验证请求',
         action: 'validate-package',
+        transitionRefs: ['IF-001-TRANS-01', 'IF-001-TRANS-02'],
       }],
     }, {
       id: 'LF-REGION-003',
@@ -171,6 +167,7 @@ export async function completeProductFixture(root) {
         label: '验证结果',
         purpose: '展示验证状态、blocker 和证据',
         action: null,
+        transitionRefs: [],
       }],
     }],
     }],

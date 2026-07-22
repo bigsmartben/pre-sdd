@@ -130,6 +130,7 @@ test('generic initialization creates atomic UC and provider-neutral Visual Spec 
   assert.match(initialUseCases, /Product Behavior/);
   assert.match(initialUseCases, /Interaction Flow/);
   assert.match(initialUseCases, /Low-Fi UI Blueprint/);
+  assert.match(initialUseCases, /尚未判断 UI 适用性/);
   assert.equal(await stat(resolve(root, stage.root, stage.artifacts.capabilities.internalModel)).then(() => true), true);
   const initialVisualSpec = await readFile(resolve(root, stage.root, stage.artifacts['visual-spec'].outputs[0].path), 'utf8');
   assert.match(initialVisualSpec, /Provider-neutral Visual Spec Intake/);
@@ -279,6 +280,16 @@ test('atomic UC readiness covers behavior, flow, Low-Fi, failure recovery, and d
   assert.match(markdown, /失败、重试、恢复与返回/);
   assert.match(markdown, /UC-001-EXC-01-STEP-01/);
   assert.match(markdown, /LF-SCREEN-001/);
+  assert.match(markdown, /IF-001-TRANS-01、IF-001-TRANS-02/);
+  assert.match(markdown, /规格引用无效；Package 中存在无法解析的引用/);
+  assert.match(markdown, /<summary>查看 Transition 与 UC 步骤追溯<\/summary>/);
+  assert.match(markdown, /Interaction State Catalog（交互状态目录）/);
+  assert.match(markdown, /<summary>查看完整状态定义<\/summary>/);
+  assert.doesNotMatch(markdown, /派生行为摘要/);
+  assert.doesNotMatch(markdown, /#### Business Rules（业务规则）/);
+  assert.doesNotMatch(markdown, /\| 用户动作 \| 系统响应 \|/);
+  assert.equal(markdown.match(/只有结构与引用全部有效的 Package 才能通过验证/g)?.length, 1);
+  assert.equal(markdown.match(/规格作者可以提交验证请求/g)?.length, 1);
   const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
   assert.equal(strict.exitCode, 0, JSON.stringify(strict.output, null, 2));
   const check = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--check', '--json']);
@@ -297,7 +308,7 @@ test('atomic UC readiness blocks incomplete flow, traceability, blueprint, and e
     },
     {
       mutate(data) { data.lowFiUiBlueprints = []; },
-      message: /UI Use Case 缺少 Low-Fi UI Blueprint/,
+      message: /UI Use Case 必须映射到至少一个 Low-Fi Screen/,
     },
     {
       mutate(data) { data.interactionFlows[0].transitions[1].failureResponse = null; },
@@ -316,6 +327,102 @@ test('atomic UC readiness blocks incomplete flow, traceability, blueprint, and e
     assert.notEqual(result.exitCode, 0, JSON.stringify(result.output, null, 2));
     assert.match(result.output.blockers.map((item) => item.message).join('\n'), invalidCase.message);
   }
+});
+
+test('atomic UC schema rejects duplicated derived facts', async () => {
+  const cases = [
+    (data) => { data.businessRules[0].appliesTo = ['UC-001']; },
+    (data) => { data.interactionFlows[0].coveredScenarios = ['main', 'UC-001-EXC-01']; },
+    (data) => { data.interactionFlows[0].transitions[0].userAction = '提交验证'; },
+    (data) => { data.interactionFlows[0].transitions[0].systemResponse = '显示结果'; },
+    (data) => { data.interactionFlows[0].transitions[1].failureResponse.failure = '引用无效'; },
+    (data) => { data.lowFiUiBlueprints[0].useCases = ['UC-001']; },
+  ];
+  for (const mutate of cases) {
+    const root = await temporaryRepository();
+    await completeProductFixture(root);
+    const project = await fixtureProject(root);
+    const stage = project.stages['product-design'];
+    const artifact = await readArtifact(root, stage, stage.artifacts.capabilities);
+    mutate(artifact.data);
+    await writeArtifact(artifact);
+    const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+    assert.ok(codes(result).has('AIH_ARTIFACT_SCHEMA_FAILED'), JSON.stringify(result.output, null, 2));
+  }
+});
+
+test('atomic UC closure validates rules, states, actors, Screens, and Control traceability', async () => {
+  const cases = [
+    {
+      mutate(data) { data.businessRules.push({ id: 'BR-002', statement: '未引用规则' }); },
+      message: /Business Rule 未被任何 Use Case 引用：BR-002/,
+    },
+    {
+      mutate(data) { data.interactionStates.push({ id: 'INT-STATE-004', name: '孤立状态', type: 'waiting', description: '未进入任何流程', terminal: false }); },
+      message: /Interaction State 未被任何 Interaction Flow 使用：INT-STATE-004/,
+    },
+    {
+      mutate(data) { data.lowFiUiBlueprints[0].screens[0].regions[1].controls[0].transitionRefs = []; },
+      message: /可交互 Low-Fi Control 必须追溯至少一个 Transition/,
+    },
+    {
+      mutate(data) { data.lowFiUiBlueprints[0].screens[0].regions[1].controls[0].transitionRefs = ['IF-999-TRANS-01']; },
+      message: /Transition 引用不存在：IF-999-TRANS-01/,
+    },
+    {
+      mutate(data) {
+        data.actors.push({ id: 'ACTOR-002', name: '其他角色', goal: '执行其他验证' });
+        data.useCases[0].actor = 'ACTOR-002';
+      },
+      message: /Low-Fi Control 引用了其他 Actor 的 Transition/,
+    },
+    {
+      mutate(data) { data.lowFiUiBlueprints[0].screens[0].useCases = []; },
+      message: /Low-Fi Control 引用的 Transition 不属于当前 Screen 的 Use Case/,
+    },
+    {
+      mutate(data) {
+        data.actors.push({ id: 'ACTOR-002', name: '其他角色', goal: '执行其他验证' });
+        data.useCases.push({
+          id: 'UC-002', name: '执行其他验证', actor: 'ACTOR-002', goal: '完成其他验证', value: '获得结果', trigger: '角色请求验证',
+          preconditions: [], successOutcome: '显示成功', minimumGuarantee: '保留输入', uiApplicability: { mode: 'required', reason: null },
+          mainScenario: [{ id: 'UC-002-STEP-01', initiator: 'actor', action: '提交其他验证', outcome: '系统显示结果' }],
+          alternateScenarios: [], businessRules: ['BR-001'], relationships: [],
+        });
+        data.interactionFlows.push({
+          id: 'IF-002', useCase: 'UC-002', name: '其他验证', entryState: 'INT-STATE-001', completionStates: ['INT-STATE-002'],
+          transitions: [{ id: 'IF-002-TRANS-01', scenarioRef: 'main', useCaseStepRefs: ['UC-002-STEP-01'], from: 'INT-STATE-001', to: 'INT-STATE-002', guard: null, branchLabel: null, failureResponse: null }],
+        });
+      },
+      message: /共享 Interaction State 只能用于同一 Actor 的 Use Case/,
+    },
+  ];
+  for (const invalidCase of cases) {
+    const root = await temporaryRepository();
+    await completeProductFixture(root);
+    const project = await fixtureProject(root);
+    const stage = project.stages['product-design'];
+    const artifact = await readArtifact(root, stage, stage.artifacts.capabilities);
+    invalidCase.mutate(artifact.data);
+    await writeArtifact(artifact);
+    const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+    assert.notEqual(result.exitCode, 0, JSON.stringify(result.output, null, 2));
+    assert.match(result.output.blockers.map((item) => item.message).join('\n'), invalidCase.message);
+  }
+});
+
+test('system-initiated Transition does not require a Low-Fi Control reference', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const artifact = await readArtifact(root, stage, stage.artifacts.capabilities);
+  artifact.data.lowFiUiBlueprints[0].screens[0].regions[1].controls[0].transitionRefs = ['IF-001-TRANS-01'];
+  await writeArtifact(artifact);
+  const rendered = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--json']);
+  assert.equal(rendered.exitCode, 0, JSON.stringify(rendered.output, null, 2));
+  const result = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--step', 'use-cases', '--json']);
+  assert.equal(result.exitCode, 0, JSON.stringify(result.output, null, 2));
 });
 
 test('atomic UC transitions require runnable UI HTML branch and recovery coverage', async () => {
@@ -403,7 +510,18 @@ test('legacy Wireflow is accepted only as a one-time input and converts into the
   assert.equal(migrated.interactionFlows[0].id, 'IF-001');
   assert.equal(migrated.interactionFlows[0].transitions[1].failureResponse.returnToState, 'INT-STATE-001');
   assert.equal(migrated.lowFiUiBlueprints[0].screens[0].id, 'LF-SCREEN-001');
+  assert.deepEqual(migrated.lowFiUiBlueprints[0].screens[0].regions[0].controls[0].transitionRefs, ['IF-001-TRANS-01', 'IF-001-TRANS-02']);
+  assert.equal('coveredScenarios' in migrated.interactionFlows[0], false);
+  assert.equal('userAction' in migrated.interactionFlows[0].transitions[0], false);
+  assert.equal('failure' in migrated.interactionFlows[0].transitions[1].failureResponse, false);
   assert.equal('wireflows' in migrated, false);
+
+  legacy.screens[0].regions[0].controls.push({ ...legacy.screens[0].regions[0].controls[0] });
+  await writeFile(resolve(legacyRoot, 'ACTOR-001', 'wireflow-mid.yaml'), stringifyYaml(legacy));
+  await assert.rejects(
+    migrateLegacyWireflowDirectory(candidate, legacyRoot),
+    (error) => error.code === 'AIH_REFERENCE_UNRESOLVED' && /Control ID 重复/.test(error.message),
+  );
 });
 
 test('canonical-ui.ts remains an internal machine index with only a deterministic hidden JSON projection', async () => {

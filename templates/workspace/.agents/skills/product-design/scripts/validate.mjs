@@ -62,10 +62,6 @@ function validateCapabilities(capabilities) {
   const scenarioIds = new Set();
   const stepIds = new Set();
 
-  for (const rule of capabilities?.businessRules || []) {
-    requireReferences(rule.appliesTo, useCaseIds, 'capabilities.businessRules.' + rule.id + '.appliesTo', 'Use Case');
-  }
-
   for (const useCase of capabilities?.useCases || []) {
     const location = 'capabilities.useCases.' + useCase.id;
     requireReferences([useCase.actor], actorIds, location + '.actor', 'Actor');
@@ -100,6 +96,13 @@ function validateCapabilities(capabilities) {
           block('AIH_REFERENCE_UNRESOLVED', '分支步骤不属于当前场景：' + step.id, location + '.alternateScenarios.' + scenario.id + '.steps');
         }
       }
+    }
+  }
+
+  const referencedBusinessRules = new Set((capabilities?.useCases || []).flatMap((useCase) => useCase.businessRules || []));
+  for (const rule of capabilities?.businessRules || []) {
+    if (!referencedBusinessRules.has(rule.id)) {
+      block('AIH_ARTIFACT_INCOMPLETE', 'Business Rule 未被任何 Use Case 引用：' + rule.id, 'capabilities.businessRules.' + rule.id);
     }
   }
 
@@ -361,6 +364,23 @@ function validateAtomicUseCases(capabilities, base) {
   const flowIds = ids(capabilities?.interactionFlows, 'capabilities.interactionFlows');
   const transitionIds = ids((capabilities?.interactionFlows || []).flatMap((flow) => flow.transitions || []), 'capabilities.interactionFlows.transitions');
   const flowsByUseCase = new Map();
+  const transitionsById = new Map((capabilities?.interactionFlows || []).flatMap((flow) => (flow.transitions || []).map((transition) => [transition.id, { flow, transition }])));
+  const stateFlows = new Map([...stateIds].map((stateId) => [stateId, new Set()]));
+
+  function stepsForUseCase(useCase) {
+    return new Map([
+      ...(useCase?.mainScenario || []).map((step) => [step.id, step]),
+      ...(useCase?.alternateScenarios || []).flatMap((scenario) => scenario.steps.map((step) => [step.id, step])),
+    ]);
+  }
+
+  function branchTriggerKey(useCase, transition, stepsById) {
+    const tracedActorStep = transition.useCaseStepRefs.map((stepId) => stepsById.get(stepId)).find((step) => step?.initiator === 'actor');
+    if (tracedActorStep) return tracedActorStep.action;
+    const scenario = useCase?.alternateScenarios.find((item) => item.id === transition.scenarioRef);
+    const origin = useCase?.mainScenario.find((step) => step.id === scenario?.startsAt && step.initiator === 'actor');
+    return origin?.action || 'system:' + transition.scenarioRef;
+  }
 
   for (const flow of capabilities?.interactionFlows || []) {
     const location = 'capabilities.interactionFlows.' + flow.id;
@@ -375,27 +395,30 @@ function validateAtomicUseCases(capabilities, base) {
       block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得声明 Interaction Flow：' + flow.useCase, location);
     }
     const scenarioSteps = new Map();
+    const stepsById = stepsForUseCase(useCase);
     if (useCase) {
       scenarioSteps.set('main', new Set(useCase.mainScenario.map((step) => step.id)));
       for (const scenario of useCase.alternateScenarios) scenarioSteps.set(scenario.id, new Set(scenario.steps.map((step) => step.id)));
     }
-    requireReferences(flow.coveredScenarios, new Set(scenarioSteps.keys()), location + '.coveredScenarios', 'Use Case scenario');
     requireReferences([flow.entryState, ...flow.completionStates], stateIds, location, 'Interaction State');
+    for (const stateId of [flow.entryState, ...flow.completionStates]) stateFlows.get(stateId)?.add(flow);
     if (statesById.get(flow.entryState)?.terminal) block('AIH_ARTIFACT_INCOMPLETE', 'Interaction Flow 入口不能是终态：' + flow.entryState, location + '.entryState');
     for (const stateId of flow.completionStates) {
       if (statesById.has(stateId) && !statesById.get(stateId).terminal) block('AIH_ARTIFACT_INCOMPLETE', '完成状态必须是终态：' + stateId, location + '.completionStates');
     }
     for (const transition of flow.transitions || []) {
       const transitionLocation = location + '.transitions.' + transition.id;
-      if (!flow.coveredScenarios.includes(transition.scenarioRef)) block('AIH_REFERENCE_UNRESOLVED', 'Transition 场景未列入 coveredScenarios：' + transition.scenarioRef, transitionLocation);
+      requireReferences([transition.scenarioRef], new Set(scenarioSteps.keys()), transitionLocation + '.scenarioRef', 'Use Case scenario');
       requireReferences(transition.useCaseStepRefs, scenarioSteps.get(transition.scenarioRef) || new Set(), transitionLocation, 'Use Case step');
       requireReferences([transition.from, transition.to], stateIds, transitionLocation, 'Interaction State');
+      stateFlows.get(transition.from)?.add(flow);
+      stateFlows.get(transition.to)?.add(flow);
       if (statesById.get(transition.from)?.terminal) block('AIH_ARTIFACT_INCOMPLETE', 'Transition 不能从终态发起：' + transition.id, transitionLocation + '.from');
       if (transition.failureResponse?.returnToState) requireReferences([transition.failureResponse.returnToState], stateIds, transitionLocation, 'returnToState');
     }
     for (const [scenarioRef, steps] of scenarioSteps) {
-      if (!flow.coveredScenarios.includes(scenarioRef)) block('AIH_ARTIFACT_INCOMPLETE', 'Interaction Flow 未覆盖场景：' + flow.useCase + ' / ' + scenarioRef, location + '.coveredScenarios');
       const traced = new Set(flow.transitions.filter((item) => item.scenarioRef === scenarioRef).flatMap((item) => item.useCaseStepRefs));
+      if (traced.size === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Interaction Flow 未覆盖场景：' + flow.useCase + ' / ' + scenarioRef, location + '.transitions');
       for (const stepId of steps) if (!traced.has(stepId)) block('AIH_ARTIFACT_INCOMPLETE', 'Use Case 步骤未追溯到 Transition：' + stepId, location + '.transitions');
       const scenario = useCase?.alternateScenarios.find((item) => item.id === scenarioRef);
       if (scenario?.type === 'exception' && !flow.transitions.some((item) => item.scenarioRef === scenarioRef && item.failureResponse)) {
@@ -404,7 +427,7 @@ function validateAtomicUseCases(capabilities, base) {
     }
     const groups = new Map();
     for (const transition of flow.transitions || []) {
-      const key = transition.from + '\u0000' + (transition.userAction || 'system');
+      const key = transition.from + '\u0000' + branchTriggerKey(useCase, transition, stepsById);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(transition);
     }
@@ -430,19 +453,27 @@ function validateAtomicUseCases(capabilities, base) {
     for (const stateId of flow.completionStates) if (!reachable.has(stateId)) block('AIH_ARTIFACT_INCOMPLETE', '完成状态无法从入口到达：' + stateId, location + '.completionStates');
   }
 
+  for (const [stateId, flows] of stateFlows) {
+    if (flows.size === 0) block('AIH_ARTIFACT_INCOMPLETE', 'Interaction State 未被任何 Interaction Flow 使用：' + stateId, 'capabilities.interactionStates.' + stateId);
+    const actors = new Set([...flows].map((flow) => useCasesById.get(flow.useCase)?.actor).filter(Boolean));
+    if (actors.size > 1) block('AIH_REFERENCE_UNRESOLVED', '共享 Interaction State 只能用于同一 Actor 的 Use Case：' + stateId, 'capabilities.interactionStates.' + stateId);
+  }
+
   const blueprintIds = ids(capabilities?.lowFiUiBlueprints, 'capabilities.lowFiUiBlueprints');
   const allScreenIds = new Set();
   const allRegionIds = new Set();
   const allControlIds = new Set();
-  const blueprintUseCases = new Set();
+  const screenUseCaseCounts = new Map();
+  const blueprintActors = new Set();
   for (const blueprint of capabilities?.lowFiUiBlueprints || []) {
     const location = 'capabilities.lowFiUiBlueprints.' + blueprint.id;
     requireReferences([blueprint.actor], base.actorIds, location + '.actor', 'Actor');
-    requireReferences(blueprint.useCases, base.useCaseIds, location + '.useCases', 'Use Case');
+    if (blueprintActors.has(blueprint.actor)) block('AIH_REFERENCE_UNRESOLVED', '同一 Actor 只能声明一个 Low-Fi UI Blueprint：' + blueprint.actor, location + '.actor');
+    blueprintActors.add(blueprint.actor);
     const localScreenIds = new Set();
-    const localRegionIds = new Set();
-    for (const useCaseId of blueprint.useCases) {
-      blueprintUseCases.add(useCaseId);
+    const screenUseCases = new Set((blueprint.screens || []).flatMap((screen) => screen.useCases || []));
+    requireReferences(screenUseCases, base.useCaseIds, location + '.screens', 'Use Case');
+    for (const useCaseId of screenUseCases) {
       const useCase = useCasesById.get(useCaseId);
       if (useCase?.actor !== blueprint.actor) block('AIH_REFERENCE_UNRESOLVED', 'Low-Fi Blueprint 引用了其他 Actor 的 Use Case：' + useCaseId, location);
       if (useCase?.uiApplicability?.mode !== 'required') block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得进入 Low-Fi Blueprint：' + useCaseId, location);
@@ -450,13 +481,29 @@ function validateAtomicUseCases(capabilities, base) {
     for (const screen of blueprint.screens || []) {
       addUniqueId(screen.id, allScreenIds, location + '.screens');
       localScreenIds.add(screen.id);
-      requireReferences(screen.useCases, new Set(blueprint.useCases), location + '.screens.' + screen.id, 'Blueprint Use Case');
+      requireReferences(screen.useCases, screenUseCases, location + '.screens.' + screen.id, 'Blueprint Use Case');
+      for (const useCaseId of screen.useCases) screenUseCaseCounts.set(useCaseId, (screenUseCaseCounts.get(useCaseId) || 0) + 1);
       const declaredRegions = new Set();
       for (const region of screen.regions || []) {
         addUniqueId(region.id, allRegionIds, location + '.screens.' + screen.id + '.regions');
         declaredRegions.add(region.id);
-        localRegionIds.add(region.id);
-        for (const control of region.controls || []) addUniqueId(control.id, allControlIds, location + '.screens.' + screen.id + '.controls');
+        for (const control of region.controls || []) {
+          const controlLocation = location + '.screens.' + screen.id + '.controls.' + control.id;
+          addUniqueId(control.id, allControlIds, controlLocation);
+          if (['action', 'navigation', 'selection'].includes(control.type) && (control.transitionRefs || []).length === 0) {
+            block('AIH_ARTIFACT_INCOMPLETE', '可交互 Low-Fi Control 必须追溯至少一个 Transition：' + control.id, controlLocation + '.transitionRefs');
+          }
+          for (const transitionId of control.transitionRefs || []) {
+            const target = transitionsById.get(transitionId);
+            if (!target) {
+              block('AIH_REFERENCE_UNRESOLVED', 'Transition 引用不存在：' + transitionId, controlLocation + '.transitionRefs');
+              continue;
+            }
+            const targetUseCase = useCasesById.get(target.flow.useCase);
+            if (targetUseCase?.actor !== blueprint.actor) block('AIH_REFERENCE_UNRESOLVED', 'Low-Fi Control 引用了其他 Actor 的 Transition：' + transitionId, controlLocation + '.transitionRefs');
+            if (!screen.useCases.includes(target.flow.useCase)) block('AIH_REFERENCE_UNRESOLVED', 'Low-Fi Control 引用的 Transition 不属于当前 Screen 的 Use Case：' + transitionId, controlLocation + '.transitionRefs');
+          }
+        }
       }
       const layoutRegions = layoutRegionReferences(screen.layoutTree);
       requireReferences(layoutRegions, declaredRegions, location + '.screens.' + screen.id + '.layoutTree', 'Region');
@@ -470,19 +517,37 @@ function validateAtomicUseCases(capabilities, base) {
       presentedStates.add(presentation.interactionState);
     }
     const relevantStates = new Set((capabilities?.interactionFlows || [])
-      .filter((flow) => blueprint.useCases.includes(flow.useCase))
+      .filter((flow) => screenUseCases.has(flow.useCase))
       .flatMap((flow) => [flow.entryState, ...flow.completionStates, ...flow.transitions.flatMap((transition) => [transition.from, transition.to])]));
     for (const stateId of relevantStates) if (!presentedStates.has(stateId)) block('AIH_ARTIFACT_INCOMPLETE', 'Low-Fi Blueprint 未给出正式状态的呈现建议：' + stateId, location + '.statePresentations');
+
+    const actorUiUseCases = (capabilities?.useCases || []).filter((useCase) => useCase.actor === blueprint.actor && useCase.uiApplicability?.mode === 'required');
+    for (const useCase of actorUiUseCases) if (!screenUseCases.has(useCase.id)) {
+      block('AIH_ARTIFACT_INCOMPLETE', 'Low-Fi Blueprint 的 Screen Use Case 并集未覆盖 Actor UI Use Case：' + useCase.id, location + '.screens');
+    }
+
+    const coveredTransitions = new Set((blueprint.screens || []).flatMap((screen) => (screen.regions || []).flatMap((region) => (region.controls || []).flatMap((control) => control.transitionRefs || []))));
+    for (const flow of capabilities?.interactionFlows || []) {
+      const useCase = useCasesById.get(flow.useCase);
+      if (useCase?.actor !== blueprint.actor || !screenUseCases.has(flow.useCase)) continue;
+      const stepsById = stepsForUseCase(useCase);
+      for (const transition of flow.transitions || []) {
+        const actorInitiated = transition.useCaseStepRefs.some((stepId) => stepsById.get(stepId)?.initiator === 'actor');
+        if (actorInitiated && !coveredTransitions.has(transition.id)) {
+          block('AIH_ARTIFACT_INCOMPLETE', 'Actor 发起的 Transition 缺少 Low-Fi Control 追溯：' + transition.id, location + '.screens');
+        }
+      }
+    }
   }
 
   for (const useCase of capabilities?.useCases || []) {
     const flows = flowsByUseCase.get(useCase.id) || [];
     if (useCase.uiApplicability?.mode === 'required') {
       if (flows.length !== 1) block('AIH_ARTIFACT_INCOMPLETE', 'UI Use Case 必须且只能有一个正式 Interaction Flow：' + useCase.id, 'capabilities.interactionFlows');
-      if (!blueprintUseCases.has(useCase.id)) block('AIH_ARTIFACT_INCOMPLETE', 'UI Use Case 缺少 Low-Fi UI Blueprint：' + useCase.id, 'capabilities.lowFiUiBlueprints');
+      if (!screenUseCaseCounts.has(useCase.id)) block('AIH_ARTIFACT_INCOMPLETE', 'UI Use Case 必须映射到至少一个 Low-Fi Screen：' + useCase.id, 'capabilities.lowFiUiBlueprints');
     } else {
       if (flows.length > 0) block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得有 Interaction Flow：' + useCase.id, 'capabilities.interactionFlows');
-      if (blueprintUseCases.has(useCase.id)) block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得有 Low-Fi UI Blueprint：' + useCase.id, 'capabilities.lowFiUiBlueprints');
+      if (screenUseCaseCounts.has(useCase.id)) block('AIH_ARTIFACT_INCOMPLETE', '非 UI Use Case 不得进入 Low-Fi Screen：' + useCase.id, 'capabilities.lowFiUiBlueprints');
     }
   }
   return { useCasesById, stateIds, flowIds, transitionIds, flowsByUseCase, blueprintIds };
