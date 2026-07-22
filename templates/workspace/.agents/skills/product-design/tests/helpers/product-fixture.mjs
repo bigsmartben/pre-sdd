@@ -622,7 +622,10 @@ export async function completeProductFixture(root) {
       attributes: [{ name: 'mode', propertyName: 'mode' }],
       eventIds: ['EVENT-001', 'EVENT-002', 'EVENT-003'],
       defaultStateMatrixEntryId: 'STATE-MATRIX-DEFAULT',
-      pageInstances: [{ id: 'COMPONENT-INSTANCE-001', screenId: 'SCREEN-001', figmaInstanceNodeId: '1:2' }],
+      pageInstances: [
+        { id: 'REVIEW-PRIMARY-INSTANCE', screenId: 'SCREEN-001', figmaInstanceNodeId: '1:2' },
+        { id: 'REVIEW-DETAIL-INSTANCE', screenId: 'SCREEN-001' },
+      ],
       implementationPaths: ['src/psp-app.ts'],
       testAssertions: [
         { kind: 'accessible-name', targetId: 'CONTROL-001' },
@@ -704,20 +707,35 @@ export async function completeProductFixture(root) {
     ],
     mockCases: [
       {
-        id: 'MOCK-CASE-DEFAULT', label: 'Default', routeId: 'ROUTE-001', screenId: 'SCREEN-001', mockBehaviorIds: [],
-        stateMatrixEntryIds: ['STATE-MATRIX-DEFAULT'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], isDefault: true, holdLoading: false,
+        id: 'MOCK-CASE-DEFAULT', kind: 'technical', label: 'Default', routeId: 'ROUTE-001',
+        effects: [
+          { targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: [], activation: { kind: 'control-event', controlId: 'CONTROL-003' }, expectedStateMatrixEntryId: 'STATE-MATRIX-DEFAULT' },
+          { targetInstanceId: 'REVIEW-DETAIL-INSTANCE', mockBehaviorIds: [], activation: { kind: 'control-event', controlId: 'CONTROL-003' }, expectedStateMatrixEntryId: 'STATE-MATRIX-DEFAULT' },
+        ],
+        isDefault: true,
       },
       {
-        id: 'MOCK-CASE-LOADING', label: 'Loading', routeId: 'ROUTE-001', screenId: 'SCREEN-001', mockBehaviorIds: [],
-        stateMatrixEntryIds: ['STATE-MATRIX-LOADING'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-LOADING'], isDefault: false, holdLoading: true,
+        id: 'MOCK-CASE-SUCCESS', kind: 'business', label: 'Success', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001',
+        effects: [{ targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' }],
+        isDefault: false,
       },
       {
-        id: 'MOCK-CASE-SUCCESS', label: 'Success', routeId: 'ROUTE-001', screenId: 'SCREEN-001', scenarioId: 'SCENARIO-001', mockBehaviorIds: ['MOCK-001'],
-        stateMatrixEntryIds: ['STATE-MATRIX-SUCCESS'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-SUCCESS'], isDefault: false, holdLoading: false,
+        id: 'MOCK-CASE-ERROR', kind: 'business', label: 'Error', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-002',
+        effects: [{ targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: ['MOCK-002'], activation: { kind: 'request', controlId: 'CONTROL-002' }, expectedStateMatrixEntryId: 'STATE-MATRIX-ERROR' }],
+        isDefault: false,
       },
       {
-        id: 'MOCK-CASE-ERROR', label: 'Error', routeId: 'ROUTE-001', screenId: 'SCREEN-001', scenarioId: 'SCENARIO-002', mockBehaviorIds: ['MOCK-002'],
-        stateMatrixEntryIds: ['STATE-MATRIX-ERROR'], visibleStateIds: ['INT-STATE-001', 'COMPONENT-STATE-ERROR'], isDefault: false, holdLoading: false,
+        id: 'MOCK-CASE-SUCCESS-DETAIL', kind: 'business', label: 'Success detail', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001',
+        effects: [{ targetInstanceId: 'REVIEW-DETAIL-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' }],
+        isDefault: false,
+      },
+      {
+        id: 'MOCK-CASE-MULTI-SUCCESS', kind: 'business', label: 'Multi success', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001',
+        effects: [
+          { targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' },
+          { targetInstanceId: 'REVIEW-DETAIL-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' },
+        ],
+        isDefault: false,
       },
     ],
     viewports: [{ id: 'VIEWPORT-MOBILE', width: 390, height: 844 }, { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 }],
@@ -753,13 +771,14 @@ export async function completeProductFixture(root) {
   await writeFile(appPath, app
     .replaceAll('UC-NNN', 'UC-001')
     .replaceAll('INT-STATE-NNN', 'INT-STATE-001')
+    .replaceAll('COMPONENT-INSTANCE-STATE', 'REVIEW-DETAIL-INSTANCE')
     .replace(' class="card state-card" data-component-id="COMPONENT-001"', ' class="card state-card"')
     .replace('<h2>交互状态实验台</h2>', '<h2>交互状态实验台</h2>\n            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />'));
   const indexPath = resolve(areaPath, 'index.html');
   const index = await readFile(indexPath, 'utf8');
   await writeFile(
     indexPath,
-    index.replace('<psp-app></psp-app>', '<psp-app mode="default" data-component-id="COMPONENT-001" data-figma-instance-id="1:2"></psp-app>'),
+    index.replace('<psp-app data-component-id="COMPONENT-001" data-component-instance-id="COMPONENT-INSTANCE-001"></psp-app>', '<psp-app mode="default" data-component-id="COMPONENT-001" data-component-instance-id="REVIEW-PRIMARY-INSTANCE" data-figma-instance-id="1:2"></psp-app>'),
   );
 
   await writeArtifact(capabilities);

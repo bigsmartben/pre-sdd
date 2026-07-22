@@ -9,8 +9,8 @@ const suites = new Map([
   ['harness', { command: 'test:harness', tests: ['.psp/harness/tests', '.agents/skills/project-consistency/tests'] }],
   ['product', {
     command: 'test:product',
-    tests: ['.agents/skills/product-design/tests'],
-    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Figma source registration packet)',
+    tests: ['.agents/skills/product-design/tests', '.agents/skills/mockcase-coverage/tests'],
+    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Figma source registration packet|mockcase-coverage|Product Design apply operation|stale candidates)',
   }],
   ['architecture', {
     command: 'test:architecture',

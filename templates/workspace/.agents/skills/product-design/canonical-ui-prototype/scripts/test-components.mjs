@@ -132,13 +132,22 @@ try {
     const registered = await page.evaluate((tagName) => Boolean(customElements.get(tagName)), contract.litTagName);
     if (!registered) block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Lit Tag 未注册：' + contract.litTagName, contract.id);
     for (const instance of contract.pageInstances) {
-      const element = page.locator('[data-figma-instance-id="' + instance.figmaInstanceNodeId + '"]');
+      const selector = instance.figmaInstanceNodeId
+        ? '[data-figma-instance-id="' + instance.figmaInstanceNodeId + '"]'
+        : '[data-component-instance-id="' + instance.id + '"]';
+      const element = page.locator(selector);
       if (await element.count() !== 1) {
         block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Component Contract 页面实例未唯一挂载：' + instance.id, contract.id);
         continue;
       }
+      if (!instance.figmaInstanceNodeId) {
+        if (await element.getAttribute('data-component-owner-id') !== contract.componentId) {
+          block('AIH_COMPONENT_CONTRACT_TEST_FAILED', '本地页面实例未声明所属 Component：' + instance.id, contract.id);
+        }
+        continue;
+      }
       if (await element.evaluate((node) => node.tagName.toLowerCase()) !== contract.litTagName) {
-        block('AIH_COMPONENT_CONTRACT_TEST_FAILED', '页面实例未使用 Contract Lit Tag：' + instance.id, contract.id);
+        block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Figma 页面实例未使用 Contract Lit Tag：' + instance.id, contract.id);
       }
       for (const property of contract.properties) {
         if (!Object.hasOwn(property, 'defaultValue')) continue;
@@ -243,9 +252,12 @@ try {
       }
     }
 
-    const mockMatrixIds = new Set(model.mockCases.flatMap((item) => item.stateMatrixEntryIds));
-    for (const entry of legalEntries) {
-      if (!mockMatrixIds.has(entry.id)) block('AIH_COMPONENT_CONTRACT_COVERAGE_FAILED', 'Mock Case 与 Component Test 未共用 Matrix Entry：' + entry.id, contract.id);
+    const referencedMatrixIds = new Set(model.mockCases.flatMap((item) => item.effects.map((effect) => effect.expectedStateMatrixEntryId)));
+    for (const entryId of referencedMatrixIds) {
+      const entry = model.stateMatrix.find((item) => item.id === entryId);
+      if (entry?.componentContractId === contract.id && (entry.classification !== 'legal' || !legalEntries.some((item) => item.id === entryId))) {
+        block('AIH_COMPONENT_CONTRACT_COVERAGE_FAILED', 'Mock Case 引用的 Matrix Entry 未通过 Component Contract Test：' + entryId, contract.id);
+      }
     }
   }
   await context.close();

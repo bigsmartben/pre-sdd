@@ -443,6 +443,9 @@ class InconsistencyAnnotator extends HTMLElement {
   private resolvePageKey(): string {
     const url = new URL(window.location.href);
     url.searchParams.delete('annotate');
+    url.searchParams.delete('mockcase');
+    url.searchParams.delete('psp-case');
+    url.searchParams.delete('psp-cases');
     const screenIds = Array.from(document.querySelectorAll<HTMLElement>('[data-screen-id]'))
       .filter((element) => !this.contains(element) && element.getClientRects().length > 0)
       .filter((element) => element.getAttribute('aria-hidden') !== 'true')

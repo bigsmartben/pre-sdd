@@ -205,6 +205,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
     'figma-component-from-design',
     'implement-figma-lit-page',
     'repair-canonical-ui-visual',
+    'mockcase-coverage',
   ];
   for (const skill of auxiliarySkills) {
     const skillPath = `.agents/skills/${skill}/SKILL.md`;
@@ -231,7 +232,13 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   assert.match(productSkill, /\$repair-canonical-ui-visual/);
   assert.match(captureSkill, /Frame 尺寸/);
   assert.match(captureSkill, /不得选择或改变 `visualPolicy\.mode`/);
+  assert.match(captureSkill, /调用 `get_design_context` 读取节点设计上下文前，必须先加载 `\$figma:figma-design-to-code`/);
   assert.match(captureSkill, /\$figma:figma-use/);
+  assert.match(captureSkill, /先进入 `\$figma:figma-design-to-code` 路由并调用 `get_design_context`，再采集原始参数与证据/);
+  assert.ok(
+    captureSkill.indexOf('`$figma:figma-design-to-code`') < captureSkill.indexOf('`$figma:figma-use`'),
+    'capture skill routes design-context reads through figma-design-to-code before use_figma operations',
+  );
   assert.match(captureSkill, /任何 Figma 节点、变量、组件或图层修改都会使本轮证据失效/);
   assert.match(captureSkill, /本次采集会话创建并记录的操作系统临时目录/);
   assert.match(captureSkill, /source-registration\.schema\.json/);

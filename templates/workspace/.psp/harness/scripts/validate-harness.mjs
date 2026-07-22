@@ -333,7 +333,7 @@ if (manifest && manifestValid) {
           !registered
           || registered.stage !== operation.stage
           || registered.domain !== operation.domain
-          || !['internal-model', 'internal-model-set'].includes(registered.authorityKind)
+          || !['internal-model', 'internal-model-set', 'area', 'area-set'].includes(registered.authorityKind)
           || !stage?.artifacts?.[artifactId]
         ) {
           block('AIH_CONTRACT_INVALID', '产物 operation 引用无效 Artifact：' + artifactId, operation.id);

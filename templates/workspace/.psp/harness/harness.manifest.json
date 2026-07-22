@@ -40,7 +40,8 @@
       ".agents/skills/organize-figma-assets/SKILL.md",
       ".agents/skills/figma-component-from-design/SKILL.md",
       ".agents/skills/implement-figma-lit-page/SKILL.md",
-      ".agents/skills/repair-canonical-ui-visual/SKILL.md"
+      ".agents/skills/repair-canonical-ui-visual/SKILL.md",
+      ".agents/skills/mockcase-coverage/SKILL.md"
     ]
   },
   "readOrder": [
@@ -401,6 +402,25 @@
       ]
     },
     {
+      "id": "apply-mockcase-candidate",
+      "kind": "artifact",
+      "npmScript": "apply:mockcase-candidate",
+      "run": "npm run apply:mockcase-candidate",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/apply-mockcase-candidate.mjs",
+        "args": [
+          "--operation",
+          "apply-mockcase-candidate"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifacts": [
+        "canonical-ui-prototype"
+      ]
+    },
+    {
       "id": "ingest-figma-assets",
       "kind": "ingest",
       "npmScript": "ingest:figma-assets",
@@ -531,6 +551,53 @@
     }
   ],
   "commands": [
+    {
+      "id": "mockcase-coverage-analyze",
+      "npmScript": "analyze:mockcase-coverage",
+      "run": "npm run analyze:mockcase-coverage",
+      "purpose": "只读分析正式 UI Scenario 的 business MockCase 覆盖、stale Case 与上游行为缺口",
+      "blocking": true,
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase-coverage/scripts/analyze.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "disabled"}
+    },
+    {
+      "id": "mockcase-coverage-generate",
+      "npmScript": "generate:mockcase-coverage",
+      "run": "npm run generate:mockcase-coverage",
+      "purpose": "基于当前工作区本地权威输入生成确定性 MockCase 候选，不修改正式文件",
+      "blocking": true,
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase-coverage/scripts/generate.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "disabled"}
+    },
+    {
+      "id": "test-mockcase-coverage",
+      "npmScript": "test:mockcase-coverage",
+      "run": "npm run test:mockcase-coverage",
+      "purpose": "验证 MockCase 覆盖分析、确定候选、输入锁、上游缺口与 Product Design 原子 Apply",
+      "blocking": true,
+      "executor": {
+        "kind": "node-test",
+        "paths": [
+          ".agents/skills/mockcase-coverage/tests/*.test.mjs"
+        ]
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "content-addressed"}
+    },
     {
       "id": "project-consistency",
       "npmScript": "check:project-consistency",
@@ -1383,6 +1450,7 @@
         "harness",
         "workspace-structure",
         "test-harness",
+        "test-mockcase-coverage",
         "test-product-fast",
         "test-product-slow",
         "product-structure",
@@ -1396,6 +1464,27 @@
         "release"
       ],
       "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "mockcase-coverage",
+      "commands": [
+        "harness",
+        "test-mockcase-coverage"
+      ],
+      "version": "1.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
       "cache": {
         "mode": "content-addressed"
       }
@@ -1925,6 +2014,7 @@
         "harness",
         "workspace-structure",
         "test-harness",
+        "test-mockcase-coverage",
         "test-product-fast",
         "test-product-slow",
         "product-strict",
@@ -1959,6 +2049,25 @@
       "consistencyProfile": "project-consistency",
       "handoffProfile": "project-consistency",
       "checkpointProfile": "project-consistency",
+      "mainProfile": "workspace-main"
+    },
+    {
+      "id": "mockcase-coverage",
+      "kind": "repository",
+      "selectionGroup": "mockcase-coverage",
+      "priority": 300,
+      "status": "active",
+      "selector": {
+        "type": "static",
+        "paths": [
+          ".agents/skills/mockcase-coverage/**"
+        ]
+      },
+      "defaultProfile": "mockcase-coverage",
+      "readinessProfile": "mockcase-coverage",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "project-consistency",
+      "checkpointProfile": "mockcase-coverage",
       "mainProfile": "workspace-main"
     },
     {
@@ -2754,6 +2863,101 @@
       "owner": "product-design",
       "domain": "product-design",
       "meaning": "UI HTML Draft 固定的 UC 或 Visual Spec 版本与内容哈希不再匹配",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_UPSTREAM_GAP",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "正式 Use Case 或 Scenario 缺少生成 MockCase 所需的业务结果、恢复状态或真实激活事实",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_CANDIDATE_STALE",
+      "severity": "blocker",
+      "owner": "repository-harness",
+      "meaning": "MockCase 候选绑定的 Use Cases、Canonical UI、Manifest、目标模型或输入哈希已变化",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_MOCKCASE_APPLY_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase 候选未能原子应用到 Canonical UI Prototype",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_MOCKCASE_CONTRACT_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase 或 Effect 的 Route、Scenario、实例、Activation、Behavior 或 Matrix 引用无效",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_COVERAGE_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase 默认 Case 或 business Scenario 覆盖不符合领域规则",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_STATE_MISMATCH",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase 声明的 State Matrix 结果与实际组件状态不一致",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_TARGET_MISSING",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase 目标组件实例或 Activation Control 在当前 Route 中不存在",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_CONFLICT",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "多个 MockCase 要求同一组件实例进入互斥 State Matrix Entry",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_PLUGIN_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase Review Plugin 未能加载、挂载或完成运行事务",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_TOOL_MISSING",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "普通 Review Route 缺少唯一 MockCase Review Plugin 或工具开关隔离失效",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_ROLLBACK_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase 失败事务未能在错误事件前恢复全部受影响实例、属性与原激活集合",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_TIMEOUT",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "MockCase 事务或组件状态观测在稳定超时内未完成",
       "gateClass": "domain-diagnostic"
     },
     {

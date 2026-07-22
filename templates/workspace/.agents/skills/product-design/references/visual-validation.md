@@ -34,7 +34,7 @@
 5. `exact` 的运行截图必须在相同视口、设备像素比、字体、资源和 Mock 数据下与证据截图比较；通道容差与最大差异像素比例只读取 Contract，Agent 不得自行放宽。偏差超过阈值时记录 `AIH_VISUAL_PIXEL_DIAGNOSTIC`，输出 Figma/截图基线、实际截图、差异图、路由、视口、场景、差异比例和区域，但不把像素阈值当作最终接受或阻断。
 6. 核对 `assets` 的本地文件、加载结果与实际使用目标，校验 `designSources` 的证据内容哈希和覆盖范围。
 7. 核对 `componentInventory` 已唯一覆盖全部 Figma 组件相关节点，`componentVariantCoverage` 已覆盖全部共享组件 Instance，`componentContracts` 已唯一声明 Lit 接口；浏览器逐项验证 Lit Tag、`data-figma-instance-id`、Variant Attribute、Slot，并验证 `/__review/components` 只呈现 `stateMatrix` 中的全部合法组合。
-8. 逐个 `mockCases` 深链执行 request/ready 握手，核对 `data-mockcase-id`、实际可见状态和互斥约束；Review 截图忽略全部 `[data-review-tool]`，但 URL 和文本证据保留当前 Case。
+8. 逐个 `mockCases` 及兼容组合执行集合事务，核对 Effect 目标实例、实际 Matrix 状态、冲突、回滚、撤销与 `psp-cases` 恢复；Review 截图和像素比较排除全部 `[data-review-tool]`，但 URL 和文本证据保留当前 Case 集合。
 9. 捕获控制台错误、页面异常和资源请求失败；只允许本地服务器、`data:` 与 `blob:` 请求。
 10. 仅当用户明确选择额外的键盘操作、读屏、焦点、触控尺寸或减少动画检查时，运行 `accessibility.checks` 中对应的检查；Component Contract 的关键可访问断言始终由契约 Runner 执行。
 11. `screenshot-match` 只记录差异比例、区域、实际图和差异图，不产生最终视觉阻断。`exact` 的最终视觉结论必须来自当前 Review 范围上的 Human Visual Acceptance；机器样式和来源绑定失败仍可在用户显式启用后进行一次手动修复。

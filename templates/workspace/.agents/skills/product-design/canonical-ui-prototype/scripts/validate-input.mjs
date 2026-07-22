@@ -633,7 +633,7 @@ try {
     const pageInstances = new Set();
     for (const instance of contract.pageInstances) {
       const key = instance.screenId + '/' + (instance.figmaInstanceNodeId || instance.id);
-      if (pageInstances.has(key) || (mapping && !contract.figmaInstanceNodeIds.includes(instance.figmaInstanceNodeId))) {
+      if (pageInstances.has(key) || (mapping && instance.figmaInstanceNodeId && !contract.figmaInstanceNodeIds.includes(instance.figmaInstanceNodeId))) {
         block('AIH_COMPONENT_CONTRACT_INVALID', '页面实例必须唯一并引用 Contract 中的 Figma Instance：' + contract.id + ' / ' + key, location);
       }
       const screen = model.screens.find((item) => item.id === instance.screenId);
@@ -763,82 +763,75 @@ try {
 
   const mockBehaviors = new Map(model.mockBehaviors.map((item) => [item.id, item]));
   const matrixEntries = new Map(model.stateMatrix.map((item) => [item.id, item]));
+  const componentInstances = new Map(model.componentContracts.flatMap((contract) => contract.pageInstances.map((instance) => [instance.id, { ...instance, contract }] )));
   const casesByRoute = new Map();
+  const matrixStateIds = (entry) => (axesByContract.get(entry.componentContractId) || []).flatMap((axis) => {
+    const selected = axis.values.find((value) => value.id === entry.values[axis.id]);
+    return selected?.stateId ? [selected.stateId] : [];
+  });
   for (const mockCase of model.mockCases) {
     const location = 'mockCases.' + mockCase.id;
     const route = model.routes.find((item) => item.id === mockCase.routeId);
-    const screen = model.screens.find((item) => item.id === mockCase.screenId);
-    if (!route || !screen || route.screenId !== screen.id) {
-      block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 的 Route 与 Screen 无法形成同一页面：' + mockCase.id, location);
+    const screen = route && model.screens.find((item) => item.id === route.screenId);
+    if (!route || !screen) {
+      block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 必须绑定有效 Route：' + mockCase.id, location);
       continue;
     }
     if (!casesByRoute.has(route.id)) casesByRoute.set(route.id, []);
     casesByRoute.get(route.id).push(mockCase);
-    const routeStateIds = new Set([
-      ...screen.stateIds,
-      ...model.components.filter((item) => screen.componentIds.includes(item.id)).flatMap((item) => item.stateIds),
-    ]);
-    for (const stateId of mockCase.visibleStateIds) {
-      if (!routeStateIds.has(stateId)) block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 引用不属于该页面的可见 State：' + mockCase.id + ' / ' + stateId, location);
+    const scenario = mockCase.scenarioId && model.scenarios.find((item) => item.id === mockCase.scenarioId);
+    if (mockCase.kind === 'business' && (!scenario || scenario.routeId !== route.id)) {
+      block('AIH_MOCKCASE_CONTRACT_INVALID', 'business Mock Case 必须绑定同 Route 的正式 Scenario：' + mockCase.id, location);
     }
-    if (mockCase.scenarioId) {
-      const scenario = model.scenarios.find((item) => item.id === mockCase.scenarioId);
-      if (!scenario || scenario.routeId !== route.id || scenario.expectedStateIds.some((stateId) => !mockCase.visibleStateIds.includes(stateId))) {
-        block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 的 Scenario 必须属于同一路由且最终状态可见：' + mockCase.id, location);
-      }
-    }
-    for (const behaviorId of mockCase.mockBehaviorIds) {
-      const behavior = mockBehaviors.get(behaviorId);
-      if (!behavior || behavior.responseStateIds.some((stateId) => !mockCase.visibleStateIds.includes(stateId))) {
-        block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 的 Mock Behavior 必须存在且响应状态可见：' + mockCase.id + ' / ' + behaviorId, location);
-      }
-    }
-    if (mockCase.holdLoading && mockCase.mockBehaviorIds.length > 0) {
-      block('AIH_MOCKCASE_CONTRACT_INVALID', '稳定 Loading Case 不得发起会完成的 Mock Behavior：' + mockCase.id, location);
-    }
-    for (const matrixEntryId of mockCase.stateMatrixEntryIds) {
-      const entry = matrixEntries.get(matrixEntryId);
+    const seenTargets = new Map();
+    for (const [effectIndex, effect] of mockCase.effects.entries()) {
+      const effectLocation = location + '.effects.' + effectIndex;
+      const instance = componentInstances.get(effect.targetInstanceId);
+      const entry = matrixEntries.get(effect.expectedStateMatrixEntryId);
       const contract = entry && contracts.get(entry.componentContractId);
-      if (!entry || entry.classification !== 'legal' || !entry.renderInGallery || !contract || !screen.componentIds.includes(contract.componentId)) {
-        block('AIH_MOCKCASE_CONTRACT_INVALID', 'Mock Case 只能引用本页面 Component 的合法 State Matrix Entry：' + mockCase.id + ' / ' + matrixEntryId, location);
+      if (!instance || instance.screenId !== screen.id || !entry || entry.classification !== 'legal' || !contract || contract.id !== instance.contract.id) {
+        block('AIH_MOCKCASE_CONTRACT_INVALID', 'Effect 必须引用当前 Route 的组件实例及其合法 State Matrix Entry：' + mockCase.id + ' / ' + effect.targetInstanceId, effectLocation);
         continue;
       }
-      const axes = axesByContract.get(contract.id) || [];
-      for (const axis of axes.filter((item) => ['runtime-state', 'interaction-state'].includes(item.kind))) {
-        const stateId = axis.values.find((value) => value.id === entry.values[axis.id])?.stateId;
-        if (stateId && !mockCase.visibleStateIds.includes(stateId)) {
-          block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 的可见 State 与 State Matrix 不一致：' + mockCase.id + ' / ' + stateId, location);
+      const previousEntry = seenTargets.get(effect.targetInstanceId);
+      if (previousEntry && previousEntry !== entry.id) {
+        block('AIH_MOCKCASE_STATE_MISMATCH', '单个 Case 不得让同一组件实例进入多个互斥 Matrix Entry：' + mockCase.id + ' / ' + effect.targetInstanceId, effectLocation);
+      }
+      seenTargets.set(effect.targetInstanceId, entry.id);
+      const expectedStateIds = new Set(matrixStateIds(entry));
+      for (const behaviorId of effect.mockBehaviorIds) {
+        const behavior = mockBehaviors.get(behaviorId);
+        if (!behavior || behavior.responseStateIds.some((stateId) => !expectedStateIds.has(stateId))) {
+          block('AIH_MOCKCASE_CONTRACT_INVALID', 'Effect 的 Mock Behavior 响应必须属于目标 Matrix Entry：' + mockCase.id + ' / ' + behaviorId, effectLocation);
         }
       }
-    }
-    for (const component of model.components.filter((item) => screen.componentIds.includes(item.id))) {
-      const visible = component.stateIds.filter((stateId) => mockCase.visibleStateIds.includes(stateId));
-      if (visible.length > 1) block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 同时声明了组件互斥状态：' + mockCase.id + ' / ' + visible.join(', '), location);
+      if (effect.activation.kind === 'request' && effect.mockBehaviorIds.length === 0) {
+        block('AIH_MOCKCASE_CONTRACT_INVALID', 'request Activation 至少需要一个 Mock Behavior：' + mockCase.id, effectLocation);
+      }
+      if (effect.activation.controlId) {
+        const control = model.controls.find((item) => item.id === effect.activation.controlId);
+        if (!control || control.componentId !== contract.componentId) {
+          block('AIH_MOCKCASE_CONTRACT_INVALID', 'Activation Control 必须属于目标组件：' + mockCase.id + ' / ' + effect.activation.controlId, effectLocation);
+        }
+      }
+      if (scenario) {
+        const scenarioResults = new Set([...scenario.expectedStateIds, ...scenario.recoveryStateIds]);
+        if (![...expectedStateIds].some((stateId) => scenarioResults.has(stateId))) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', 'business Mock Case Effect 必须投射 Scenario 声明的结果或恢复状态：' + mockCase.id + ' / ' + entry.id, effectLocation);
+        }
+      }
     }
   }
   if (model.gaps.length === 0) {
     for (const route of model.routes) {
-      const screen = model.screens.find((item) => item.id === route.screenId);
       const routeCases = casesByRoute.get(route.id) || [];
-      if (routeCases.filter((item) => item.isDefault).length !== 1) {
+      if (routeCases.length > 0 && routeCases.filter((item) => item.isDefault).length !== 1) {
         block('AIH_MOCKCASE_COVERAGE_FAILED', '每个 Route 必须且只能有一个默认 Mock Case：' + route.id, 'mockCases');
       }
-      if (!screen) continue;
-      const requiredStateIds = new Set([
-        ...screen.stateIds,
-        ...model.components.filter((item) => screen.componentIds.includes(item.id)).flatMap((item) => item.stateIds),
-      ]);
-      const coveredStateIds = new Set(routeCases.flatMap((item) => item.visibleStateIds));
-      for (const stateId of requiredStateIds) {
-        if (!coveredStateIds.has(stateId)) block('AIH_MOCKCASE_COVERAGE_FAILED', '正式可见 State 缺少 Mock Case 覆盖：' + route.id + ' / ' + stateId, 'mockCases');
-      }
-      const requiredMatrixIds = model.stateMatrix.filter((entry) => {
-        const contract = contracts.get(entry.componentContractId);
-        return entry.classification === 'legal' && entry.renderInGallery && contract && screen.componentIds.includes(contract.componentId);
-      }).map((entry) => entry.id);
-      const coveredMatrixIds = new Set(routeCases.flatMap((item) => item.stateMatrixEntryIds));
-      for (const entryId of requiredMatrixIds) {
-        if (!coveredMatrixIds.has(entryId)) block('AIH_MOCKCASE_COVERAGE_FAILED', '合法 State Matrix Entry 缺少 Mock Case 覆盖：' + route.id + ' / ' + entryId, 'mockCases');
+      const defaultTargets = new Set(routeCases.filter((item) => item.isDefault).flatMap((item) => item.effects.map((effect) => effect.targetInstanceId)));
+      const targetWithoutReset = routeCases.flatMap((item) => item.effects).find((effect) => !defaultTargets.has(effect.targetInstanceId));
+      if (targetWithoutReset) {
+        block('AIH_MOCKCASE_COVERAGE_FAILED', '每个 Effect 目标必须有默认 Case Effect，才能安全撤销：' + route.id + ' / ' + targetWithoutReset.targetInstanceId, 'mockCases');
       }
     }
   }

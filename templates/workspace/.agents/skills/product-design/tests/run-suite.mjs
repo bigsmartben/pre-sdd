@@ -9,9 +9,12 @@ const filterArguments = tier === 'slow'
   : tier === 'fast'
     ? ['--test-skip-pattern=' + slow]
     : [];
-const path = resolve(import.meta.dirname, 'product.test.mjs');
+const paths = [
+  resolve(import.meta.dirname, 'product.test.mjs'),
+  resolve(import.meta.dirname, '../../mockcase-coverage/tests/mockcase-coverage.test.mjs'),
+];
 const { NODE_TEST_CONTEXT: _parentTestContext, ...environment } = process.env;
-const child = spawnSync(process.execPath, ['--test', ...filterArguments, path], {
+const child = spawnSync(process.execPath, ['--test', ...filterArguments, ...paths], {
   stdio: 'inherit',
   windowsHide: true,
   env: environment,
