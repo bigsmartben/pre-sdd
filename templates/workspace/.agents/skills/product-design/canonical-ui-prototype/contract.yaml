@@ -50,7 +50,11 @@ spec:
     - finite-state-axis-kinds-distinct
     - state-matrix-combination-classification-complete
     - component-state-gallery-generated
-    - mock-case-route-default-and-state-coverage-complete
+    - mock-case-business-and-technical-distinct
+    - mock-case-effect-target-and-activation-complete
+    - mock-case-instance-conflict-transactional
+    - mock-case-all-touched-targets-rollback-before-error
+    - mock-case-activation-dispatched-by-kind
     - mock-case-request-ready-browser-verified
     - component-contract-playwright-matrix-generated
     - exact-human-visual-acceptance-current

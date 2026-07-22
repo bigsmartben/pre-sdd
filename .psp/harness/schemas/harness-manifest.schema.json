@@ -4,7 +4,7 @@
   "title": "pre-sdd Harness Standard v3 Maintainer Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "name", "version", "standard", "repositoryKind", "entrypoints", "schemas", "adapters", "readOrder", "scaffoldPolicy", "commands", "validationProfiles", "scopes", "evidenceReport", "blockers"],
+  "required": ["$schema", "name", "version", "standard", "standardProjectionRegistry", "repositoryKind", "entrypoints", "schemas", "adapters", "readOrder", "scaffoldPolicy", "commands", "validationProfiles", "scopes", "evidenceReport", "blockers"],
   "properties": {
     "$schema": {"type": "string"},
     "name": {"$ref": "#/$defs/identifier"},
@@ -20,6 +20,7 @@
         "profile": {"const": "maintainer"}
       }
     },
+    "standardProjectionRegistry": {"$ref": "#/$defs/standardProjectionRegistry"},
     "repositoryKind": {"const": "scaffold"},
     "entrypoints": {"type": "object", "required": ["instructions", "protocol", "standard", "project", "manifest", "repository"], "additionalProperties": {"$ref": "#/$defs/path"}},
     "schemas": {
@@ -116,6 +117,80 @@
         "owner": {"const": "scaffold-harness"},
         "gateClass": {"enum": ["safety-structure", "domain-diagnostic", "ci-cd-policy"]},
         "meaning": {"type": "string"}
+      }
+    },
+    "standardProjectionRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "enforcementOwners", "clauses"],
+      "properties": {
+        "authority": {"const": ".psp/harness/HARNESS-BOUNDARY.md"},
+        "enforcementOwners": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "allOf": [
+            {"contains": {"type": "object", "required": ["kind"], "properties": {"kind": {"const": "schema"}}}},
+            {"contains": {"type": "object", "required": ["kind"], "properties": {"kind": {"const": "validator"}}}},
+            {"contains": {"type": "object", "required": ["kind"], "properties": {"kind": {"const": "test"}}}}
+          ],
+          "items": {"$ref": "#/$defs/projectionEnforcementOwner"}
+        },
+        "clauses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/standardProjectionClause"}
+        }
+      }
+    },
+    "projectionEnforcementOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["schema", "validator", "test"]},
+        "path": {"$ref": "#/$defs/path"}
+      }
+    },
+    "standardProjectionClause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clauseId", "authorityAnchor", "targets", "enforcementOwnerIds"],
+      "properties": {
+        "clauseId": {"type": "string", "pattern": "^AIH-STD-[A-Z0-9]+(?:-[A-Z0-9]+)*$"},
+        "authorityAnchor": {"type": "string", "pattern": "^aih-std-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/standardProjectionTarget"}
+        },
+        "enforcementOwnerIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        }
+      }
+    },
+    "standardProjectionTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "role", "requiredText", "forbiddenText"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "role": {"enum": ["profile", "runtime-contract", "instruction", "skill", "documentation"]},
+        "requiredText": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "forbiddenText": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
       }
     }
   }

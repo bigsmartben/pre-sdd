@@ -843,6 +843,7 @@ async function verifyReducedMotion(page, model, routePath) {
 function cleanReviewUrl(base, routePath) {
   const url = new URL(routePath, base);
   url.searchParams.set('annotate', '0');
+  url.searchParams.set('mockcase', '0');
   return url.href;
 }
 
@@ -1000,21 +1001,106 @@ async function verifyStateGallery(viewport, base, model) {
 async function verifyMockCases(viewport, base, model) {
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
   const page = await context.newPage();
-  await page.addInitScript(() => {
-    globalThis.__pspMockcaseReadyIds = [];
-    window.addEventListener('psp:mockcase-ready', (event) => globalThis.__pspMockcaseReadyIds.push(event.detail.caseId));
+  const observedNetworkRequests = [];
+  page.on('request', (request) => {
+    if (['fetch', 'xhr'].includes(request.resourceType())) observedNetworkRequests.push({ method: request.method(), url: request.url() });
   });
+  await page.addInitScript(() => {
+    globalThis.__pspMockcaseReadySets = [];
+    globalThis.__pspMockcaseErrors = [];
+    globalThis.__pspMockcaseControlClicks = [];
+    globalThis.__pspMockcaseFindInstance = (instanceId) => {
+      const selector = `[data-component-instance-id="${CSS.escape(instanceId)}"]`;
+      const roots = [document];
+      while (roots.length > 0) {
+        const root = roots.shift();
+        const direct = root.querySelector(selector);
+        if (direct) return direct;
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) roots.push(element.shadowRoot);
+        }
+      }
+      return null;
+    };
+    globalThis.__pspMockcaseCaptureTargets = (targetIds) => ({
+      behaviorIds: [...(globalThis.__pspMockBehaviorIds || [])],
+      targets: targetIds.map((targetInstanceId) => {
+        const target = globalThis.__pspMockcaseFindInstance(targetInstanceId);
+        if (!target) return { targetInstanceId, exists: false, mockCaseIds: null, stateIds: [] };
+        const stateIds = new Set();
+        const scan = (root) => {
+          const elements = root instanceof Element ? [root, ...root.querySelectorAll('*')] : [...root.querySelectorAll('*')];
+          for (const element of elements) {
+            for (const attribute of ['data-component-state', 'data-state-id']) {
+              const value = element.getAttribute(attribute);
+              if (value) stateIds.add(value);
+            }
+            if (element.shadowRoot) scan(element.shadowRoot);
+          }
+        };
+        scan(target);
+        return {
+          targetInstanceId,
+          exists: true,
+          mockCaseIds: target.getAttribute('data-mockcase-ids'),
+          stateIds: [...stateIds].sort(),
+        };
+      }),
+    });
+    document.addEventListener('click', (event) => {
+      const control = event.composedPath().find((item) => item instanceof Element && item.hasAttribute('data-control-id'));
+      const controlId = control?.getAttribute('data-control-id');
+      if (controlId) globalThis.__pspMockcaseControlClicks.push(controlId);
+    }, true);
+    window.addEventListener('psp:mockcase-ready', (event) => globalThis.__pspMockcaseReadySets.push([...event.detail.activeCaseIds].sort().join(',')));
+    window.addEventListener('psp:mockcase-error', (event) => {
+      globalThis.__pspMockcaseErrors.push(event.detail);
+      if (globalThis.__pspMockcaseErrorCaptureTargetIds) {
+        globalThis.__pspMockcaseRollbackAtError = {
+          transactionId: event.detail.transactionId,
+          activeCaseIds: [...event.detail.activeCaseIds],
+          ...globalThis.__pspMockcaseCaptureTargets(globalThis.__pspMockcaseErrorCaptureTargetIds),
+        };
+      }
+    });
+  });
+  const caseKey = (ids) => [...ids].sort().join(',');
+  const waitReady = async (ids) => page.waitForFunction((key) => globalThis.__pspMockcaseReadySets?.includes(key), caseKey(ids), { timeout: 5000 });
+  const effectState = (effect) => {
+    const entry = model.stateMatrix.find((item) => item.id === effect.expectedStateMatrixEntryId);
+    const axes = model.stateAxes.filter((item) => item.componentContractId === entry?.componentContractId);
+    return axes.flatMap((axis) => {
+      const selected = axis.values.find((item) => item.id === entry?.values[axis.id]);
+      return selected?.stateId && model.states.find((item) => item.id === selected.stateId)?.scope === 'component' ? [selected.stateId] : [];
+    });
+  };
+  const assertEffects = async (mockCase, location) => {
+    for (const effect of mockCase.effects) {
+      const target = page.locator(`[data-component-instance-id="${effect.targetInstanceId}"]`).first();
+      if (await target.count() === 0) {
+        block('AIH_MOCKCASE_TARGET_MISSING', 'Mock Case 目标实例未出现在真实页面：' + mockCase.id + ' / ' + effect.targetInstanceId, location);
+        continue;
+      }
+      for (const stateId of effectState(effect)) {
+        const ownState = await target.getAttribute('data-component-state');
+        const nested = target.locator(`[data-component-state="${stateId}"]`);
+        if (ownState !== stateId && await nested.count() === 0) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', 'Effect 未呈现声明的 State Matrix 结果：' + mockCase.id + ' / ' + stateId, location);
+        }
+      }
+    }
+  };
   try {
     for (const route of model.routes.filter((item) => routeFilter.size === 0 || routeFilter.has(item.id))) {
       const routeCases = model.mockCases.filter((item) => item.routeId === route.id);
       await page.goto(new URL(route.path, base).href, { waitUntil: 'networkidle' });
-      if (await page.locator('mockcase-switcher[data-review-tool="mockcase-switcher"]').count() !== 1) {
-        block('AIH_MOCKCASE_TOOL_MISSING', '普通 Review 地址缺少唯一 Mock Case 切换器。', route.path);
+      if (await page.locator('mockcase-switcher[data-review-tool="mockcase-review-plugin"]').count() !== 1) {
+        block('AIH_MOCKCASE_TOOL_MISSING', '普通 Review 地址缺少唯一 MockCase Review Plugin。', route.path);
       }
       const defaultCase = routeCases.find((item) => item.isDefault);
       if (defaultCase) {
         try {
-          await page.waitForFunction((caseId) => globalThis.__pspMockcaseReadyIds?.includes(caseId), defaultCase.id, { timeout: 4000 });
+          await waitReady([defaultCase.id]);
         } catch {
           block('AIH_MOCKCASE_TIMEOUT', '默认 Mock Case 未完成 request/ready 握手：' + defaultCase.id, route.path);
         }
@@ -1034,43 +1120,188 @@ async function verifyMockCases(viewport, base, model) {
         block('AIH_MOCKCASE_TOOL_MISSING', 'mockcase=0 必须只关闭 Mock Case 切换器，保留不一致标记工具。', route.path);
       }
 
+      const gallery = new URL('/__review/components', base);
+      await page.goto(gallery.href, { waitUntil: 'networkidle' });
+      if (await page.locator('mockcase-switcher').count() !== 0) {
+        block('AIH_MOCKCASE_TOOL_MISSING', 'State Gallery 不得加载 MockCase Review Plugin。', '/__review/components');
+      }
+
       for (const mockCase of routeCases) {
+        const requestStart = observedNetworkRequests.length;
         const deepLink = new URL(route.path, base);
-        deepLink.searchParams.set('psp-case', mockCase.id);
+        deepLink.searchParams.set('psp-cases', mockCase.id);
         deepLink.searchParams.set('annotate', '0');
         await page.goto(deepLink.href, { waitUntil: 'networkidle' });
         try {
-          await page.waitForFunction((caseId) => (
-            globalThis.__pspMockcaseReadyIds?.includes(caseId)
-            && document.querySelector('[data-mockcase-id]')?.getAttribute('data-mockcase-id') === caseId
-          ), mockCase.id, { timeout: 4000 });
+          await waitReady([mockCase.id]);
         } catch {
           block('AIH_MOCKCASE_TIMEOUT', 'Mock Case 深链未完成 request/ready 握手：' + mockCase.id, route.path);
           continue;
         }
-        if (new URL(page.url()).searchParams.get('psp-case') !== mockCase.id) {
+        if (new URL(page.url()).searchParams.get('psp-cases') !== mockCase.id || new URL(page.url()).searchParams.has('psp-case')) {
           block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 深链在加载后未保留：' + mockCase.id, route.path);
         }
-        for (const stateId of mockCase.visibleStateIds) {
-          const target = page.locator(stateSelector(model, stateId)).first();
-          if (await target.count() === 0 || !await target.isVisible()) {
-            block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 未呈现声明的可见 State：' + mockCase.id + ' / ' + stateId, route.path);
-          }
-        }
-        const screen = model.screens.find((item) => item.id === mockCase.screenId);
-        for (const component of model.components.filter((item) => screen?.componentIds.includes(item.id))) {
-          const visible = [];
-          for (const stateId of component.stateIds) {
-            const targets = page.locator('[data-component-state="' + stateId + '"]');
-            for (let index = 0; index < await targets.count(); index += 1) {
-              if (await targets.nth(index).isVisible()) { visible.push(stateId); break; }
+        await assertEffects(mockCase, route.path);
+        const requestControlEffects = mockCase.effects.filter((effect) => effect.activation.kind === 'request' && effect.activation.controlId);
+        if (requestControlEffects.length > 0) {
+          const requests = observedNetworkRequests.slice(requestStart);
+          const controlClicks = await page.evaluate(() => [...(globalThis.__pspMockcaseControlClicks || [])]);
+          for (const effect of requestControlEffects) {
+            for (const behaviorId of effect.mockBehaviorIds) {
+              const behavior = model.mockBehaviors.find((item) => item.id === behaviorId);
+              const [method, requestPath] = behavior?.request.split(/\s+/, 2) ?? [];
+              const expectedUrl = requestPath ? new URL(requestPath, base).href : '';
+              if (!requests.some((item) => item.method === method && item.url === expectedUrl)) {
+                block('AIH_MOCKCASE_STATE_MISMATCH', 'request + controlId 未执行声明的网络请求：' + mockCase.id + ' / ' + behaviorId, route.path);
+              }
             }
-          }
-          if (visible.length !== 1 || !mockCase.visibleStateIds.includes(visible[0])) {
-            block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 的实际组件互斥状态与声明不一致：' + mockCase.id + ' / ' + (visible.join(', ') || '无'), route.path);
+            if (controlClicks.includes(effect.activation.controlId)) {
+              block('AIH_MOCKCASE_STATE_MISMATCH', 'request + controlId 被错误执行为 click：' + mockCase.id + ' / ' + effect.activation.controlId, route.path);
+            }
           }
         }
       }
+
+      const legacyCase = routeCases.find((item) => !item.isDefault) ?? defaultCase;
+      if (legacyCase) {
+        const legacy = new URL(route.path, base);
+        legacy.searchParams.set('psp-case', legacyCase.id);
+        legacy.searchParams.set('annotate', '0');
+        await page.goto(legacy.href, { waitUntil: 'networkidle' });
+        try { await waitReady([legacyCase.id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '旧 psp-case 深链未能只读恢复：' + legacyCase.id, route.path); }
+        if (new URL(page.url()).searchParams.get('psp-cases') !== legacyCase.id || new URL(page.url()).searchParams.has('psp-case')) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', '旧 psp-case 必须迁移为只写 psp-cases。', route.path);
+        }
+      }
+
+      const compatible = routeCases.filter((item) => !item.isDefault).flatMap((left, leftIndex, all) => all.slice(leftIndex + 1).map((right) => [left, right]))
+        .find(([left, right]) => left.effects.every((leftEffect) => right.effects.every((rightEffect) => leftEffect.targetInstanceId !== rightEffect.targetInstanceId)));
+      if (compatible) {
+        const comboIds = compatible.map((item) => item.id).sort();
+        const combo = new URL(route.path, base);
+        combo.searchParams.set('psp-cases', comboIds.slice().reverse().join(','));
+        combo.searchParams.set('annotate', '0');
+        await page.goto(combo.href, { waitUntil: 'networkidle' });
+        try { await waitReady(comboIds); } catch { block('AIH_MOCKCASE_TIMEOUT', '不同组件实例的兼容 Case 未能同时 READY：' + comboIds.join(', '), route.path); }
+        if (new URL(page.url()).searchParams.get('psp-cases') !== comboIds.join(',')) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', 'psp-cases 未使用稳定排序保存兼容组合。', route.path);
+        }
+        await assertEffects(compatible[0], route.path);
+        await assertEffects(compatible[1], route.path);
+        await page.locator(`[data-mockcase-id="${compatible[0].id}"] input`).uncheck();
+        try { await waitReady([compatible[1].id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '取消一个 Case 后其余 Case 未保持 READY。', route.path); }
+        if (new URL(page.url()).searchParams.get('psp-cases') !== compatible[1].id) block('AIH_MOCKCASE_STATE_MISMATCH', '取消 Case 后 URL 未只保留其余 Case。', route.path);
+      }
+
+      const sameInstanceCompatible = routeCases.filter((item) => !item.isDefault).flatMap((left, leftIndex, all) => all.slice(leftIndex + 1).map((right) => [left, right]))
+        .find(([left, right]) => left.effects.some((leftEffect) => right.effects.some((rightEffect) => (
+          leftEffect.targetInstanceId === rightEffect.targetInstanceId
+          && leftEffect.expectedStateMatrixEntryId === rightEffect.expectedStateMatrixEntryId
+        ))) && !left.effects.some((leftEffect) => right.effects.some((rightEffect) => (
+          leftEffect.targetInstanceId === rightEffect.targetInstanceId
+          && leftEffect.expectedStateMatrixEntryId !== rightEffect.expectedStateMatrixEntryId
+        ))));
+      if (sameInstanceCompatible) {
+        const comboIds = sameInstanceCompatible.map((item) => item.id).sort();
+        const combo = new URL(route.path, base);
+        combo.searchParams.set('psp-cases', comboIds.join(','));
+        combo.searchParams.set('annotate', '0');
+        await page.goto(combo.href, { waitUntil: 'networkidle' });
+        try { await waitReady(comboIds); } catch { block('AIH_MOCKCASE_TIMEOUT', '同一实例同一 Matrix Entry 的兼容 Case 未能同时 READY：' + comboIds.join(', '), route.path); }
+        await assertEffects(sameInstanceCompatible[0], route.path);
+        await assertEffects(sameInstanceCompatible[1], route.path);
+      }
+
+      const conflictPair = routeCases.filter((item) => !item.isDefault).flatMap((left, leftIndex, all) => all.slice(leftIndex + 1).map((right) => [left, right]))
+        .find(([left, right]) => left.effects.some((leftEffect) => right.effects.some((rightEffect) => leftEffect.targetInstanceId === rightEffect.targetInstanceId && leftEffect.expectedStateMatrixEntryId !== rightEffect.expectedStateMatrixEntryId)));
+      if (conflictPair) {
+        const conflictUrl = new URL(route.path, base);
+        conflictUrl.searchParams.set('psp-cases', conflictPair[0].id);
+        conflictUrl.searchParams.set('annotate', '0');
+        await page.goto(conflictUrl.href, { waitUntil: 'networkidle' });
+        try { await waitReady([conflictPair[0].id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '冲突基线 Case 未 READY。', route.path); }
+        await page.locator(`[data-mockcase-id="${conflictPair[1].id}"] input`).check();
+        try { await page.locator(`[data-mockcase-id="${conflictPair[1].id}"][data-mockcase-status="conflict"]`).waitFor({ timeout: 2000 }); }
+        catch { block('AIH_MOCKCASE_CONFLICT', '同一实例互斥 Case 未返回 conflict。', route.path); }
+        if (new URL(page.url()).searchParams.get('psp-cases') !== conflictPair[0].id) block('AIH_MOCKCASE_STATE_MISMATCH', '冲突事务破坏了已有激活集合。', route.path);
+        await assertEffects(conflictPair[0], route.path);
+      }
+
+      const multiEffect = routeCases.find((item) => item.effects.length > 1 && !item.isDefault);
+      if (multiEffect && defaultCase) {
+        const rollbackUrl = new URL(route.path, base);
+        rollbackUrl.searchParams.set('psp-cases', defaultCase.id);
+        rollbackUrl.searchParams.set('annotate', '0');
+        await page.goto(rollbackUrl.href, { waitUntil: 'networkidle' });
+        try { await waitReady([defaultCase.id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '部分失败回滚基线未 READY。', route.path); }
+        const transaction = 'rollback-check';
+        const targetIds = [...new Set([...defaultCase.effects, ...multiEffect.effects].map((effect) => effect.targetInstanceId))];
+        const baseline = await page.evaluate((ids) => globalThis.__pspMockcaseCaptureTargets(ids), targetIds);
+        const secondEffect = multiEffect.effects[1];
+        await page.evaluate(({ caseId, transactionId, effectIndex, targetInstanceId, activationKind, targetIds }) => {
+          globalThis.__pspMockcaseErrorCaptureTargetIds = targetIds;
+          globalThis.__pspMockcaseBeforeEffectForTest = (context) => {
+            if (
+              context.caseId === caseId
+              && context.effectIndex === effectIndex
+              && context.effect.targetInstanceId === targetInstanceId
+              && context.effect.activation.kind === activationKind
+            ) {
+              throw Object.assign(new Error('deterministic multi-effect failure'), { code: 'AIH_MOCKCASE_APPLY_FAILED' });
+            }
+          };
+          window.dispatchEvent(new CustomEvent('psp:mockcase-request', { detail: { transactionId, activeCaseIds: [caseId] } }));
+        }, {
+          caseId: multiEffect.id,
+          transactionId: transaction,
+          effectIndex: 1,
+          targetInstanceId: secondEffect.targetInstanceId,
+          activationKind: secondEffect.activation.kind,
+          targetIds,
+        });
+        try { await page.waitForFunction((id) => globalThis.__pspMockcaseErrors?.some((item) => item.transactionId === id), transaction, { timeout: 5000 }); }
+        catch { block('AIH_MOCKCASE_TIMEOUT', '多 Effect 部分失败未返回 error。', route.path); }
+        const rollback = await page.evaluate(() => {
+          delete globalThis.__pspMockcaseBeforeEffectForTest;
+          delete globalThis.__pspMockcaseErrorCaptureTargetIds;
+          return globalThis.__pspMockcaseRollbackAtError;
+        });
+        const error = await page.evaluate((id) => globalThis.__pspMockcaseErrors?.find((item) => item.transactionId === id), transaction);
+        if (!rollback || rollback.transactionId !== transaction || JSON.stringify(rollback.targets) !== JSON.stringify(baseline.targets)) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', '多 Effect 部分失败在 error 事件前未完整恢复全部目标 state/attribute。', route.path);
+        }
+        if (JSON.stringify(rollback?.behaviorIds || []) !== JSON.stringify(baseline.behaviorIds) || JSON.stringify(error?.activeCaseIds || []) !== JSON.stringify([defaultCase.id])) {
+          block('AIH_MOCKCASE_STATE_MISMATCH', '多 Effect 部分失败未恢复原 Case 集合或 Mock Behavior 集合。', route.path);
+        }
+        if (error?.code === 'AIH_MOCKCASE_ROLLBACK_FAILED') {
+          block('AIH_MOCKCASE_ROLLBACK_FAILED', '多 Effect 部分失败触发了不完整回滚：' + error.message, route.path);
+        }
+      }
+    }
+  } finally {
+    await context.close();
+  }
+}
+
+async function verifyMockCasePluginFailure(viewport, base, routePath) {
+  const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
+  const page = await context.newPage();
+  try {
+    await page.addInitScript(() => {
+      globalThis.__pspMockcasePluginErrors = [];
+      globalThis.__pspMockcasePluginLoaderForTest = async () => { throw new Error('deterministic plugin load failure'); };
+      window.addEventListener('psp:mockcase-error', (event) => globalThis.__pspMockcasePluginErrors.push(event.detail));
+    });
+    await page.goto(new URL(routePath, base).href, { waitUntil: 'networkidle' });
+    try {
+      await page.waitForFunction(() => document.documentElement.getAttribute('data-mockcase-plugin-error') === 'true', null, { timeout: 3000 });
+    } catch {
+      block('AIH_MOCKCASE_PLUGIN_FAILED', 'MockCase Plugin 模块加载失败时没有设置明确错误状态。', routePath);
+      return;
+    }
+    const honestFailure = await page.evaluate(() => globalThis.__pspMockcasePluginErrors?.some((item) => item.code === 'AIH_MOCKCASE_PLUGIN_FAILED'));
+    if (!honestFailure || await page.locator('mockcase-switcher').count() !== 0) {
+      block('AIH_MOCKCASE_PLUGIN_FAILED', 'MockCase Plugin 加载失败后伪造了工具挂载或没有发出稳定错误。', routePath);
     }
   } finally {
     await context.close();
@@ -1146,6 +1377,11 @@ try {
       if (!skipMockCases) await verifyMockCases(selectedViewports[0], base, model);
     } catch (error) {
       block(error.code || 'AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 浏览器回归失败：' + error.message, 'mockCases');
+    }
+    try {
+      if (!skipMockCases) await verifyMockCasePluginFailure(selectedViewports[0], base, selectedRoutes[0].path);
+    } catch (error) {
+      block(error.code || 'AIH_MOCKCASE_PLUGIN_FAILED', 'Mock Case Plugin 故障诚实性回归失败：' + error.message, selectedRoutes[0].path);
     }
   }
 

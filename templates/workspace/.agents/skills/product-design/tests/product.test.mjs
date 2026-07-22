@@ -86,7 +86,7 @@ async function prepareExactFixture(root) {
   exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
   exact.scenarios = [];
-  exact.mockCases.forEach((item) => { delete item.scenarioId; });
+  exact.mockCases.forEach((item) => { item.kind = 'technical'; delete item.scenarioId; });
   exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.sourceParityAssertions = [{
     id: 'PARITY-EXACT-DESKTOP',
@@ -839,7 +839,7 @@ test('Component Contract and State Matrix classify every finite combination exac
   assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_STATE_MATRIX_INVALID'));
 });
 
-test('Mock Case contract has one route default and complete visible-state and matrix coverage', async () => {
+test('Mock Case Effect contract binds business scenarios, component instances, activation, behaviors and matrix entries', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { path, model } = await canonicalFixture(root);
@@ -852,20 +852,26 @@ test('Mock Case contract has one route default and complete visible-state and ma
   await writeCanonical(path, noDefault);
   assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_COVERAGE_FAILED'));
 
-  const missingLoading = structuredClone(model);
-  missingLoading.mockCases = missingLoading.mockCases.filter((item) => item.id !== 'MOCK-CASE-LOADING');
-  await writeCanonical(path, missingLoading);
+  const missingReset = structuredClone(model);
+  const missingResetTargetId = missingReset.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS-DETAIL').effects[0].targetInstanceId;
+  missingReset.mockCases.find((item) => item.isDefault).effects = missingReset.mockCases.find((item) => item.isDefault).effects.filter((effect) => effect.targetInstanceId !== missingResetTargetId);
+  await writeCanonical(path, missingReset);
   assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_COVERAGE_FAILED'));
 
   const mismatchedState = structuredClone(model);
-  mismatchedState.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').visibleStateIds = ['INT-STATE-001', 'COMPONENT-STATE-ERROR'];
+  mismatchedState.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').effects[0].expectedStateMatrixEntryId = 'STATE-MATRIX-ERROR';
   await writeCanonical(path, mismatchedState);
   const mismatchCodes = codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']));
   assert.ok(mismatchCodes.has('AIH_MOCKCASE_STATE_MISMATCH') || mismatchCodes.has('AIH_MOCKCASE_CONTRACT_INVALID'));
 
-  const unstableLoading = structuredClone(model);
-  unstableLoading.mockCases.find((item) => item.id === 'MOCK-CASE-LOADING').mockBehaviorIds = ['MOCK-001'];
-  await writeCanonical(path, unstableLoading);
+  const missingInstance = structuredClone(model);
+  missingInstance.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').effects[0].targetInstanceId = 'COMPONENT-INSTANCE-UNKNOWN';
+  await writeCanonical(path, missingInstance);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_CONTRACT_INVALID'));
+
+  const missingScenario = structuredClone(model);
+  delete missingScenario.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').scenarioId;
+  await writeCanonical(path, missingScenario);
   assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_CONTRACT_INVALID'));
 });
 
@@ -1119,7 +1125,7 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
   exact.scenarios = [];
-  for (const mockCase of exact.mockCases) delete mockCase.scenarioId;
+  for (const mockCase of exact.mockCases) { mockCase.kind = 'technical'; delete mockCase.scenarioId; }
   exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.sourceParityAssertions = [{
     id: 'PARITY-EXACT-DESKTOP',

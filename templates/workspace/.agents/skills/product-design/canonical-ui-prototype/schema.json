@@ -579,25 +579,51 @@
         "viewportIds": {"$ref": "#/$defs/ids"}
       }
     },
+    "mockCaseActivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["request", "control-event", "input"]},
+        "controlId": {"$ref": "#/$defs/id"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"enum": ["control-event", "input"]}}, "required": ["kind"]},
+          "then": {"properties": {"controlId": {}}, "required": ["controlId"]}
+        }
+      ]
+    },
+    "mockCaseEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetInstanceId", "mockBehaviorIds", "activation", "expectedStateMatrixEntryId"],
+      "properties": {
+        "targetInstanceId": {"$ref": "#/$defs/id"},
+        "mockBehaviorIds": {"$ref": "#/$defs/ids"},
+        "activation": {"$ref": "#/$defs/mockCaseActivation"},
+        "expectedStateMatrixEntryId": {"$ref": "#/$defs/id"}
+      }
+    },
     "mockCase": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id", "label", "routeId", "screenId", "mockBehaviorIds", "stateMatrixEntryIds",
-        "visibleStateIds", "isDefault", "holdLoading"
-      ],
+      "required": ["id", "kind", "label", "routeId", "effects", "isDefault"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["business", "technical"]},
         "label": {"type": "string", "minLength": 1},
         "routeId": {"$ref": "#/$defs/id"},
-        "screenId": {"$ref": "#/$defs/id"},
         "scenarioId": {"$ref": "#/$defs/id"},
-        "mockBehaviorIds": {"$ref": "#/$defs/ids"},
-        "stateMatrixEntryIds": {"$ref": "#/$defs/nonEmptyIds"},
-        "visibleStateIds": {"$ref": "#/$defs/nonEmptyIds"},
-        "isDefault": {"type": "boolean"},
-        "holdLoading": {"type": "boolean"}
-      }
+        "effects": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/mockCaseEffect"}},
+        "isDefault": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "business"}}, "required": ["kind"]},
+          "then": {"properties": {"scenarioId": {}}, "required": ["scenarioId"]}
+        }
+      ]
     },
     "mockBehavior": {"type": "object", "additionalProperties": false, "required": ["id", "request", "responseStateIds"], "properties": {"id": {"$ref": "#/$defs/id"}, "request": {"type": "string", "minLength": 1}, "responseStateIds": {"$ref": "#/$defs/nonEmptyIds"}}},
     "viewport": {"type": "object", "additionalProperties": false, "required": ["id", "width", "height"], "properties": {"id": {"$ref": "#/$defs/id"}, "width": {"type": "integer", "minimum": 240}, "height": {"type": "integer", "minimum": 240}}},

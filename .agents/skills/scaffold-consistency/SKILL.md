@@ -12,8 +12,10 @@ description: 在 pre-sdd 脚手架根仓库中执行只读一致性分析，检�
 
        npm run check:scaffold-consistency -- --json
 
-3. 原样报告 `scope`、`dependencies`、`diagnostics`、`acceptedRisks` 与 `suggestedOperations`。
-4. 保持 `changes` 为空；发现问题时只建议显式维护操作，不自动修复。
+3. 以根 Manifest 的 `standardProjectionRegistry` 为投影注册合同，核对上位规范 clause marker、下游目标、必需/禁止文本以及 Schema、Validator、Test 执行所有者。
+4. 缺失条款、重复条款、缺失投影、重复规范权威或相互矛盾的投影统一报告 `AIH_SCAFFOLD_CONSISTENCY_FAILED`。
+5. 原样报告 `scope`、`dependencies`、`diagnostics`、`acceptedRisks` 与 `suggestedOperations`。
+6. 保持 `changes` 为空；发现问题时只建议显式维护操作，不自动修复。
 
 ## 权限边界
 

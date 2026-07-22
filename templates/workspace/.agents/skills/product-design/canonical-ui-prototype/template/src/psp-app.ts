@@ -1,5 +1,12 @@
 import { LitElement, css, html } from 'lit';
 import { canonicalUi } from './spec/canonical-ui';
+import type {
+  MockCase,
+  MockCaseEffect,
+  MockCaseEffectResult,
+  MockCaseRequestDetail,
+} from './mockcase-protocol';
+import { sortedCaseIds } from './mockcase-protocol';
 
 type PreviewState =
   | 'COMPONENT-STATE-DEFAULT'
@@ -7,13 +14,24 @@ type PreviewState =
   | 'COMPONENT-STATE-SUCCESS'
   | 'COMPONENT-STATE-ERROR';
 
-type MockCase = {
-  id: string;
-  routeId: string;
-  mockBehaviorIds: readonly string[];
-  stateMatrixEntryIds: readonly string[];
-  visibleStateIds: readonly string[];
-  holdLoading: boolean;
+type MockCaseRuntimeModel = {
+  routes: ReadonlyArray<{ id: string; path: string }>;
+  mockCases: readonly MockCase[];
+  mockBehaviors: ReadonlyArray<{ id: string; request: string; responseStateIds: readonly string[] }>;
+  states: ReadonlyArray<{ id: string; scope: string }>;
+  stateAxes: ReadonlyArray<{ id: string; kind: string; values: ReadonlyArray<{ id: string; stateId?: string }> }>;
+  stateMatrix: ReadonlyArray<{ id: string; classification: string; values: Readonly<Record<string, string>> }>;
+};
+
+type MockCaseTargetSnapshot = {
+  targetInstanceId: string;
+  mockCaseIds: string | null;
+};
+
+type MockCaseNetworkResponseDetail = {
+  behaviorId: string;
+  request: string;
+  response: Response;
 };
 
 export class PspApp extends LitElement {
@@ -26,6 +44,8 @@ export class PspApp extends LitElement {
   declare mode: string;
   declare private previewState: PreviewState;
   declare private feedback: string;
+  private activeMockCaseIds: readonly string[] = [];
+  private mockCaseTransaction = Promise.resolve();
 
   constructor() {
     super();
@@ -49,51 +69,254 @@ export class PspApp extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     window.addEventListener('psp:mockcase-request', this.handleMockCaseRequest as EventListener);
+    this.addEventListener('psp:mockcase-network-response', this.handleMockCaseNetworkResponse as EventListener);
+  }
+
+  protected updated(): void {
+    this.setAttribute('data-component-state', this.previewState);
   }
 
   disconnectedCallback(): void {
     window.removeEventListener('psp:mockcase-request', this.handleMockCaseRequest as EventListener);
+    this.removeEventListener('psp:mockcase-network-response', this.handleMockCaseNetworkResponse as EventListener);
     super.disconnectedCallback();
   }
 
-  private readonly handleMockCaseRequest = (event: CustomEvent<{ caseId: string }>): void => {
-    void this.applyMockCase(event.detail.caseId);
+  private readonly handleMockCaseRequest = (event: CustomEvent<MockCaseRequestDetail>): void => {
+    this.mockCaseTransaction = this.mockCaseTransaction.then(() => this.applyMockCaseSet(event.detail));
   };
 
-  private async applyMockCase(caseId: string): Promise<void> {
-    const model = canonicalUi as unknown as {
-      routes: ReadonlyArray<{ id: string; path: string }>;
-      mockCases: readonly MockCase[];
-      mockBehaviors: ReadonlyArray<{ id: string; request: string }>;
-      stateAxes: ReadonlyArray<{ id: string; kind: string; values: ReadonlyArray<{ id: string; stateId?: string }> }>;
-      stateMatrix: ReadonlyArray<{ id: string; values: Readonly<Record<string, string>> }>;
-    };
+  private readonly handleMockCaseNetworkResponse = (event: CustomEvent<MockCaseNetworkResponseDetail>): void => {
+    void this.consumeMockResponse(event.detail.response);
+  };
+
+  private async applyMockCaseSet(detail: MockCaseRequestDetail): Promise<void> {
+    const model = canonicalUi as unknown as MockCaseRuntimeModel;
     const route = model.routes.find((item) => item.path === window.location.pathname);
-    const mockCase = model.mockCases.find((item) => item.id === caseId && item.routeId === route?.id);
-    if (!mockCase) {
-      window.dispatchEvent(new CustomEvent('psp:mockcase-error', { detail: { caseId, message: '未知或跨路由的 Mock Case' } }));
-      return;
-    }
+    const desiredIds = sortedCaseIds(detail.activeCaseIds);
+    const desiredCases = desiredIds.map((id) => model.mockCases.find((item) => item.id === id && item.routeId === route?.id));
+    const effectResults: MockCaseEffectResult[] = [];
+    const previousState = this.previewState;
+    const previousFeedback = this.feedback;
+    const previousIds = [...this.activeMockCaseIds];
+    const previousBehaviors = [...(globalThis.__pspMockBehaviorIds ?? [])];
+    let rollbackContext: {
+      previousCases: readonly MockCase[];
+      resetEffects: readonly MockCaseEffect[];
+      targetSnapshots: readonly MockCaseTargetSnapshot[];
+    } | null = null;
     try {
-      const entry = model.stateMatrix.find((item) => item.id === mockCase.stateMatrixEntryIds[0]);
-      const runtimeAxis = model.stateAxes.find((axis) => axis.kind === 'runtime-state' && entry?.values[axis.id]);
-      const runtimeState = runtimeAxis?.values.find((value) => value.id === entry?.values[runtimeAxis.id])?.stateId as PreviewState | undefined;
-      if (mockCase.holdLoading || mockCase.mockBehaviorIds.length === 0) {
-        if (runtimeState) this.previewState = runtimeState;
-        this.feedback = mockCase.holdLoading ? 'Loading Case 已稳定保持，等待评审者切换。' : `Mock Case 已恢复：${caseId}`;
+      if (!route || desiredCases.some((item) => !item)) {
+        throw Object.assign(new Error('请求包含未知或跨路由的 Mock Case。'), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+      }
+      const cases = desiredCases as MockCase[];
+      for (let left = 0; left < cases.length; left += 1) {
+        for (let right = left + 1; right < cases.length; right += 1) {
+          const conflict = cases[left].effects.some((leftEffect) => cases[right].effects.some((rightEffect) => (
+            leftEffect.targetInstanceId === rightEffect.targetInstanceId
+            && leftEffect.expectedStateMatrixEntryId !== rightEffect.expectedStateMatrixEntryId
+          )));
+          if (conflict) throw Object.assign(new Error(`${cases[left].id} 与 ${cases[right].id} 作用于同一组件实例的互斥状态。`), { code: 'AIH_MOCKCASE_CONFLICT' });
+        }
+      }
+
+      const previousCases = previousIds.map((id) => model.mockCases.find((item) => item.id === id)).filter((item): item is MockCase => Boolean(item));
+      const touchedIds = new Set([...previousCases, ...cases].flatMap((item) => item.effects.map((effect) => effect.targetInstanceId)));
+      const defaults = model.mockCases.filter((item) => item.routeId === route.id && item.isDefault);
+      const resetEffects = defaults.flatMap((item) => item.effects).filter((effect) => touchedIds.has(effect.targetInstanceId));
+      for (const effect of [...resetEffects, ...cases.flatMap((item) => item.effects)]) {
+        const target = this.findInstance(effect.targetInstanceId);
+        const entry = model.stateMatrix.find((item) => item.id === effect.expectedStateMatrixEntryId && item.classification === 'legal');
+        if (!target) throw Object.assign(new Error(`目标组件实例不存在：${effect.targetInstanceId}`), { code: 'AIH_MOCKCASE_TARGET_MISSING' });
+        if (!entry) throw Object.assign(new Error(`目标 State Matrix Entry 不合法：${effect.expectedStateMatrixEntryId}`), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+        if (effect.mockBehaviorIds.some((id) => !model.mockBehaviors.some((item) => item.id === id))) {
+          throw Object.assign(new Error(`Effect 引用未知 Mock Behavior：${effect.targetInstanceId}`), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+        }
+        if (effect.activation.kind !== 'request' && effect.activation.controlId) {
+          const root: ParentNode = target.shadowRoot ?? target;
+          if (!root.querySelector(`[data-control-id="${CSS.escape(effect.activation.controlId)}"]`)) {
+            throw Object.assign(new Error(`Activation Control 不存在：${effect.activation.controlId}`), { code: 'AIH_MOCKCASE_TARGET_MISSING' });
+          }
+        }
+      }
+      const targetSnapshots = [...touchedIds].map((targetInstanceId) => {
+        const target = this.findInstance(targetInstanceId);
+        if (!target) throw Object.assign(new Error(`目标组件实例不存在：${targetInstanceId}`), { code: 'AIH_MOCKCASE_TARGET_MISSING' });
+        return { targetInstanceId, mockCaseIds: target.getAttribute('data-mockcase-ids') };
+      });
+      rollbackContext = { previousCases, resetEffects, targetSnapshots };
+      const behaviorIds = sortedCaseIds(cases.flatMap((item) => item.effects.flatMap((effect) => effect.mockBehaviorIds)));
+      const resetBehaviorIds = resetEffects.flatMap((effect) => effect.mockBehaviorIds);
+      globalThis.__pspMockBehaviorIds = sortedCaseIds([...behaviorIds, ...resetBehaviorIds]);
+
+      for (const effect of resetEffects) await this.applyEffect('reset', effect, model, effectResults);
+      globalThis.__pspMockBehaviorIds = behaviorIds;
+      for (const mockCase of cases.filter((item) => !item.isDefault)) {
+        for (const [effectIndex, effect] of mockCase.effects.entries()) {
+          if (import.meta.env.DEV && globalThis.__pspMockcaseBeforeEffectForTest) {
+            await globalThis.__pspMockcaseBeforeEffectForTest({ caseId: mockCase.id, effectIndex, effect });
+          }
+          await this.applyEffect(mockCase.id, effect, model, effectResults);
+        }
+      }
+
+      this.activeMockCaseIds = desiredIds;
+      for (const targetId of touchedIds) {
+        const target = this.findInstance(targetId);
+        if (target) target.setAttribute('data-mockcase-ids', desiredIds.filter((id) => cases.find((item) => item.id === id)?.effects.some((effect) => effect.targetInstanceId === targetId)).join(','));
+      }
+      window.dispatchEvent(new CustomEvent('psp:mockcase-ready', {
+        detail: { ...detail, activeCaseIds: desiredIds, effectResults },
+      }));
+    } catch (error: unknown) {
+      let reportedError = error;
+      if (rollbackContext) {
+        try {
+          await this.restoreMockCaseTransaction(rollbackContext, previousIds, previousBehaviors, model, effectResults);
+          this.previewState = previousState;
+          this.feedback = previousFeedback;
+          await this.updateComplete;
+        } catch (rollbackError: unknown) {
+          reportedError = Object.assign(
+            new Error(`MockCase 事务失败，且完整回滚未能确认：${rollbackError instanceof Error ? rollbackError.message : '未知回滚错误'}`),
+            { code: 'AIH_MOCKCASE_ROLLBACK_FAILED' },
+          );
+        }
       } else {
-        const behavior = model.mockBehaviors.find((item) => item.id === mockCase.mockBehaviorIds[0]);
-        const requestUrl = behavior?.request.replace(/^[A-Z]+\s+/, '');
-        const mode = requestUrl ? new URL(requestUrl, window.location.origin).searchParams.get('mode') : null;
-        if (mode !== 'success' && mode !== 'error') throw new Error('模板应用无法解析 Mock Behavior mode');
-        await this.runMock(mode);
+        this.previewState = previousState;
+        this.feedback = previousFeedback;
+        this.activeMockCaseIds = previousIds;
+        globalThis.__pspMockBehaviorIds = previousBehaviors;
       }
       await this.updateComplete;
-      this.setAttribute('data-mockcase-id', mockCase.id);
-      window.dispatchEvent(new CustomEvent('psp:mockcase-ready', { detail: { caseId: mockCase.id, visibleStateIds: mockCase.visibleStateIds } }));
-    } catch (error: unknown) {
-      window.dispatchEvent(new CustomEvent('psp:mockcase-error', { detail: { caseId, message: error instanceof Error ? error.message : '未知错误' } }));
+      window.dispatchEvent(new CustomEvent('psp:mockcase-error', {
+        detail: {
+          ...detail,
+          activeCaseIds: previousIds,
+          code: reportedError instanceof Error && 'code' in reportedError ? String(reportedError.code) : 'AIH_MOCKCASE_APPLY_FAILED',
+          message: reportedError instanceof Error ? reportedError.message : '未知错误',
+          effectResults,
+        },
+      }));
     }
+  }
+
+  private async restoreMockCaseTransaction(
+    context: {
+      previousCases: readonly MockCase[];
+      resetEffects: readonly MockCaseEffect[];
+      targetSnapshots: readonly MockCaseTargetSnapshot[];
+    },
+    previousIds: readonly string[],
+    previousBehaviors: readonly string[],
+    model: MockCaseRuntimeModel,
+    results: MockCaseEffectResult[],
+  ): Promise<void> {
+    const resetBehaviorIds = context.resetEffects.flatMap((effect) => effect.mockBehaviorIds);
+    globalThis.__pspMockBehaviorIds = sortedCaseIds([...previousBehaviors, ...resetBehaviorIds]);
+    for (const effect of context.resetEffects) await this.applyEffect('rollback-reset', effect, model, results);
+
+    globalThis.__pspMockBehaviorIds = [...previousBehaviors];
+    for (const mockCase of context.previousCases.filter((item) => !item.isDefault)) {
+      for (const effect of mockCase.effects) await this.applyEffect(`rollback-${mockCase.id}`, effect, model, results);
+    }
+
+    for (const snapshot of context.targetSnapshots) {
+      const target = this.findInstance(snapshot.targetInstanceId);
+      if (!target) throw Object.assign(new Error(`回滚目标组件实例不存在：${snapshot.targetInstanceId}`), { code: 'AIH_MOCKCASE_TARGET_MISSING' });
+      if (snapshot.mockCaseIds === null) target.removeAttribute('data-mockcase-ids');
+      else target.setAttribute('data-mockcase-ids', snapshot.mockCaseIds);
+    }
+    this.activeMockCaseIds = [...previousIds];
+    globalThis.__pspMockBehaviorIds = [...previousBehaviors];
+  }
+
+  private async applyEffect(
+    caseId: string,
+    effect: MockCaseEffect,
+    model: MockCaseRuntimeModel,
+    results: MockCaseEffectResult[],
+  ): Promise<void> {
+    const target = this.findInstance(effect.targetInstanceId);
+    if (!target) throw Object.assign(new Error(`目标组件实例不存在：${effect.targetInstanceId}`), { code: 'AIH_MOCKCASE_TARGET_MISSING' });
+    const entry = model.stateMatrix.find((item) => item.id === effect.expectedStateMatrixEntryId && item.classification === 'legal');
+    if (!entry) throw Object.assign(new Error(`目标 State Matrix Entry 不合法：${effect.expectedStateMatrixEntryId}`), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+    const expectedStateIds = model.stateAxes.flatMap((axis) => {
+      const selected = axis.values.find((value) => value.id === entry.values[axis.id]);
+      return selected?.stateId ? [selected.stateId] : [];
+    });
+    const expectedComponentStates = expectedStateIds.filter((id) => model.states.find((item) => item.id === id)?.scope === 'component');
+    for (const behaviorId of effect.mockBehaviorIds) {
+      if (!model.mockBehaviors.some((item) => item.id === behaviorId)) {
+        throw Object.assign(new Error(`Mock Behavior 不存在：${behaviorId}`), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+      }
+    }
+
+    if (effect.activation.kind === 'request') {
+      if (effect.mockBehaviorIds.length === 0) {
+        throw Object.assign(new Error('Request Activation 至少需要一个 Mock Behavior。'), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+      }
+      for (const behaviorId of effect.mockBehaviorIds) {
+        const behavior = model.mockBehaviors.find((item) => item.id === behaviorId);
+        const [method, request] = behavior?.request.split(/\s+/, 2) ?? [];
+        if (!request) throw Object.assign(new Error(`Request Activation 无法解析：${behaviorId}`), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+        const response = await fetch(request, { method });
+        target.dispatchEvent(new CustomEvent<MockCaseNetworkResponseDetail>('psp:mockcase-network-response', {
+          detail: { behaviorId, request, response: response.clone() },
+          bubbles: true,
+          composed: true,
+        }));
+      }
+    } else {
+      const controlId = effect.activation.controlId;
+      const root: ParentNode = target.shadowRoot ?? target;
+      const control = controlId ? root.querySelector<HTMLElement>(`[data-control-id="${CSS.escape(controlId)}"]`) : null;
+      if (!controlId || !control) throw Object.assign(new Error(`Activation Control 不存在：${controlId ?? '未声明'}`), { code: 'AIH_MOCKCASE_TARGET_MISSING' });
+      if (effect.activation.kind === 'control-event') {
+        control.click();
+      } else if (effect.activation.kind === 'input') {
+        control.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true }));
+        control.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      } else {
+        throw Object.assign(new Error(`未知 Activation kind：${String(effect.activation.kind)}`), { code: 'AIH_MOCKCASE_CONTRACT_INVALID' });
+      }
+    }
+
+    const deadline = Date.now() + 2500;
+    let actualStateIds: string[] = [];
+    do {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await this.updateComplete;
+      actualStateIds = this.observedStateIds(target);
+      if (expectedComponentStates.every((id) => actualStateIds.includes(id))) {
+        results.push({ caseId, targetInstanceId: effect.targetInstanceId, expectedStateMatrixEntryId: effect.expectedStateMatrixEntryId, status: 'ready', actualStateIds });
+        return;
+      }
+    } while (Date.now() < deadline);
+    results.push({ caseId, targetInstanceId: effect.targetInstanceId, expectedStateMatrixEntryId: effect.expectedStateMatrixEntryId, status: 'error', actualStateIds, message: '目标组件未进入预期状态' });
+    throw Object.assign(new Error(`${effect.targetInstanceId} 未进入 ${effect.expectedStateMatrixEntryId}；实际状态：${actualStateIds.join(', ') || '无'}`), { code: 'AIH_MOCKCASE_STATE_MISMATCH' });
+  }
+
+  private observedStateIds(target: HTMLElement): string[] {
+    const values = new Set<string>();
+    for (const element of [target, ...target.querySelectorAll<HTMLElement>('[data-component-state], [data-state-id]'), ...(target.shadowRoot ? target.shadowRoot.querySelectorAll<HTMLElement>('[data-component-state], [data-state-id]') : [])]) {
+      const componentState = element.getAttribute('data-component-state');
+      const stateId = element.getAttribute('data-state-id');
+      if (componentState) values.add(componentState);
+      if (stateId) values.add(stateId);
+    }
+    return [...values];
+  }
+
+  private findInstance(instanceId: string): HTMLElement | null {
+    const selector = `[data-component-instance-id="${CSS.escape(instanceId)}"]`;
+    const direct = document.querySelector<HTMLElement>(selector);
+    if (direct) return direct;
+    for (const host of document.querySelectorAll<HTMLElement>('*')) {
+      const nested = host.shadowRoot?.querySelector<HTMLElement>(selector);
+      if (nested) return nested;
+    }
+    return null;
   }
 
   private async runMock(mode: 'success' | 'error'): Promise<void> {
@@ -102,12 +325,17 @@ export class PspApp extends LitElement {
 
     try {
       const response = await fetch(`/api/spec-preview?mode=${mode}`);
+      await this.consumeMockResponse(response);
+    } catch (error: unknown) {
+      this.previewState = 'COMPONENT-STATE-ERROR';
+      this.feedback = error instanceof Error ? error.message : '发生未知错误。';
+    }
+  }
+
+  private async consumeMockResponse(response: Response): Promise<void> {
+    try {
       const data = (await response.json()) as { message: string };
-
-      if (!response.ok) {
-        throw new Error(data.message);
-      }
-
+      if (!response.ok) throw new Error(data.message);
       this.previewState = 'COMPONENT-STATE-SUCCESS';
       this.feedback = data.message;
     } catch (error: unknown) {
@@ -167,7 +395,7 @@ export class PspApp extends LitElement {
                 </ul>`}
           </article>
 
-          <article class="card state-card" data-component-id="COMPONENT-001" data-component-state=${this.previewState}>
+          <article class="card state-card" data-component-owner-id="COMPONENT-001" data-component-instance-id="COMPONENT-INSTANCE-STATE" data-component-state=${this.previewState}>
             <p class="card-index">02 / STATE LAB</p>
             <h2>交互状态实验台</h2>
             <div class="status" data-component-state=${this.previewState} role="status" aria-live="polite">
@@ -487,6 +715,8 @@ export class PspApp extends LitElement {
 customElements.define('psp-app', PspApp);
 
 declare global {
+  var __pspMockBehaviorIds: string[] | undefined;
+  var __pspMockcaseBeforeEffectForTest: ((context: { caseId: string; effectIndex: number; effect: MockCaseEffect }) => void | Promise<void>) | undefined;
   interface HTMLElementTagNameMap {
     'psp-app': PspApp;
   }

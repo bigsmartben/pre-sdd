@@ -7,6 +7,7 @@ import test from 'node:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { validateScaffold } from '../../scripts/validate-harness.mjs';
 import { npmInvocation, validateEvidenceReport } from '../../scripts/run-ci-validation.mjs';
+import { checkScaffoldConsistency } from '../../../../.agents/skills/scaffold-consistency/scripts/check.mjs';
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../..');
 const temporaryRoots = [];
@@ -18,7 +19,7 @@ test.after(async () => {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'pre-sdd-scaffold-harness-'));
   temporaryRoots.push(root);
-  for (const file of ['AGENTS.md', 'README.md', 'package.json', 'psp.project.yaml']) {
+  for (const file of ['AGENTS.md', 'README.md', 'QUICKSTART.md', 'package.json', 'psp.project.yaml']) {
     await cp(resolve(repositoryRoot, file), resolve(root, file));
   }
   for (const directory of ['.agents', '.github', '.psp', 'bin', 'runtime', 'templates']) {
@@ -27,12 +28,13 @@ async function fixture() {
   return root;
 }
 
-function resolvePaths(paths, executionContext = 'local-edit') {
+function resolvePaths(paths, executionContext = 'local-edit', root = repositoryRoot) {
   const args = ['.psp/harness/scripts/resolve-validation.mjs'];
   for (const path of paths) args.push('--path', path);
   args.push('--context', executionContext, '--json');
   return spawnSync(process.execPath, args, {
     cwd: repositoryRoot,
+    env: { ...process.env, PSP_REPOSITORY_ROOT: root },
     encoding: 'utf8',
     windowsHide: true,
   });
@@ -75,6 +77,78 @@ test('root binding is scaffold-only and validates without domain lifecycle', asy
     runtimeEvidence: 'os-temporary-directory',
   });
   assert.equal((await validateScaffold(repositoryRoot)).status, 'PASS');
+});
+
+test('scaffold consistency traces every Standard clause to registered downstream projections', async () => {
+  const result = await checkScaffoldConsistency(repositoryRoot);
+  assert.equal(result.status, 'PASS');
+  assert.ok(result.scope.selected.includes('AIH-STD-AUTHORITY-001'));
+  assert.ok(result.dependencies.some((item) => item.id === 'projection-authority-001-1'));
+  assert.deepEqual(result.changes, []);
+  assert.equal(result.sideEffects.status, 'PASS');
+});
+
+test('scaffold consistency blocks an unregistered Standard clause marker', async () => {
+  const root = await fixture();
+  const path = resolve(root, '.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  manifest.standardProjectionRegistry.clauses = manifest.standardProjectionRegistry.clauses.filter(
+    (clause) => clause.clauseId !== 'AIH-STD-AUTHORITY-001',
+  );
+  await writeFile(path, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await checkScaffoldConsistency(root);
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.diagnostics.some((item) => item.code === 'AIH_SCAFFOLD_CONSISTENCY_FAILED'
+    && item.message.includes('上位规范条款未登记下游投影')));
+});
+
+test('scaffold consistency reports a duplicate clause with the stable blocker code', async () => {
+  const root = await fixture();
+  const path = resolve(root, '.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  manifest.standardProjectionRegistry.clauses.push(structuredClone(manifest.standardProjectionRegistry.clauses[0]));
+  await writeFile(path, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await checkScaffoldConsistency(root);
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.diagnostics.some((item) => item.code === 'AIH_SCAFFOLD_CONSISTENCY_FAILED'
+    && item.message.includes('投影注册 clauseId 重复')));
+});
+
+test('scaffold consistency blocks missing and contradictory downstream projections', async () => {
+  const root = await fixture();
+  const manifestPath = resolve(root, '.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const clause = manifest.standardProjectionRegistry.clauses.find(
+    (item) => item.clauseId === 'AIH-STD-AUTHORITY-001',
+  );
+  const targetPath = resolve(root, clause.targets[0].path);
+  const targetContent = await readFile(targetPath, 'utf8');
+  await writeFile(targetPath, targetContent.replace(clause.targets[0].requiredText[0], 'drifted projection text'), 'utf8');
+  clause.targets[0].forbiddenText.push(clause.targets[0].requiredText[0]);
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await checkScaffoldConsistency(root);
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.diagnostics.some((item) => item.message.includes('下游投影缺少声明文本')));
+  assert.ok(result.diagnostics.some((item) => item.message.includes('同时要求并禁止相同文本')));
+});
+
+test('scaffold consistency blocks a downstream target that claims normative authority', async () => {
+  const root = await fixture();
+  const manifestPath = resolve(root, '.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const clause = manifest.standardProjectionRegistry.clauses.find(
+    (item) => item.clauseId === 'AIH-STD-AUTHORITY-001',
+  );
+  clause.targets[0] = {
+    path: manifest.standardProjectionRegistry.authority,
+    role: 'profile',
+    requiredText: ['Harness Standard v3（Harness 上位规范）'],
+    forbiddenText: [],
+  };
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await checkScaffoldConsistency(root);
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.diagnostics.some((item) => item.message.includes('不得登记为自己的下游投影')));
 });
 
 test('root and generated-workspace instructions are distinct contexts', async () => {
@@ -151,6 +225,35 @@ test('local edit remains quick while PR uses targeted template suites', () => {
     'npm run test:template:product',
     'npm run test:template:architecture',
   ]);
+});
+
+test('resolver blocks standard and full manifest drift from local edit plans', async () => {
+  const standardProfileRoot = await fixture();
+  const standardManifestPath = resolve(standardProfileRoot, '.psp/harness/harness.manifest.json');
+  const standardManifest = JSON.parse(await readFile(standardManifestPath, 'utf8'));
+  standardManifest.validationProfiles.find((profile) => profile.id === 'scaffold-governance').costClass = 'standard';
+  await writeFile(standardManifestPath, JSON.stringify(standardManifest, null, 2) + '\n', 'utf8');
+
+  const standardProfile = resolvePaths(['.github/workflows/harness-governance.yml'], 'local-edit', standardProfileRoot);
+  assert.notEqual(standardProfile.status, 0, standardProfile.stderr);
+  const standardProfileResult = JSON.parse(standardProfile.stdout);
+  assert.equal(standardProfileResult.status, 'BLOCKED');
+  assert.deepEqual(standardProfileResult.plan, []);
+  assert.ok(standardProfileResult.blockers.some((item) => item.code === 'AIH_COST_POLICY_EXCEEDED'));
+
+  const fullCommandRoot = await fixture();
+  const fullManifestPath = resolve(fullCommandRoot, '.psp/harness/harness.manifest.json');
+  const fullManifest = JSON.parse(await readFile(fullManifestPath, 'utf8'));
+  fullManifest.commands.find((command) => command.id === 'test-harness').costClass = 'full';
+  await writeFile(fullManifestPath, JSON.stringify(fullManifest, null, 2) + '\n', 'utf8');
+
+  const fullCommand = resolvePaths(['.github/workflows/harness-governance.yml'], 'local-edit', fullCommandRoot);
+  assert.notEqual(fullCommand.status, 0, fullCommand.stderr);
+  const fullCommandResult = JSON.parse(fullCommand.stdout);
+  assert.equal(fullCommandResult.status, 'BLOCKED');
+  assert.ok(fullCommandResult.blockers.some((item) => item.code === 'AIH_COST_POLICY_EXCEEDED'));
+  assert.equal(fullCommandResult.plan.some((item) => item.commandId === 'test-harness'), false);
+  assert.ok(fullCommandResult.plan.every((item) => item.costClass === 'quick'));
 });
 
 test('resolver governs the continuous-integration workflow', () => {

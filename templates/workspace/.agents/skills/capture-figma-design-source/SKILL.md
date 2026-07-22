@@ -11,7 +11,7 @@ description: 将带 node-id 的 Figma 节点采集为 Canonical UI Prototype（�
 
 本技能不得选择或改变 `visualPolicy.mode`，不得创建 Screen、Control、State、Use Case 或 Interaction Flow，不得把图层名和视觉外观解释为业务规则，也不得直接判定当前产物 readiness 或执行 handoff（移交）。
 
-需要通过 Figma 文件上下文执行唯一读取或资源导出时，必须先加载 `$figma:figma-use`。Figma 连接器、权限或节点不可用时停止采集，将来源标记为 `blocked`，报告 `AIH_SOURCE_CAPTURE_BLOCKED`；不得根据链接、相邻节点、图层名或截图猜测缺失内容。
+调用 `get_design_context` 读取节点设计上下文前，必须先加载 `$figma:figma-design-to-code`；它只负责设计上下文读取、Code Connect（代码连接）、设计令牌和来源资源提示的路由。需要通过 `use_figma` 在 Figma 文件上下文执行唯一读取或资源导出时，必须先加载 `$figma:figma-use`；它只负责 Figma 文件上下文操作。两项前置职责不得互相替代。Figma 连接器、权限或节点不可用时停止采集，将来源标记为 `blocked`，报告 `AIH_SOURCE_CAPTURE_BLOCKED`；不得根据链接、相邻节点、图层名或截图猜测缺失内容。
 
 ## 输入条件
 
@@ -40,7 +40,8 @@ description: 将带 node-id 的 Figma 节点采集为 Canonical UI Prototype（�
    - 在本次会话拥有的操作系统临时目录生成符合 `capture-plan.schema.json` 的 Capture Plan。重复节点、未分类节点或缺少 asset 导出参数时以 `AIH_ASSET_CLASSIFICATION_INCOMPLETE` 停止。
 
 2. 读取节点设计上下文。
-   - 保存原始节点上下文，不先转写为主观 CSS 结论。
+   - 对带 `node-id` 的 Figma 节点链接，先进入 `$figma:figma-design-to-code` 路由并调用 `get_design_context`，再采集原始参数与证据；不得以截图、`get_metadata` 或 `use_figma` 替代该设计上下文读取。
+   - 保存 `get_design_context` 返回的原始节点上下文，不先转写为主观 CSS 结论。
    - 明确记录 Frame 尺寸、图层位置、宽高、约束、自动布局、间距和对齐。
    - 明确记录字体族、字号、字重、行高、字距、文本换行和文本样式引用。
    - 明确记录填充、透明度、描边、圆角、阴影、模糊、渐变、混合模式和效果引用。

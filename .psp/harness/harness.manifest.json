@@ -2,6 +2,332 @@
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
   "version": "14.0.0",
+  "standardProjectionRegistry": {
+    "authority": ".psp/harness/HARNESS-BOUNDARY.md",
+    "enforcementOwners": [
+      {
+        "id": "projection-schema",
+        "kind": "schema",
+        "path": ".psp/harness/schemas/harness-manifest.schema.json"
+      },
+      {
+        "id": "projection-validator",
+        "kind": "validator",
+        "path": ".agents/skills/scaffold-consistency/scripts/check.mjs"
+      },
+      {
+        "id": "projection-tests",
+        "kind": "test",
+        "path": ".psp/harness/tests/scaffold/scaffold.test.mjs"
+      }
+    ],
+    "clauses": [
+      {
+        "clauseId": "AIH-STD-AUTHORITY-001",
+        "authorityAnchor": "aih-std-authority-001",
+        "targets": [
+          {
+            "path": ".psp/harness/HARNESS.md",
+            "role": "profile",
+            "requiredText": ["本文件是 [Harness Standard v3](./HARNESS-BOUNDARY.md) 的 Maintainer Harness（维护者治理层）执行投影"],
+            "forbiddenText": ["本文件是 `pre-sdd-harness/v3` 的唯一规范权威"]
+          },
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
+            "role": "profile",
+            "requiredText": ["本文件是根 Harness Standard v3 的 User Harness（使用者治理层）投影，不是新的平行上位规范"],
+            "forbiddenText": ["本文件是 `pre-sdd-harness/v3` 的唯一规范权威"]
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-TERMINOLOGY-001",
+        "authorityAnchor": "aih-std-terminology-001",
+        "targets": [
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
+            "role": "profile",
+            "requiredText": ["Harness（执行控制体系）", "Artifact Operation（产物操作）"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS.md",
+            "role": "runtime-contract",
+            "requiredText": ["Scope、Changes、Validation、Residuals"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-GATE-MODEL-001",
+        "authorityAnchor": "aih-std-gate-model-001",
+        "targets": [
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
+            "role": "profile",
+            "requiredText": ["Safety/Structure Blocker", "Domain Diagnostic"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS.md",
+            "role": "runtime-contract",
+            "requiredText": ["Domain Diagnostic 可由用户逐项接受，Safety/Structure Blocker 永不可覆盖"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-DEPENDENCY-HANDOFF-001",
+        "authorityAnchor": "aih-std-dependency-handoff-001",
+        "targets": [
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
+            "role": "profile",
+            "requiredText": ["`dependency` 是数据关系，只进入 Dependency 闭包、拓扑和 `project-consistency`", "`handoff` 是用户授权关系，只提供合法消费者候选"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.agents/skills/project-consistency/SKILL.md",
+            "role": "skill",
+            "requiredText": ["Treat only `dependency` edges as data relationships", "Ignore `handoff` edges for closure and topological order"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-CONSISTENCY-001",
+        "authorityAnchor": "aih-std-consistency-001",
+        "targets": [
+          {
+            "path": ".agents/skills/scaffold-consistency/SKILL.md",
+            "role": "skill",
+            "requiredText": ["只读一致性分析", "保持 `changes` 为空"],
+            "forbiddenText": ["发现问题时自动修复"]
+          },
+          {
+            "path": "templates/workspace/.agents/skills/project-consistency/SKILL.md",
+            "role": "skill",
+            "requiredText": ["Never infer modification authority from a finding", "Keep `changes` empty"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-HANDOFF-STATE-001",
+        "authorityAnchor": "aih-std-handoff-state-001",
+        "targets": [
+          {
+            "path": "templates/workspace/AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["Handoff 只在用户显式请求时执行 preflight", "只有显式确认才写入 Receipt"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS.md",
+            "role": "runtime-contract",
+            "requiredText": ["正式 Handoff 必须经过 preflight", "`downstreamAction` 都是 `NOT_RUN`"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-EXECUTION-EVIDENCE-001",
+        "authorityAnchor": "aih-std-execution-evidence-001",
+        "targets": [
+          {
+            "path": ".psp/harness/HARNESS.md",
+            "role": "runtime-contract",
+            "requiredText": ["`local-edit` 只能调度 quick 成本", "失败后的计划项标记 `NOT_RUN`"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS.md",
+            "role": "runtime-contract",
+            "requiredText": ["一次 Operation 内按 `commandId + inputDigest + profileVersion` 去重", "失败后剩余命令为 `NOT_RUN`"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-DUAL-HARNESS-001",
+        "authorityAnchor": "aih-std-dual-harness-001",
+        "targets": [
+          {
+            "path": "AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["根 `.psp/harness/` 是 Maintainer Harness（维护者治理层）", "模板项目绑定必须是 `PSPProject`"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["本地 `.psp/harness/` 是 User Harness（使用者治理层）", "不得反向控制脚手架模板、运行时或发布流程"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-RUNTIME-AUTHORITY-001",
+        "authorityAnchor": "aih-std-runtime-authority-001",
+        "targets": [
+          {
+            "path": "README.md",
+            "role": "documentation",
+            "requiredText": ["目标工作区本地文件拥有运行与执行事实"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
+            "role": "profile",
+            "requiredText": ["当前生成工作区的运行权威是本地 `psp.project.yaml`"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-COMPLETION-001",
+        "authorityAnchor": "aih-std-completion-001",
+        "targets": [
+          {
+            "path": ".psp/harness/HARNESS.md",
+            "role": "profile",
+            "requiredText": ["这不是用户产物移交", "不生成产品或架构 handoff 凭证"],
+            "forbiddenText": []
+          },
+          {
+            "path": "AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["根 Harness 没有领域移交边"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-COMMAND-SURFACE-001",
+        "authorityAnchor": "aih-std-command-surface-001",
+        "targets": [
+          {
+            "path": "QUICKSTART.md",
+            "role": "documentation",
+            "requiredText": ["会改变状态的公共操作只有三项", "pre-sdd init"],
+            "forbiddenText": ["pre-sdd harness"]
+          },
+          {
+            "path": "README.md",
+            "role": "documentation",
+            "requiredText": ["既有工作区由 `.psp/runtime/pre-sdd/` 中的初始化版本快照"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-RESPONSIBILITY-001",
+        "authorityAnchor": "aih-std-responsibility-001",
+        "targets": [
+          {
+            "path": "AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["根仓库只处理脚手架工程"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["Harness 只拥有与产品语义和内容效果无关的硬治理"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-ROOT-BOUNDARY-001",
+        "authorityAnchor": "aih-std-root-boundary-001",
+        "targets": [
+          {
+            "path": "AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["根项目绑定必须是 `PSPScaffoldProject`", "根 `.agents/skills/` 不得保存或自动发现这些领域 Skill"],
+            "forbiddenText": []
+          },
+          {
+            "path": ".psp/harness/HARNESS.md",
+            "role": "profile",
+            "requiredText": ["根项目不得出现 `stages`", "根 Manifest 不得出现领域注册"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-TEMPLATE-BOUNDARY-001",
+        "authorityAnchor": "aih-std-template-boundary-001",
+        "targets": [
+          {
+            "path": ".psp/harness/HARNESS.md",
+            "role": "profile",
+            "requiredText": ["模板不得包含用户实例、依赖目录、构建输出或运行证据"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/README.md",
+            "role": "documentation",
+            "requiredText": ["不是 `pre-sdd` 脚手架源仓库", "文件已经存在不等于"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-RUNTIME-RULES-001",
+        "authorityAnchor": "aih-std-runtime-rules-001",
+        "targets": [
+          {
+            "path": "AGENTS.md",
+            "role": "instruction",
+            "requiredText": ["Manifest 声明的模块或测试执行器必须从目标工作区本地路径执行", "不得改用包内模板副本"],
+            "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.psp/harness/HARNESS-BOUNDARY.md",
+            "role": "runtime-contract",
+            "requiredText": ["不得执行包内 `templates/workspace/` 副本", "AIH_PROTOCOL_UNSUPPORTED"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      },
+      {
+        "clauseId": "AIH-STD-CI-CD-001",
+        "authorityAnchor": "aih-std-ci-cd-001",
+        "targets": [
+          {
+            "path": ".psp/harness/HARNESS.md",
+            "role": "profile",
+            "requiredText": ["CI Adapter 分别请求 `pull-request` 或 `main`", "只有隔离的发布 workflow 可以请求 `release`"],
+            "forbiddenText": []
+          },
+          {
+            "path": "README.md",
+            "role": "documentation",
+            "requiredText": ["PR 使用受影响范围 `pull-request`", "两者都不会请求发布级 `release`"],
+            "forbiddenText": []
+          }
+        ],
+        "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
+      }
+    ]
+  },
   "repositoryKind": "scaffold",
   "entrypoints": {
     "instructions": "AGENTS.md",
@@ -77,7 +403,8 @@
         "organize-figma-assets",
         "figma-component-from-design",
         "implement-figma-lit-page",
-        "repair-canonical-ui-visual"
+        "repair-canonical-ui-visual",
+        "mockcase-coverage"
       ]
     },
     "textContracts": [
@@ -867,7 +1194,8 @@
           "templates/workspace/.agents/skills/organize-figma-assets/**",
           "templates/workspace/.agents/skills/figma-component-from-design/**",
           "templates/workspace/.agents/skills/implement-figma-lit-page/**",
-          "templates/workspace/.agents/skills/repair-canonical-ui-visual/**"
+          "templates/workspace/.agents/skills/repair-canonical-ui-visual/**",
+          "templates/workspace/.agents/skills/mockcase-coverage/**"
         ]
       },
       "defaultProfile": "scaffold-structure",

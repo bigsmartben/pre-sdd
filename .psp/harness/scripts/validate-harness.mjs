@@ -216,6 +216,8 @@ export async function validateScaffold(rootInput = process.cwd()) {
     manifest.scaffoldPolicy.continuousIntegration.runner,
     manifest.scaffoldPolicy.releaseValidation.workflow,
     manifest.scaffoldPolicy.releaseValidation.runner,
+    ...manifest.standardProjectionRegistry.enforcementOwners.map((owner) => owner.path),
+    ...manifest.standardProjectionRegistry.clauses.flatMap((clause) => clause.targets.map((target) => target.path)),
     project.runtime.entrypoint,
     project.runtime.dispatcher,
     project.template.root,
