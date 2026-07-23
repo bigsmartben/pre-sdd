@@ -403,8 +403,8 @@
         "organize-figma-assets",
         "figma-component-from-design",
         "implement-figma-lit-page",
-        "repair-canonical-ui-visual",
-        "mockcase-coverage"
+        "repair-canonical-ui",
+        "mockcase"
       ]
     },
     "textContracts": [
@@ -543,9 +543,11 @@
       "test:harness",
       "test:template:harness",
       "test:template:product",
+      "test:template:mockcase",
       "test:template:architecture",
       "test:workspace:harness",
       "test:workspace:product",
+      "test:workspace:mockcase",
       "test:workspace:architecture",
       "test:package:fast",
       "test:package:slow",
@@ -725,6 +727,24 @@
       }
     },
     {
+      "id": "test-template-mockcase",
+      "npmScript": "test:template:mockcase",
+      "run": "npm run test:template:mockcase",
+      "purpose": "在操作系统临时目录的模板副本运行独立 MockCase 领域测试",
+      "blocking": true,
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
       "id": "test-workspace-product",
       "npmScript": "test:workspace:product",
       "run": "npm run test:workspace:product",
@@ -745,6 +765,22 @@
       "npmScript": "test:workspace:architecture",
       "run": "npm run test:workspace:architecture",
       "purpose": "在临时生成工作区运行 Architecture Design 领域回归测试",
+      "blocking": true,
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1800000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "test-workspace-mockcase",
+      "npmScript": "test:workspace:mockcase",
+      "run": "npm run test:workspace:mockcase",
+      "purpose": "在临时生成工作区运行独立 MockCase 领域回归测试",
       "blocking": true,
       "costClass": "full",
       "allowedContexts": [
@@ -921,11 +957,31 @@
       }
     },
     {
+      "id": "template-mockcase",
+      "commands": [
+        "harness",
+        "test-template-mockcase"
+      ],
+      "version": "1.0.0",
+      "costClass": "standard",
+      "allowedContexts": [
+        "explicit-consistency",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
       "id": "template-shared-change",
       "commands": [
         "harness",
         "test-template-harness",
         "test-template-product",
+        "test-template-mockcase",
         "test-template-architecture"
       ],
       "version": "3.0.0",
@@ -993,11 +1049,29 @@
       }
     },
     {
+      "id": "workspace-mockcase",
+      "commands": [
+        "harness",
+        "test-workspace-mockcase"
+      ],
+      "version": "1.0.0",
+      "costClass": "full",
+      "allowedContexts": [
+        "main",
+        "release"
+      ],
+      "timeoutMs": 3600000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
       "id": "workspace-template-checkpoint",
       "commands": [
         "harness",
         "test-workspace-harness",
         "test-workspace-product",
+        "test-workspace-mockcase",
         "test-workspace-architecture"
       ],
       "version": "3.0.0",
@@ -1037,6 +1111,7 @@
         "test-harness",
         "test-workspace-harness",
         "test-workspace-product",
+        "test-workspace-mockcase",
         "test-workspace-architecture",
         "test-package",
         "pack-check"
@@ -1097,6 +1172,7 @@
         "test-harness",
         "test-workspace-harness",
         "test-workspace-product",
+        "test-workspace-mockcase",
         "test-workspace-architecture",
         "test-package"
       ],
@@ -1194,12 +1270,30 @@
           "templates/workspace/.agents/skills/organize-figma-assets/**",
           "templates/workspace/.agents/skills/figma-component-from-design/**",
           "templates/workspace/.agents/skills/implement-figma-lit-page/**",
-          "templates/workspace/.agents/skills/repair-canonical-ui-visual/**",
-          "templates/workspace/.agents/skills/mockcase-coverage/**"
+          "templates/workspace/.agents/skills/repair-canonical-ui/**"
         ]
       },
       "defaultProfile": "scaffold-structure",
       "checkpointProfile": "template-product",
+      "readinessProfile": "scaffold-package",
+      "consistencyProfile": "scaffold-consistency",
+      "mainProfile": "scaffold-main"
+    },
+    {
+      "id": "workspace-mockcase",
+      "kind": "template",
+      "selectionGroup": "workspace-mockcase",
+      "priority": 300,
+      "status": "active",
+      "selector": {
+        "type": "static",
+        "paths": [
+          "templates/workspace/.agents/skills/mockcase/**",
+          "templates/workspace/MockCase/**"
+        ]
+      },
+      "defaultProfile": "scaffold-structure",
+      "checkpointProfile": "template-mockcase",
       "readinessProfile": "scaffold-package",
       "consistencyProfile": "scaffold-consistency",
       "mainProfile": "scaffold-main"

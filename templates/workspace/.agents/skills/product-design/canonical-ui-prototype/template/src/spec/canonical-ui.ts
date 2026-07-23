@@ -1,5 +1,5 @@
 export const canonicalUi = {
-  version: '9.0.0',
+  version: '10.0.0',
   actor: 'ACTOR-001',
   draft: {
     version: '0.1.0',
@@ -15,16 +15,18 @@ export const canonicalUi = {
     coverage: [],
   },
   repairPolicy: {
-    enabled: false,
-    maxAttempts: 1,
-    repairableBlockerCodes: ['AIH_VISUAL_SOURCE_PARITY_FAILED', 'AIH_VISUAL_STYLE_BINDING_FAILED'],
     allowedImplementationPaths: [
       'index.html',
       'src/main.ts',
       'src/psp-app.ts',
-      'src/mock-api.ts',
+      'src/product-router.ts',
+      'src/review-shell.ts',
+      'src/state-gallery.ts',
+      'src/inconsistency-annotator.ts',
       'src/components/**/*.ts',
       'src/components/**/*.css',
+      'src/pages/**/*.ts',
+      'src/pages/**/*.css',
       'src/styles/**/*.css',
       'src/*.css',
     ],
@@ -84,11 +86,6 @@ export const canonicalUi = {
     { id: 'SCENARIO-001', useCaseId: 'UC-NNN', interactionFlowIds: ['IF-NNN'], transitionIds: ['IF-NNN-TRANS-NN'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: [] },
     { id: 'SCENARIO-002', useCaseId: 'UC-NNN', interactionFlowIds: ['IF-NNN'], transitionIds: ['IF-NNN-TRANS-NN'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: [] },
   ],
-  mockBehaviors: [
-    { id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] },
-    { id: 'MOCK-002', request: 'GET /api/spec-preview?mode=error', responseStateIds: ['COMPONENT-STATE-ERROR'] },
-  ],
-  mockCases: [],
   viewports: [],
   renderAssertions: [],
   sourceParityAssertions: [],

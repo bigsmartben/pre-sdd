@@ -67,7 +67,6 @@ async function snapshot(root, project, manifest) {
     componentContracts: model.componentContracts,
     stateAxes: model.stateAxes,
     stateMatrix: model.stateMatrix,
-    mockCases: model.mockCases,
   }))));
   const validation = review.data.validation.map((item) => ({ id: item.id, status: item.status }));
   const coverage = models.filter(({ model }) => model.visualPolicy.mode === 'exact').map(({ actor, model }) => ({
@@ -75,7 +74,6 @@ async function snapshot(root, project, manifest) {
     reviewAddress: reviewActors.get(actor).reviewAddress,
     screenIds: model.screens.map((item) => item.id),
     stateGalleryPath: '/__review/components',
-    mockCaseIds: model.mockCases.map((item) => item.id),
     validation,
   }));
   return { sourceVersion, implementationHash, scopeHash, reviewEvidenceHash: sha256(review.raw), coverage };

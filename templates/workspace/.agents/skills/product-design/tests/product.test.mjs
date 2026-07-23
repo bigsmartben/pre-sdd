@@ -80,13 +80,11 @@ async function prepareExactFixture(root) {
     aspects: ['layout', 'dimensions', 'typography', 'color', 'spacing', 'shape', 'shadow', 'assets', 'visual-hierarchy'],
     coverage: [{ sourceId: 'DESIGN-SOURCE-001', screenId: 'SCREEN-001', stateIds: exact.states.map((item) => item.id), viewportIds: ['VIEWPORT-DESKTOP'], evidenceItemIds: ['EVIDENCE-EXACT-DESKTOP'] }],
   };
-  exact.repairPolicy.enabled = true;
   exact.designSources[0].evidence.sha256 = sha256(evidenceText);
   exact.designSources[0].coverage[0].viewportIds = ['VIEWPORT-DESKTOP'];
   exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
   exact.scenarios = [];
-  exact.mockCases.forEach((item) => { item.kind = 'technical'; delete item.scenarioId; });
   exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.sourceParityAssertions = [{
     id: 'PARITY-EXACT-DESKTOP',
@@ -667,6 +665,12 @@ test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form
     '--operation', 'apply-product-artifact', '--artifact', 'capabilities', '--input', resolve(root, stage.root, stage.artifacts.capabilities.internalModel), '--dry-run', '--json',
   ]);
   assert.ok(codes(locked).has('AIH_STAGE_LOCKED'));
+  const repairLocked = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
+  assert.ok(codes(repairLocked).has('AIH_STAGE_LOCKED'), JSON.stringify(repairLocked.output, null, 2));
+  const refreshLocked = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
+    '--operation', 'refresh-canonical-ui-projections', '--json',
+  ]);
+  assert.ok(codes(refreshLocked).has('AIH_STAGE_LOCKED'), JSON.stringify(refreshLocked.output, null, 2));
 
   const reopened = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
     '--operation', 'reopen-product-design', '--json',
@@ -677,6 +681,10 @@ test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form
   const history = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
   assert.equal(history.current, null);
   assert.equal(history.history.length, 1);
+  const refreshReopened = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
+    '--operation', 'refresh-canonical-ui-projections', '--json',
+  ]);
+  assert.equal(refreshReopened.exitCode, 0, JSON.stringify(refreshReopened.output, null, 2));
 
   await writeReviewEvidence(root, await canonicalLocks(root, project));
   const sameVersion = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
@@ -957,42 +965,6 @@ test('Component Contract and State Matrix classify every finite combination exac
   assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_STATE_MATRIX_INVALID'));
 });
 
-test('Mock Case Effect contract binds business scenarios, component instances, activation, behaviors and matrix entries', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const { path, model } = await canonicalFixture(root);
-
-  const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
-  assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
-
-  const noDefault = structuredClone(model);
-  noDefault.mockCases[0].isDefault = false;
-  await writeCanonical(path, noDefault);
-  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_COVERAGE_FAILED'));
-
-  const missingReset = structuredClone(model);
-  const missingResetTargetId = missingReset.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS-DETAIL').effects[0].targetInstanceId;
-  missingReset.mockCases.find((item) => item.isDefault).effects = missingReset.mockCases.find((item) => item.isDefault).effects.filter((effect) => effect.targetInstanceId !== missingResetTargetId);
-  await writeCanonical(path, missingReset);
-  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_COVERAGE_FAILED'));
-
-  const mismatchedState = structuredClone(model);
-  mismatchedState.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').effects[0].expectedStateMatrixEntryId = 'STATE-MATRIX-ERROR';
-  await writeCanonical(path, mismatchedState);
-  const mismatchCodes = codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']));
-  assert.ok(mismatchCodes.has('AIH_MOCKCASE_STATE_MISMATCH') || mismatchCodes.has('AIH_MOCKCASE_CONTRACT_INVALID'));
-
-  const missingInstance = structuredClone(model);
-  missingInstance.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').effects[0].targetInstanceId = 'COMPONENT-INSTANCE-UNKNOWN';
-  await writeCanonical(path, missingInstance);
-  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_CONTRACT_INVALID'));
-
-  const missingScenario = structuredClone(model);
-  delete missingScenario.mockCases.find((item) => item.id === 'MOCK-CASE-SUCCESS').scenarioId;
-  await writeCanonical(path, missingScenario);
-  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_MOCKCASE_CONTRACT_INVALID'));
-});
-
 test('guided partial sources are valid while blocked and incomplete exact sources stay blocked', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
@@ -1170,11 +1142,15 @@ test('browser validator executes declared routes, interactions and viewports wit
   }
   assert.ok(result.output.evidence.every((item) => !item.screenshot.startsWith(root)));
 
-  const indexPath = resolve(areaPath, 'index.html');
-  const index = await readFile(indexPath, 'utf8');
-  await writeFile(indexPath, index.replace('mode="default"', 'mode="special"'));
+  const routerPath = resolve(areaPath, 'src/product-router.ts');
+  const router = await readFile(routerPath, 'utf8');
+  await writeFile(routerPath, router.replace('mode="default"', 'mode="special"'));
   const mismatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.ok(codes(mismatch).has('AIH_COMPONENT_IMPLEMENTATION_MISMATCH'), JSON.stringify(mismatch.output, null, 2));
+  const repair = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--new-session', '--json']);
+  assert.equal(repair.output.status, 'REPAIR_REQUIRED', JSON.stringify(repair.output, null, 2));
+  assert.ok(repair.output.failures.some((item) => item.defectClass === 'html-structure'));
+  assert.ok(repair.output.failures.some((item) => item.defectClass === 'component-contract'));
 });
 
 test('visual policy supports autonomous, guided and exact enforcement without a change-profile bypass', async () => {
@@ -1205,17 +1181,29 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   await writeCanonical(path, autonomous);
   const autonomousResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
   assert.equal(autonomousResult.exitCode, 0, JSON.stringify(autonomousResult.output, null, 2));
+  const autonomousAppPath = resolve(areaPath, 'src/psp-app.ts');
+  const autonomousApp = await readFile(autonomousAppPath, 'utf8');
+  await writeFile(autonomousAppPath, autonomousApp.replace('min-height: 44px;', 'min-height: 10px;'));
+  const autonomousRepair = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--new-session', '--json']);
+  assert.equal(autonomousRepair.output.status, 'REPAIR_REQUIRED', JSON.stringify(autonomousRepair.output, null, 2));
+  assert.ok(autonomousRepair.output.failures.some((item) => item.defectClass === 'css-rendering'));
+  await writeFile(autonomousAppPath, autonomousApp);
 
   await writeCanonical(path, model);
   const appPath = resolve(areaPath, 'src/psp-app.ts');
   const app = await readFile(appPath, 'utf8');
+  await writeFile(appPath, app.replace('data-screen-id="SCREEN-001"', 'data-screen-id="SCREEN-BROKEN"'));
+  const guidedDomRepair = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--new-session', '--json']);
+  assert.equal(guidedDomRepair.output.status, 'REPAIR_REQUIRED', JSON.stringify(guidedDomRepair.output, null, 2));
+  assert.ok(guidedDomRepair.output.failures.some((item) => item.defectClass === 'html-structure'));
+  await writeFile(appPath, app);
   await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
   const guidedMismatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.ok(codes(guidedMismatch).has('AIH_VISUAL_STYLE_BINDING_FAILED'), JSON.stringify(guidedMismatch.output, null, 2));
-  const guidedRepair = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.equal(guidedRepair.output.status, 'BLOCKED');
-  assert.equal(guidedRepair.output.repairPacket, undefined);
-  assert.ok(codes(guidedRepair).has('AIH_VISUAL_STYLE_BINDING_FAILED'));
+  const guidedRepair = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--new-session', '--json']);
+  assert.equal(guidedRepair.output.status, 'REPAIR_REQUIRED');
+  assert.ok(guidedRepair.output.repairPacket);
+  assert.ok(guidedRepair.output.failures.some((item) => item.defectClass === 'source-parity'));
   await writeFile(appPath, app);
 
   const guidedRuntime = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
@@ -1237,13 +1225,11 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
     aspects: ['layout', 'dimensions', 'typography', 'color', 'spacing', 'shape', 'shadow', 'assets', 'visual-hierarchy'],
     coverage: [{ sourceId: 'DESIGN-SOURCE-001', screenId: 'SCREEN-001', stateIds: exact.states.map((item) => item.id), viewportIds: ['VIEWPORT-DESKTOP'], evidenceItemIds: ['EVIDENCE-EXACT-DESKTOP'] }],
   };
-  exact.repairPolicy.enabled = true;
   exact.designSources[0].evidence.sha256 = sha256(evidenceText);
   exact.designSources[0].coverage[0].viewportIds = ['VIEWPORT-DESKTOP'];
   exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
   exact.scenarios = [];
-  for (const mockCase of exact.mockCases) { mockCase.kind = 'technical'; delete mockCase.scenarioId; }
   exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.sourceParityAssertions = [{
     id: 'PARITY-EXACT-DESKTOP',
@@ -1262,8 +1248,8 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
 
   await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
   const exactMismatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
-  assert.equal(exactMismatch.exitCode, 0, JSON.stringify(exactMismatch.output, null, 2));
-  assert.ok(exactMismatch.output.evidence.some((item) => item.kind === 'source-parity-diagnostic' && item.diagnosticCode === 'AIH_VISUAL_PIXEL_DIAGNOSTIC'));
+  assert.ok(codes(exactMismatch).has('AIH_VISUAL_SOURCE_PARITY_FAILED'), JSON.stringify(exactMismatch.output, null, 2));
+  assert.ok(exactMismatch.output.evidence.some((item) => item.kind === 'repair-diagnostic' && item.defectClass === 'source-parity'));
 
   const localManifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
   const defaultProfile = localManifest.validationProfiles.find((item) => item.id === 'canonical-ui-prototype');
@@ -1275,40 +1261,94 @@ test('exact visual repair emits a complete packet and passes after an allowed im
   await completeProductFixture(root);
   const { appPath, app } = await prepareExactFixture(root);
   await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
+  await assert.rejects(stat(resolve(root, '.psp/handoffs/receipts')), (error) => error.code === 'ENOENT');
+  await assert.rejects(stat(visualAcceptanceRecordPath(root)), (error) => error.code === 'ENOENT');
 
-  const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
+  const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--new-session', '--json']);
   assert.equal(requested.output.status, 'REPAIR_REQUIRED', JSON.stringify(requested.output, null, 2));
   assert.equal(requested.output.attempt, 1);
   const packet = JSON.parse(await readFile(requested.output.repairPacket, 'utf8'));
-  assert.equal(packet.version, '4.0.0');
+  assert.equal(packet.version, '5.0.0');
   assert.equal(packet.status, 'REPAIR_REQUIRED');
   assert.equal(packet.maxAttempts, 1);
   assert.deepEqual(packet.implementationPolicy, {
     evidenceBeforeEdit: true,
-    requireSourceResolution: true,
+    sourceResolution: 'when-source-backed',
     preserveInteractiveDom: true,
     preferSourceAssets: true,
     allowSubjectiveApproximation: false,
     minimalImplementationScope: true,
     stableComparisonEnvironment: true,
-    fixOrder: ['source-resolution', 'structure', 'geometry', 'typography', 'paint', 'effects', 'assets'],
+    fixOrder: ['structure', 'geometry', 'typography', 'paint', 'effects', 'assets'],
   });
-  const styleFailure = packet.failures.find((failure) => failure.checkKind === 'computed-style');
-  assert.equal(styleFailure.targetId, 'CONTROL-001');
-  assert.equal(styleFailure.styleProperty, 'background-color');
-  assert.equal(styleFailure.expectedStyle, 'rgb(200, 243, 106)');
+  const styleFailure = packet.failures.find((failure) => failure.check.kind === 'computed-style');
+  assert.deepEqual(styleFailure.scope.targetIds, ['CONTROL-001']);
+  assert.equal(styleFailure.check.property, 'background-color');
+  assert.equal(styleFailure.check.expected, 'rgb(200, 243, 106)');
 
   await writeFile(appPath, app);
-  const repaired = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
+  const repaired = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--session', requested.output.repairSessionId, '--json']);
   assert.equal(repaired.exitCode, 0, JSON.stringify(repaired.output, null, 2));
   assert.equal(repaired.output.status, 'PASS');
   assert.equal(repaired.output.attempts, 1);
-  assert.equal(repaired.output.attemptHistory[0].attempt, 1);
-  assert.ok(repaired.output.attemptHistory[0].failures.length > 0);
   const actionReport = JSON.parse(await readFile(repaired.output.repairActionReport, 'utf8'));
   assert.equal(actionReport.status, 'PASS');
   assert.equal(actionReport.actor, 'ACTOR-001');
   assert.equal(actionReport.attempts, 1);
+  assert.equal(actionReport.version, '2.0.0');
+  assert.equal(actionReport.repairSessionId, requested.output.repairSessionId);
+  assert.ok(actionReport.resolvedFailures.length > 0);
+  assert.ok(actionReport.validationGates.every((gate) => gate.status === 'PASS'));
+});
+
+test('repair entry does not depend on Handoff Receipt or Human Visual Acceptance', async () => {
+  const source = await readFile(resolve(
+    import.meta.dirname,
+    '../canonical-ui-prototype/scripts/repair.mjs',
+  ), 'utf8');
+  assert.doesNotMatch(source, /handoff|receipt|visualAcceptance|visual-acceptance/i);
+  assert.match(source, /stage\?\.status === 'published'/);
+  assert.match(source, /stage\?\.status !== 'active'/);
+  assert.match(source, /repair\.allowedVisualModes\.includes/);
+  assert.doesNotMatch(source, /repairPolicy\.enabled|repairableBlockerCodes/);
+});
+
+test('Canonical UI projection refresh supports dry-run, exact bound writes, and published locking', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+  const updatedTitle = model.screens[0].title + '（更新）';
+  model.screens[0].title = updatedTitle;
+  await writeCanonical(path, model);
+  const authority = await readFile(path);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const projectionBinding = stage.artifacts['canonical-ui-prototype'].memberProjections[0];
+  const projectionPath = resolve(root, stage.root, projectionBinding.root, 'ACTOR-001', projectionBinding.member);
+  const before = await readFile(projectionPath, 'utf8');
+
+  const dryRun = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
+    '--operation', 'refresh-canonical-ui-projections', '--dry-run', '--json',
+  ]);
+  assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun.output, null, 2));
+  assert.deepEqual(dryRun.output.targets, [
+    stage.root + '/' + projectionBinding.root + '/ACTOR-001/' + projectionBinding.member,
+  ]);
+  assert.equal(await readFile(projectionPath, 'utf8'), before);
+
+  const refreshed = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
+    '--operation', 'refresh-canonical-ui-projections', '--json',
+  ]);
+  assert.equal(refreshed.exitCode, 0, JSON.stringify(refreshed.output, null, 2));
+  assert.equal(JSON.parse(await readFile(projectionPath, 'utf8')).screens[0].title, updatedTitle);
+  assert.deepEqual(await readFile(path), authority);
+
+  project.stages['product-design'].status = 'published';
+  await writeFile(resolve(root, 'psp.project.yaml'), stringifyYaml(project));
+  const locked = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
+    '--operation', 'refresh-canonical-ui-projections', '--json',
+  ]);
+  assert.ok(codes(locked).has('AIH_STAGE_LOCKED'), JSON.stringify(locked.output, null, 2));
 });
 
 test('exact visual repair keeps external evidence hashes but does not hash-gate code edits', async () => {
@@ -1316,23 +1356,23 @@ test('exact visual repair keeps external evidence hashes but does not hash-gate 
   await completeProductFixture(changedRoot);
   const changed = await prepareExactFixture(changedRoot);
   await writeFile(changed.appPath, changed.app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
-  const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--json']);
+  const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--new-session', '--json']);
   assert.equal(requested.output.status, 'REPAIR_REQUIRED', JSON.stringify(requested.output, null, 2));
   await appendFile(changed.baselinePath, 'baseline-mutated');
-  const changedEvidence = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--json']);
+  const changedEvidence = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--session', requested.output.repairSessionId, '--json']);
   assert.ok(codes(changedEvidence).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(changedEvidence.output, null, 2));
 
   const missingRoot = await temporaryRepository();
   await completeProductFixture(missingRoot);
   const missing = await prepareExactFixture(missingRoot);
   await rm(missing.baselinePath);
-  const missingSource = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', missingRoot, ['--json']);
+  const missingSource = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', missingRoot, ['--new-session', '--json']);
   assert.equal(missingSource.output.status, 'BLOCKED');
   assert.equal(missingSource.output.repairPacket, undefined);
   assert.ok(codes(missingSource).has('AIH_SOURCE_INTEGRITY_FAILED'), JSON.stringify(missingSource.output, null, 2));
 });
 
-test('exact visual repair blocks non-visual failures and permits only one manual implementation attempt', async () => {
+test('canonical UI repair blocks non-repairable failures and permits one Agent implementation attempt', async () => {
   const nonVisualRoot = await temporaryRepository();
   await completeProductFixture(nonVisualRoot);
   const nonVisual = await prepareExactFixture(nonVisualRoot);
@@ -1340,7 +1380,7 @@ test('exact visual repair blocks non-visual failures and permits only one manual
     nonVisual.appPath,
     nonVisual.app.replace('--accent: #c8f36a;', '--accent: #ff00ff;') + "\nconsole.error('repair-nonvisual');\n",
   );
-  const nonVisualResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', nonVisualRoot, ['--json']);
+  const nonVisualResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', nonVisualRoot, ['--new-session', '--json']);
   assert.equal(nonVisualResult.output.status, 'BLOCKED');
   assert.equal(nonVisualResult.output.repairPacket, undefined);
   assert.ok(codes(nonVisualResult).has('AIH_CANONICAL_UI_CONSOLE_FAILED'), JSON.stringify(nonVisualResult.output, null, 2));
@@ -1349,14 +1389,17 @@ test('exact visual repair blocks non-visual failures and permits only one manual
   await completeProductFixture(exhaustedRoot);
   const exhausted = await prepareExactFixture(exhaustedRoot);
   await writeFile(exhausted.appPath, exhausted.app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
-  const first = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--json']);
+  const first = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--new-session', '--json']);
   assert.equal(first.output.attempt, 1, JSON.stringify(first.output, null, 2));
-  await appendFile(exhausted.appPath, '\n// single manual repair attempt\n');
-  const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--json']);
+  await appendFile(exhausted.appPath, '\n// single Agent repair attempt\n');
+  const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--session', first.output.repairSessionId, '--json']);
   assert.equal(result.output.status, 'BLOCKED', JSON.stringify(result.output, null, 2));
-  assert.match(result.stderr, /AIH_VISUAL_REPAIR_EXHAUSTED/);
-  assert.equal(result.output.attempts.length, 1);
-  assert.ok(result.output.attempts[0].failures.some((failure) => failure.checkKind === 'computed-style'));
+  assert.match(result.stderr, /AIH_UI_REPAIR_EXHAUSTED/);
+  const exhaustedPacket = JSON.parse(await readFile(result.output.repairPacket, 'utf8'));
+  assert.equal(exhaustedPacket.attempts.length, 1);
+  assert.ok(exhaustedPacket.attempts[0].failures.some((failure) => failure.check.kind === 'computed-style'));
+  const reused = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--session', first.output.repairSessionId, '--json']);
+  assert.ok(codes(reused).has('AIH_UI_REPAIR_SESSION_INVALID'));
 });
 
 test('browser validator uses the browser accessible-name algorithm for aria-labelledby', async () => {
@@ -1461,5 +1504,6 @@ test('browser validator separates console, network, visual, accessibility and as
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_RUNTIME_FAILED' && item.message.includes('事件控件未绑定声明动作')));
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED' && item.message.includes('键盘 Tab 到达')));
   assert.ok(result.output.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED' && item.message.includes('缺少可访问名称')));
-  assert.equal(result.output.evidence.length, 8);
+  assert.equal(result.output.evidence.filter((item) => ['route', 'scenario'].includes(item.kind)).length, 8);
+  assert.ok(result.output.evidence.some((item) => item.kind === 'repair-diagnostic'));
 });

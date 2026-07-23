@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MockCase Runtime Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "actor", "lifecycle", "suiteDigest", "runtimeDigest", "hostApiVersion", "facts", "blockers"],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+    "lifecycle": {"enum": ["READY", "VERIFIED", "STALE"]},
+    "suiteDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "runtimeDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "hostApiVersion": {"const": "psp.review-extension/v1"},
+    "facts": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "descriptor"],
+            "properties": {
+              "kind": {"const": "descriptor"},
+              "descriptor": {"$ref": "#/$defs/descriptor"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "caseId", "status"],
+            "properties": {
+              "kind": {"const": "case"},
+              "caseId": {"$ref": "#/$defs/id"},
+              "status": {"const": "PASS"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "url", "status"],
+            "properties": {
+              "kind": {"const": "review-host"},
+              "url": {"type": "string", "pattern": "^https?://"},
+              "status": {"const": "PASS"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "decision", "status"],
+            "properties": {
+              "kind": {"const": "review-decision"},
+              "decision": {"const": "complete"},
+              "status": {"const": "PASS"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "status"],
+            "properties": {
+              "kind": {"const": "dispose"},
+              "status": {"const": "PASS"}
+            }
+          }
+        ]
+      }
+    },
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "apiVersion", "moduleUrl", "integrity"],
+      "properties": {
+        "id": {"const": "mockcase"},
+        "apiVersion": {"const": "psp.review-extension/v1"},
+        "moduleUrl": {"type": "string", "pattern": "^https?://"},
+        "integrity": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^AIH_[A-Z0-9_]+$"},
+        "message": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

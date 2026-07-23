@@ -18,7 +18,7 @@
 
 ## Change / 修改
 
-只修改用户请求的 Artifact 或 Area。权威入口变化后通过登记的 Artifact Operation 原子更新 projection；不得单独维护生成投影。`published` 阶段必须先显式 Reopen。阶段未初始化时，只有用户明确开始该阶段才能执行登记的初始化 Operation；初始化、Publish、Reopen、Repair 和 Handoff 互不隐含。
+只修改用户请求的 Artifact 或 Area。内部模型 Artifact 通过登记的 Artifact Operation 原子更新权威数据与 projection；Canonical UI TypeScript 权威入口合法变化后，使用登记的 `refresh-canonical-ui-projections` Operation 只刷新 `generated-support`，不得手工维护隐藏 JSON。`published` 阶段必须先显式 Reopen。阶段未初始化时，只有用户明确开始该阶段才能执行登记的初始化 Operation；初始化、Projection Refresh、Publish、Reopen、Repair 和 Handoff 互不隐含。
 
 ## Consistency / 一致性
 
@@ -26,7 +26,7 @@
 
 ## Handoff / 授权移交
 
-正式 Handoff 必须经过 preflight、展示、用户 confirm/reject 与 Receipt Schema 校验。Receipt 在写入、查询和撤销前都必须通过登记 Schema；验证状态、用户决定和 Receipt 状态分别记录。Domain Diagnostic 可由用户逐项接受，Safety/Structure Blocker 永不可覆盖。Receipt 绑定来源、Dependency、Manifest、Profile 和 Standard 的版本与哈希；Profile 版本或 handoff 边变化后也必须标记为 `STALE`。无论结果如何，`downstreamAction` 都是 `NOT_RUN`。
+正式 Handoff 必须经过 preflight、展示、用户 confirm/reject 与 Receipt Schema 校验。每条 Handoff 边使用来源特定 Profile，只验证来源 readiness 与沿 `dependency` 入向计算的上游闭包；不得验证目标 Artifact、非依赖兄弟产物、Repair 或 Publish。Receipt 在写入、查询和撤销前都必须通过登记 Schema；验证状态、用户决定和 Receipt 状态分别记录。Domain Diagnostic 可由用户逐项接受，Safety/Structure Blocker 永不可覆盖。Receipt 绑定来源、Dependency、Manifest、Profile 和 Standard 的版本与哈希；Profile 版本或 handoff 边变化后也必须标记为 `STALE`。无论结果如何，`downstreamAction` 都是 `NOT_RUN`。
 
 ## Verify / 验证
 

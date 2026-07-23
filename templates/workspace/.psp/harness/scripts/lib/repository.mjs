@@ -182,6 +182,7 @@ export function artifactPaths(project, artifactId, stageId) {
       inputRoot,
       area: binding.authority.area,
       semanticEntry: binding.authority.semanticEntry,
+      companionEntries: binding.authority.companionEntries || [],
       partitionKey: binding.authority.partitionKey,
       outputPaths: outputs.map((output) => output.path),
       outputs,
@@ -253,7 +254,10 @@ export async function artifactCollectionMembers(root, paths) {
     const authorityPath = artifactMemberPath(paths, entry.name);
     try {
       await readFile(repositoryFile(root, authorityPath));
-      members.push({ actor: entry.name, authorityPath });
+      const companionPaths = (paths.companionEntries || []).map((member) =>
+        joinRepositoryPath(paths.authorityRoot, entry.name, member));
+      for (const companionPath of companionPaths) await readFile(repositoryFile(root, companionPath));
+      members.push({ actor: entry.name, authorityPath, companionPaths });
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       const missing = new Error('参与者目录缺少权威入口：' + authorityPath);

@@ -443,7 +443,6 @@ class InconsistencyAnnotator extends HTMLElement {
   private resolvePageKey(): string {
     const url = new URL(window.location.href);
     url.searchParams.delete('annotate');
-    url.searchParams.delete('mockcase');
     url.searchParams.delete('psp-case');
     url.searchParams.delete('psp-cases');
     const screenIds = Array.from(document.querySelectorAll<HTMLElement>('[data-screen-id]'))
@@ -582,7 +581,6 @@ class InconsistencyAnnotator extends HTMLElement {
     const heading = [
       '不一致标记工具',
       `页面：${window.location.href}`,
-      `Mock Case：${document.querySelector('[data-mockcase-id]')?.getAttribute('data-mockcase-id') ?? '未声明'}`,
       `视口：${window.innerWidth} × ${window.innerHeight}`,
     ];
     const details = markers.map((marker) => [

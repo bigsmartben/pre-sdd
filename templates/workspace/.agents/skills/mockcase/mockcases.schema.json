@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MockCases",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "actor", "cases"],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "actor": {"$ref": "#/$defs/actor"},
+    "cases": {"type": "array", "items": {"$ref": "#/$defs/case"}}
+  },
+  "$defs": {
+    "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+    "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+    "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["request", "control-event", "input"]},
+        "controlId": {"$ref": "#/$defs/id"},
+        "value": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "control-event"}}, "required": ["kind"]},
+          "then": {
+            "required": ["controlId"],
+            "properties": {"controlId": {"$ref": "#/$defs/id"}}
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "input"}}, "required": ["kind"]},
+          "then": {
+            "required": ["controlId", "value"],
+            "properties": {
+              "controlId": {"$ref": "#/$defs/id"},
+              "value": {"type": "string"}
+            }
+          }
+        }
+      ]
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetInstanceId", "behaviorIds", "activation", "expectedStateMatrixEntryId"],
+      "properties": {
+        "targetInstanceId": {"$ref": "#/$defs/id"},
+        "behaviorIds": {"$ref": "#/$defs/ids"},
+        "activation": {"$ref": "#/$defs/activation"},
+        "expectedStateMatrixEntryId": {"$ref": "#/$defs/id"}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "label", "routeId", "effects", "isDefault"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["business", "technical"]},
+        "label": {"type": "string", "minLength": 1},
+        "routeId": {"$ref": "#/$defs/id"},
+        "scenarioId": {"$ref": "#/$defs/id"},
+        "effects": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/effect"}},
+        "isDefault": {"type": "boolean"}
+      },
+      "allOf": [{
+        "if": {"properties": {"kind": {"const": "business"}}, "required": ["kind"]},
+        "then": {
+          "required": ["scenarioId"],
+          "properties": {"scenarioId": {"$ref": "#/$defs/id"}}
+        }
+      }]
+    }
+  }
+}

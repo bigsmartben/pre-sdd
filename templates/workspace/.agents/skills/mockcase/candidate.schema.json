@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MockCase Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "actor", "scope", "inputLock", "mockDataChanges", "mockCaseChanges", "coverageBefore", "coverageAfter", "gaps", "candidateHash"],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "status": {"enum": ["PASS", "BLOCKED"]},
+    "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["routeIds", "useCaseIds", "scenarioIds"],
+      "properties": {
+        "routeIds": {"$ref": "#/$defs/ids"},
+        "useCaseIds": {"$ref": "#/$defs/ids"},
+        "scenarioIds": {"$ref": "#/$defs/ids"}
+      }
+    },
+    "inputLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generatorVersion", "schemaVersions", "capabilitiesDigest", "canonicalUiDigest", "suiteDigest"],
+      "properties": {
+        "generatorVersion": {"const": "1.0.0"},
+        "schemaVersions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["suite", "mockdata", "mockcases"],
+          "properties": {
+            "suite": {"const": "1.0.0"},
+            "mockdata": {"const": "1.0.0"},
+            "mockcases": {"const": "1.0.0"}
+          }
+        },
+        "capabilitiesDigest": {"$ref": "#/$defs/digest"},
+        "canonicalUiDigest": {"$ref": "#/$defs/digest"},
+        "suiteDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "mockDataChanges": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upsertFixtures", "removeFixtureIds", "upsertBehaviors", "removeBehaviorIds"],
+      "properties": {
+        "upsertFixtures": {"type": "array"},
+        "removeFixtureIds": {"$ref": "#/$defs/ids"},
+        "upsertBehaviors": {"type": "array"},
+        "removeBehaviorIds": {"$ref": "#/$defs/ids"}
+      }
+    },
+    "mockCaseChanges": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upsertCases", "removeCaseIds"],
+      "properties": {
+        "upsertCases": {"type": "array"},
+        "removeCaseIds": {"$ref": "#/$defs/ids"}
+      }
+    },
+    "coverageBefore": {"$ref": "#/$defs/coverage"},
+    "coverageAfter": {"$ref": "#/$defs/coverage"},
+    "gaps": {"type": "array", "items": {"type": "object"}},
+    "candidateHash": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+    "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredScenarios", "coveredScenarios"],
+      "properties": {
+        "requiredScenarios": {"type": "integer", "minimum": 0},
+        "coveredScenarios": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

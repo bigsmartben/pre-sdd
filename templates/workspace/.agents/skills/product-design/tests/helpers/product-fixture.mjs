@@ -496,7 +496,7 @@ export async function completeProductFixture(root) {
   const allStateIds = ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '9.0.0',
+    version: '10.0.0',
     actor: 'ACTOR-001',
     draft: {
       version: '1.0.0',
@@ -518,16 +518,18 @@ export async function completeProductFixture(root) {
       }],
     },
     repairPolicy: {
-      enabled: false,
-      maxAttempts: 1,
-      repairableBlockerCodes: ['AIH_VISUAL_SOURCE_PARITY_FAILED', 'AIH_VISUAL_STYLE_BINDING_FAILED'],
       allowedImplementationPaths: [
         'index.html',
         'src/main.ts',
         'src/psp-app.ts',
-        'src/mock-api.ts',
+        'src/product-router.ts',
+        'src/review-shell.ts',
+        'src/state-gallery.ts',
+        'src/inconsistency-annotator.ts',
         'src/components/**/*.ts',
         'src/components/**/*.css',
+        'src/pages/**/*.ts',
+        'src/pages/**/*.css',
         'src/styles/**/*.css',
         'src/*.css',
       ],
@@ -698,43 +700,6 @@ export async function completeProductFixture(root) {
       { id: 'SCENARIO-002', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: allViewportIds },
       { id: 'SCENARIO-003', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: ['INT-STATE-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002', 'EVENT-003'], expectedStateIds: ['COMPONENT-STATE-DEFAULT', 'INT-STATE-001'], viewportIds: allViewportIds },
     ],
-    mockBehaviors: [
-      { id: 'MOCK-001', request: 'GET /api/spec-preview?mode=success', responseStateIds: ['COMPONENT-STATE-SUCCESS'] },
-      { id: 'MOCK-002', request: 'GET /api/spec-preview?mode=error', responseStateIds: ['COMPONENT-STATE-ERROR'] },
-    ],
-    mockCases: [
-      {
-        id: 'MOCK-CASE-DEFAULT', kind: 'technical', label: 'Default', routeId: 'ROUTE-001',
-        effects: [
-          { targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: [], activation: { kind: 'control-event', controlId: 'CONTROL-003' }, expectedStateMatrixEntryId: 'STATE-MATRIX-DEFAULT' },
-          { targetInstanceId: 'REVIEW-DETAIL-INSTANCE', mockBehaviorIds: [], activation: { kind: 'control-event', controlId: 'CONTROL-003' }, expectedStateMatrixEntryId: 'STATE-MATRIX-DEFAULT' },
-        ],
-        isDefault: true,
-      },
-      {
-        id: 'MOCK-CASE-SUCCESS', kind: 'business', label: 'Success', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001',
-        effects: [{ targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' }],
-        isDefault: false,
-      },
-      {
-        id: 'MOCK-CASE-ERROR', kind: 'business', label: 'Error', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-002',
-        effects: [{ targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: ['MOCK-002'], activation: { kind: 'request', controlId: 'CONTROL-002' }, expectedStateMatrixEntryId: 'STATE-MATRIX-ERROR' }],
-        isDefault: false,
-      },
-      {
-        id: 'MOCK-CASE-SUCCESS-DETAIL', kind: 'business', label: 'Success detail', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001',
-        effects: [{ targetInstanceId: 'REVIEW-DETAIL-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' }],
-        isDefault: false,
-      },
-      {
-        id: 'MOCK-CASE-MULTI-SUCCESS', kind: 'business', label: 'Multi success', routeId: 'ROUTE-001', scenarioId: 'SCENARIO-001',
-        effects: [
-          { targetInstanceId: 'REVIEW-PRIMARY-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' },
-          { targetInstanceId: 'REVIEW-DETAIL-INSTANCE', mockBehaviorIds: ['MOCK-001'], activation: { kind: 'request', controlId: 'CONTROL-001' }, expectedStateMatrixEntryId: 'STATE-MATRIX-SUCCESS' },
-        ],
-        isDefault: false,
-      },
-    ],
     viewports: [{ id: 'VIEWPORT-MOBILE', width: 390, height: 844 }, { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 }],
     renderAssertions: [
       {
@@ -771,6 +736,12 @@ export async function completeProductFixture(root) {
     .replaceAll('COMPONENT-INSTANCE-STATE', 'REVIEW-DETAIL-INSTANCE')
     .replace(' class="card state-card" data-component-id="COMPONENT-001"', ' class="card state-card"')
     .replace('<h2>交互状态实验台</h2>', '<h2>交互状态实验台</h2>\n            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />'));
+  const routerPath = resolve(areaPath, 'src/product-router.ts');
+  const router = await readFile(routerPath, 'utf8');
+  await writeFile(routerPath, router.replace(
+    '<psp-app data-route-id=${route.id}></psp-app>',
+    '<psp-app data-route-id=${route.id} mode="default" data-component-id="COMPONENT-001" data-component-instance-id="REVIEW-PRIMARY-INSTANCE" data-figma-instance-id="1:2"></psp-app>',
+  ));
   const indexPath = resolve(areaPath, 'index.html');
   const index = await readFile(indexPath, 'utf8');
   await writeFile(

@@ -52,8 +52,8 @@ test('full-project inspection reports every DAG node and edge without initializi
   assert.equal(result.output.mode, 'full-project');
   assert.equal(result.output.nodes.length, result.output.scope.topologicalOrder.length);
   assert.ok(result.output.nodes.every((node) => node.status === 'NOT_RUN'));
-  assert.equal(result.output.edges.length, 7);
-  assert.equal(result.output.dependencies.length, 7);
+  assert.equal(result.output.edges.length, 9);
+  assert.equal(result.output.dependencies.length, 9);
   assert.deepEqual(result.output.acceptedRisks, []);
   assert.equal(result.output.sideEffects.status, 'PASS');
   assert.deepEqual(result.output.changes, []);
@@ -75,13 +75,43 @@ test('scoped Use Cases inspection follows downstream impact and exposes edge evi
   const result = runScript('.agents/skills/project-consistency/scripts/check.mjs', root, ['--scope', 'use-cases', '--json']);
   assert.notEqual(result.exitCode, 0, JSON.stringify(result.output, null, 2));
   assert.deepEqual(result.output.scope.requested, ['use-cases']);
-  assert.deepEqual(result.output.scope.selected, ['use-cases', 'visual-spec', 'canonical-ui-prototype']);
+  assert.deepEqual(result.output.scope.selected, ['use-cases', 'visual-spec', 'canonical-ui-prototype', 'mockcase']);
   const edge = result.output.edges.find((item) => item.from === 'use-cases' && item.to === 'visual-spec');
   assert.equal(edge.status, 'BLOCKED');
   assert.ok(edge.evidence.some((item) => item.code === 'AIH_REFERENCE_UNRESOLVED'));
   assert.ok(edge.impact.includes('canonical-ui-prototype'));
   assert.equal(result.output.sideEffects.status, 'PASS');
   assert.deepEqual(await snapshotTree(root), before);
+});
+
+test('handoff-source inspection follows only incoming dependencies and excludes unfinished consumers', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const project = await fixtureProject(root);
+  const stage = project.stages['product-design'];
+  const visual = await readArtifact(root, stage, stage.artifacts['visual-spec']);
+  visual.data.pages[0].useCaseRefs = ['UC-999'];
+  await writeArtifact(visual);
+
+  const useCases = runScript('.agents/skills/project-consistency/scripts/check.mjs', root, [
+    '--scope', 'use-cases',
+    '--mode', 'handoff-source',
+    '--json',
+  ]);
+  assert.equal(useCases.exitCode, 0, JSON.stringify(useCases.output, null, 2));
+  assert.deepEqual(useCases.output.scope.selected, ['use-cases']);
+  assert.deepEqual(useCases.output.edges, []);
+
+  visual.data.pages[0].useCaseRefs = ['UC-001'];
+  await writeArtifact(visual);
+  const visualSpec = runScript('.agents/skills/project-consistency/scripts/check.mjs', root, [
+    '--scope', 'visual-spec',
+    '--mode=handoff-source',
+    '--json',
+  ]);
+  assert.equal(visualSpec.exitCode, 0, JSON.stringify(visualSpec.output, null, 2));
+  assert.deepEqual(visualSpec.output.scope.selected, ['use-cases', 'visual-spec']);
+  assert.equal(visualSpec.output.scope.selected.includes('canonical-ui-prototype'), false);
 });
 
 test('Canonical UI scope reports stale upstream hashes without selecting an authority', async () => {

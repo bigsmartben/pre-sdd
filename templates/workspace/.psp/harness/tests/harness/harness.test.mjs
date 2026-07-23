@@ -3,6 +3,8 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { completeProductFixture } from '../../../../.agents/skills/product-design/tests/helpers/product-fixture.mjs';
+import { commitManagedWrites } from '../../scripts/lib/artifact-transaction.mjs';
 import { normalizeRepositoryPath } from '../../scripts/lib/repository.mjs';
 import { resolveHarness, selectorPatterns } from '../../scripts/lib/routing.mjs';
 import { cleanupTemporaryRepositories, codes, manifest, project, repositoryRoot, runScript, temporaryRepository } from '../helpers/fixture.mjs';
@@ -72,7 +74,7 @@ test('resolver maps Canonical UI authority and projections to one artifact scope
   assert.deepEqual(result.scopes, ['canonical-ui-prototype']);
   assert.deepEqual(result.upstreamScopes, []);
   assert.ok(result.plan.every((item) => item.costClass === 'quick'));
-  assert.deepEqual(result.downstreamConsumers, []);
+  assert.deepEqual(result.downstreamConsumers, ['mockcase']);
 });
 
 test('cache keys bind standard, profile, executor, source, dependency, and runtime facts', () => {
@@ -115,6 +117,91 @@ test('Harness registers one dedicated Figma Asset Ingest operation and rejects e
   });
   const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
   assert.ok(codes(invalid).has('AIH_COMMAND_INVALID'), JSON.stringify(invalid.output, null, 2));
+});
+
+test('Harness registers MockCase as an isolated vertical domain', () => {
+  const artifact = manifest.artifactRegistry.find((item) => item.id === 'mockcase-suite');
+  assert.equal(artifact.domain, 'mockcase');
+  assert.equal(artifact.authorityKind, 'area-set');
+  assert.equal(manifest.operations.find((item) => item.id === 'apply-mockcase-candidate').kind, 'artifact');
+  assert.equal(manifest.operations.find((item) => item.id === 'project-mockcase-runtime').kind, 'projection-refresh');
+  assert.equal(manifest.operations.find((item) => item.id === 'review-mockcase').kind, 'review');
+  assert.equal(manifest.operations.find((item) => item.id === 'verify-mockcase').kind, 'verification');
+});
+
+test('Harness requires one active Canonical UI generated-support refresh operation', async () => {
+  const operation = manifest.operations.find((item) => item.id === 'refresh-canonical-ui-projections');
+  assert.equal(operation.kind, 'projection-refresh');
+  assert.equal(operation.artifact, 'canonical-ui-prototype');
+  assert.equal(operation.outputRole, 'generated-support');
+  assert.equal(operation.executor.path, '.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs');
+
+  const root = await temporaryRepository();
+  await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+    value.operations = value.operations.filter((item) => item.id !== 'refresh-canonical-ui-projections');
+  });
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_CONTRACT_INVALID'), JSON.stringify(invalid.output, null, 2));
+
+  for (const mutate of [
+    (item) => { item.executor.path = '.agents/skills/product-design/canonical-ui-prototype/scripts/visual-acceptance.mjs'; },
+    (item) => { item.executor.args = ['--operation', item.id]; },
+    (item) => {
+      item.npmScript = 'repair:canonical-ui';
+      item.run = 'npm run repair:canonical-ui';
+    },
+    (item) => { item.outputRole = 'runtime-projection'; },
+  ]) {
+    const tamperedRoot = await temporaryRepository();
+    await mutateJson(resolve(tamperedRoot, '.psp/harness/harness.manifest.json'), (value) => {
+      mutate(value.operations.find((item) => item.id === 'refresh-canonical-ui-projections'));
+    });
+    const tampered = runScript('.psp/harness/scripts/validate-harness.mjs', tamperedRoot, ['--json']);
+    assert.ok(codes(tampered).has('AIH_CONTRACT_INVALID'), JSON.stringify(tampered.output, null, 2));
+  }
+});
+
+test('Canonical UI repair operation declares separate prerequisite and repair gates', async () => {
+  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-repair');
+  assert.equal(operation.kind, 'repair');
+  assert.deepEqual(operation.prerequisiteCommands, ['canonical-ui-input']);
+  assert.deepEqual(operation.repairCommands, ['canonical-ui-runtime', 'canonical-ui-contract-tests']);
+
+  for (const mutate of [
+    (item) => { item.prerequisiteCommands = ['missing-command']; },
+    (item) => { item.repairCommands = ['canonical-ui-input']; },
+  ]) {
+    const root = await temporaryRepository();
+    await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+      mutate(value.operations.find((item) => item.id === 'canonical-ui-repair'));
+    });
+    const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+    assert.ok(codes(invalid).has('AIH_COMMAND_INVALID'), JSON.stringify(invalid.output, null, 2));
+  }
+});
+
+test('managed projection writes roll back every target and clean lock files after failure', async () => {
+  const root = await temporaryRepository();
+  const first = '.psp/fixtures/projection-a.json';
+  const second = '.psp/fixtures/projection-b.json';
+  await mkdir(resolve(root, '.psp/fixtures'), { recursive: true });
+  await writeFile(resolve(root, first), 'old-a\n');
+  await writeFile(resolve(root, second), 'old-b\n');
+  await assert.rejects(commitManagedWrites({
+    root,
+    ownerId: 'canonical-ui-prototype',
+    writes: [
+      { target: first, content: 'new-a\n' },
+      { target: second, content: 'new-b\n' },
+    ],
+    beforeReplace({ index }) {
+      if (index === 1) throw Object.assign(new Error('fixture replacement failure'), { code: 'AIH_ARTIFACT_TRANSACTION_FAILED' });
+    },
+  }), (error) => error.code === 'AIH_ARTIFACT_TRANSACTION_FAILED');
+  assert.equal(await readFile(resolve(root, first), 'utf8'), 'old-a\n');
+  assert.equal(await readFile(resolve(root, second), 'utf8'), 'old-b\n');
+  assert.deepEqual((await readdir(resolve(root, '.psp/fixtures'))).sort(), ['projection-a.json', 'projection-b.json']);
+  assert.deepEqual(await readdir(resolve(root, '.psp/transactions')), []);
 });
 
 test('resolver makes published stages readable but requires Reopen before change', () => {
@@ -178,6 +265,51 @@ test('project DAG is the only source of dependency and handoff relationships', (
     assert.equal('upstreamScopes' in operation, false, operation.id);
     assert.equal('upstreamHandoff' in operation, false, operation.id);
   }
+});
+
+test('Handoff edges bind source-specific readiness profiles instead of whole-domain delivery profiles', async () => {
+  const expected = new Map([
+    ['use-cases', ['harness', 'project-consistency', 'use-cases-strict']],
+    ['visual-spec', ['harness', 'project-consistency', 'visual-spec-strict']],
+    ['canonical-ui-prototype', [
+      'harness',
+      'project-consistency',
+      'product-structure',
+      'canonical-ui-input',
+      'canonical-ui-typecheck',
+      'canonical-ui-build',
+      'canonical-ui-contract-tests',
+      'canonical-ui-runtime',
+      'product-strict',
+    ]],
+    ['system-boundary', ['harness', 'project-consistency', 'architecture-system-boundary']],
+  ]);
+  for (const edge of manifest.projectDag.edges.filter((item) => item.type === 'handoff')) {
+    const profile = manifest.validationProfiles.find((item) => item.id === edge.profile);
+    assert.equal(profile.handoffSource, edge.from);
+    assert.deepEqual(profile.commands, expected.get(edge.from));
+    const consumerCommands = edge.from === 'canonical-ui-prototype'
+      ? ['mockcase-static', 'test-mockcase']
+      : ['canonical-ui-build', 'canonical-ui-runtime', 'product-strict', 'architecture-strict'];
+    assert.equal(profile.commands.some((id) => consumerCommands.includes(id)), false);
+  }
+  assert.equal(manifest.validationProfiles.find((item) => item.id === 'product-handoff').allowedContexts.includes('handoff'), false);
+  assert.equal(manifest.validationProfiles.find((item) => item.id === 'architecture-handoff').allowedContexts.includes('handoff'), false);
+
+  const root = await temporaryRepository();
+  await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+    value.validationProfiles.find((item) => item.id === 'use-cases-handoff').commands.push('canonical-ui-build');
+  });
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_PROFILE_INVALID'), JSON.stringify(invalid.output, null, 2));
+
+  const coupledRoot = await temporaryRepository();
+  await mutateJson(resolve(coupledRoot, '.psp/harness/harness.manifest.json'), (value) => {
+    value.validationProfiles.find((item) => item.id === 'use-cases-readiness').commands.push('canonical-ui-build');
+    value.validationProfiles.find((item) => item.id === 'use-cases-handoff').commands.push('canonical-ui-build');
+  });
+  const coupled = runScript('.psp/harness/scripts/validate-harness.mjs', coupledRoot, ['--json']);
+  assert.ok(codes(coupled).has('AIH_PROFILE_INVALID'), JSON.stringify(coupled.output, null, 2));
 });
 
 test('resolver uses artifact-level Architecture Design dependencies and readiness profiles', () => {
@@ -294,11 +426,76 @@ test('handoff rejects unknown nodes and unreachable edges, then reports uninitia
   assert.equal(bound.stages['architecture-design'].status, 'uninitialized');
 });
 
+test('real Handoff profiles ignore unfinished consumers and keep target-only changes outside the token', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const bound = parseYaml(await readFile(resolve(root, 'psp.project.yaml'), 'utf8'));
+  const stage = bound.stages['product-design'];
+  const visualPath = resolve(root, stage.root, stage.artifacts['visual-spec'].internalModel);
+  const visualSource = await readFile(visualPath, 'utf8');
+  const canonicalPath = resolve(
+    root,
+    stage.root,
+    stage.areas['canonical-ui-prototypes'].root,
+    'ACTOR-001',
+    stage.artifacts['canonical-ui-prototype'].authority.semanticEntry,
+  );
+  await writeFile(visualPath, 'invalid: true\n');
+  await writeFile(canonicalPath, 'export const canonicalUi = invalidTarget;\n');
+
+  const useCases = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
+    '--from', 'use-cases', '--to', 'visual-spec', '--json',
+  ]);
+  assert.equal(useCases.exitCode, 0, JSON.stringify(useCases.output, null, 2));
+  assert.equal(useCases.output.confirmable, true);
+  assert.deepEqual(useCases.output.validation.commands.map((item) => item.id), [
+    'harness', 'project-consistency', 'use-cases-strict',
+  ]);
+  const consistency = JSON.parse(useCases.output.validation.commands.find((item) => item.id === 'project-consistency').stdout);
+  assert.deepEqual(consistency.scope.selected, ['use-cases']);
+
+  await writeFile(visualPath, visualSource);
+  const confirmed = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
+    '--from', 'use-cases', '--to', 'visual-spec',
+    '--confirm', '--actor', 'user:test',
+    '--preflight-token', useCases.output.preflightToken,
+    '--json',
+  ]);
+  assert.equal(confirmed.exitCode, 0, JSON.stringify(confirmed.output, null, 2));
+  assert.equal(confirmed.output.receipt.status, 'VALID');
+
+  const sourcePath = resolve(root, stage.root, stage.artifacts.capabilities.internalModel);
+  const sourceText = await readFile(sourcePath, 'utf8');
+  const current = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
+    '--from', 'use-cases', '--to', 'visual-spec', '--json',
+  ]);
+  assert.equal(current.exitCode, 0, JSON.stringify(current.output, null, 2));
+  await writeFile(sourcePath, sourceText + '\n');
+  const staleToken = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
+    '--from', 'use-cases', '--to', 'visual-spec',
+    '--confirm', '--actor', 'user:test',
+    '--preflight-token', current.output.preflightToken,
+    '--json',
+  ]);
+  assert.ok(codes(staleToken).has('AIH_HANDOFF_CONFIRMATION_INVALID'), JSON.stringify(staleToken.output, null, 2));
+  await writeFile(sourcePath, sourceText);
+
+  const visualSpec = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
+    '--from', 'visual-spec', '--to', 'canonical-ui-prototype', '--json',
+  ]);
+  assert.equal(visualSpec.exitCode, 0, JSON.stringify(visualSpec.output, null, 2));
+  assert.equal(visualSpec.output.confirmable, true);
+  assert.deepEqual(visualSpec.output.dependencyClosure, ['use-cases', 'visual-spec']);
+  assert.deepEqual(visualSpec.output.validation.commands.map((item) => item.id), [
+    'harness', 'project-consistency', 'visual-spec-strict',
+  ]);
+});
+
 test('handoff waits for explicit confirmation, persists a v3 receipt, becomes stale, and never initializes downstream', async () => {
   const root = await temporaryRepository();
   await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
     value.commands.push(fixtureCommand('fixture-pass', '.psp/harness/tests/fixtures/command-pass.mjs'));
-    value.validationProfiles.find((item) => item.id === 'product-handoff').commands = ['fixture-pass'];
+    value.validationProfiles.find((item) => item.id === 'use-cases-handoff').commands = ['fixture-pass'];
   });
   const { projectPath, source } = await activateProductWithSource(root);
   const before = await readFile(projectPath, 'utf8');
@@ -323,12 +520,12 @@ test('handoff waits for explicit confirmation, persists a v3 receipt, becomes st
 
   const manifestPath = resolve(root, '.psp/harness/harness.manifest.json');
   await mutateJson(manifestPath, (value) => {
-    value.validationProfiles.find((item) => item.id === 'product-handoff').version = '3.0.1';
+    value.validationProfiles.find((item) => item.id === 'use-cases-handoff').version = '3.0.1';
   });
   const staleProfile = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--status', '--receipt', confirmed.output.path, '--json']);
   assert.equal(staleProfile.output.receipt.status, 'STALE');
   await mutateJson(manifestPath, (value) => {
-    value.validationProfiles.find((item) => item.id === 'product-handoff').version = '3.0.0';
+    value.validationProfiles.find((item) => item.id === 'use-cases-handoff').version = '3.0.0';
   });
 
   await writeFile(source, 'version: 2\n');
@@ -379,7 +576,7 @@ test('handoff executes commands in manifest order and marks commands after failu
       fixtureCommand('fixture-fail', '.psp/harness/tests/fixtures/command-fail.mjs'),
       fixtureCommand('fixture-notrun', '.psp/harness/tests/fixtures/command-pass.mjs'),
     );
-    value.validationProfiles.find((item) => item.id === 'product-handoff').commands = ['fixture-pass', 'fixture-fail', 'fixture-notrun'];
+    value.validationProfiles.find((item) => item.id === 'use-cases-handoff').commands = ['fixture-pass', 'fixture-fail', 'fixture-notrun'];
   });
   await activateProductWithSource(root);
   const result = runScript('.psp/harness/scripts/run-handoff.mjs', root, ['--from', 'use-cases', '--to', 'visual-spec', '--json']);
@@ -403,7 +600,7 @@ test('handoff can record an explicitly accepted domain diagnostic without changi
   });
   await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
     value.commands.push(fixtureCommand('fixture-fail', '.psp/harness/tests/fixtures/command-fail.mjs'));
-    value.validationProfiles.find((item) => item.id === 'product-handoff').commands = ['fixture-fail'];
+    value.validationProfiles.find((item) => item.id === 'use-cases-handoff').commands = ['fixture-fail'];
     value.blockers.find((item) => item.code === 'AIH_VALIDATION_FAILED').gateClass = 'domain-diagnostic';
   });
   await activateProductWithSource(root);

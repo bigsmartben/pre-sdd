@@ -43,3 +43,15 @@ export function collectDependencyIds(manifest, nodeId) {
   visit(nodeId);
   return ordered;
 }
+
+export function collectDependencyClosureIds(manifest, nodeId) {
+  return [...collectDependencyIds(manifest, nodeId), nodeId];
+}
+
+export function collectDependencyArtifactIds(manifest, nodeId) {
+  const scopes = new Map((manifest.scopes || []).map((scope) => [scope.id, scope]));
+  return [...new Set(collectDependencyClosureIds(manifest, nodeId).flatMap((scopeId) => {
+    const selector = scopes.get(scopeId)?.selector;
+    return selector?.type === 'artifact' ? selector.artifacts || [] : [];
+  }))];
+}

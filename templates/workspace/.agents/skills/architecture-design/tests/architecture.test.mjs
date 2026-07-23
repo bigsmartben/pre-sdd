@@ -205,6 +205,33 @@ async function completeArchitectureFixture(root) {
   return { project, stage, validation };
 }
 
+test('System Boundary Handoff ignores unfinished Conceptual Model and Technical Validation consumers', async () => {
+  const root = await temporaryRepository();
+  const { stage } = await completeArchitectureFixture(root);
+  await writeFile(resolve(root, stage.root, stage.artifacts['conceptual-model'].internalModel), 'invalid: true\n');
+  await writeFile(resolve(root, stage.root, stage.artifacts['technical-validation'].internalModel), 'invalid: true\n');
+
+  for (const target of ['conceptual-model', 'technical-validation']) {
+    const preflight = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
+      '--from', 'system-boundary', '--to', target, '--json',
+    ]);
+    assert.equal(preflight.exitCode, 0, JSON.stringify(preflight.output, null, 2));
+    assert.equal(preflight.output.confirmable, true, JSON.stringify(preflight.output, null, 2));
+    assert.deepEqual(preflight.output.dependencyClosure, ['system-boundary']);
+    assert.deepEqual(preflight.output.validation.commands.map((item) => item.id), [
+      'harness', 'project-consistency', 'architecture-system-boundary',
+    ]);
+    const confirmed = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
+      '--from', 'system-boundary', '--to', target,
+      '--confirm', '--actor', 'user:test',
+      '--preflight-token', preflight.output.preflightToken,
+      '--json',
+    ]);
+    assert.equal(confirmed.exitCode, 0, JSON.stringify(confirmed.output, null, 2));
+    assert.equal(confirmed.output.receipt.status, 'VALID');
+  }
+});
+
 test('architecture empty scaffold passes structure and blocks readiness', async () => {
   const root = await temporaryRepository();
   const structure = runScript('.agents/skills/architecture-design/scripts/validate.mjs', root, ['--json']);

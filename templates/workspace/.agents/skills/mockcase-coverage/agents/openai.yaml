@@ -1,4 +1,0 @@
-interface:
-  display_name: "MockCase Coverage"
-  short_description: "分析业务 MockCase 覆盖并生成确定性候选报告"
-  default_prompt: "Use $mockcase-coverage to analyze missing business MockCases and prepare a deterministic candidate."

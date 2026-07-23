@@ -7,13 +7,14 @@ import { parse as parseYaml } from 'yaml';
 import { resolveHarness, selectorPatterns } from './lib/routing.mjs';
 import {
   artifactPaths,
+  joinRepositoryPath,
   loadProjectAndManifest,
   normalizeRepositoryPath,
   readJson,
   repositoryFile,
   repositoryRootFrom,
 } from './lib/repository.mjs';
-import { dependencyIds } from './lib/project-dag.mjs';
+import { collectDependencyArtifactIds, dependencyIds } from './lib/project-dag.mjs';
 import { stageIsReadable } from './lib/stage-state.mjs';
 
 const root = repositoryRootFrom(import.meta.dirname);
@@ -196,6 +197,21 @@ if (project && manifest) {
           if (reference.stage === registry.stage) {
             block('AIH_CONTRACT_INVALID', '同阶段 Artifact 必须使用 inputs，不得伪装成只读跨阶段引用。', registry.contract);
           }
+          if (reference.required === true) {
+            const referencedNode = manifest.projectDag?.nodes?.find((node) => {
+              if (node.kind !== 'artifact' || node.stage !== reference.stage) return false;
+              const scope = manifest.scopes?.find((item) => item.id === node.id);
+              return scope?.selector?.type === 'artifact' && scope.selector.artifacts.includes(reference.artifact);
+            });
+            const targetIds = new Set([registry.id, registry.stage]);
+            if (!referencedNode || !manifest.projectDag?.edges?.some((edge) => (
+              edge.from === referencedNode.id
+              && targetIds.has(edge.to)
+              && edge.type === 'dependency'
+            ))) {
+              block('AIH_CONTRACT_INVALID', '必需跨阶段 Reference 必须有对应 Dependency：' + reference.stage + '/' + reference.artifact, registry.contract);
+            }
+          }
         }
         const boundOutputs = projectValid
           ? [...(binding?.projections || binding?.outputs || []), ...(binding?.memberOutputs || binding?.memberProjections || [])]
@@ -243,6 +259,13 @@ if (project && manifest) {
       try {
         const schema = await readJson(root, registry.schema);
         ajv.compile(schema);
+        for (const [member, memberSchemaPath] of Object.entries(registry.memberSchemas || {})) {
+          const memberSchema = await readJson(root, memberSchemaPath);
+          ajv.compile(memberSchema);
+          if (!project?.stages?.[registry.stage]?.artifacts?.[registry.id]?.authority?.companionEntries?.includes(member)) {
+            block('AIH_PROJECT_BINDING_INVALID', 'Artifact member Schema 未绑定组合成员：' + member, registry.id);
+          }
+        }
       } catch (error) {
         block('AIH_SCHEMA_INVALID', 'Artifact Schema 无法编译：' + error.message, registry.schema);
       }
@@ -275,7 +298,12 @@ if (manifest && manifestValid) {
       requirePath(path + '/SKILL.md', item.id + '.skill'),
       requirePath(path + '/agents/openai.yaml', item.id + '.skillMetadata'),
     ])),
-    ...manifest.artifactRegistry.flatMap((item) => [item.contract, item.schema, item.template].filter(Boolean).map((path) => requirePath(path, item.id))),
+    ...manifest.artifactRegistry.flatMap((item) => [
+      item.contract,
+      item.schema,
+      item.template,
+      ...Object.values(item.memberSchemas || {}),
+    ].filter(Boolean).map((path) => requirePath(path, item.id))),
     ...manifest.operations.flatMap((item) => Object.values(item.areaTemplates || {}).map((path) => requirePath(path, item.id))),
     ...[...manifest.commands, ...manifest.operations]
       .filter((item) => item.executor?.kind === 'module')
@@ -341,6 +369,43 @@ if (manifest && manifestValid) {
       }
       continue;
     }
+    if (operation.kind === 'projection-refresh') {
+      const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+      const domain = manifest.domainRegistry.find((item) => item.id === operation.domain);
+      const paths = artifactPaths(project, operation.artifact, operation.stage);
+      const ownedOutputs = (paths?.memberOutputs || []).filter((item) => item.role === operation.outputRole);
+      const projectionName = operation.artifact.endsWith('-prototype')
+        ? operation.artifact.slice(0, -'-prototype'.length)
+        : operation.artifact;
+      const expectedId = 'refresh-' + projectionName + '-projections';
+      const expectedScript = 'refresh:' + projectionName + '-projections';
+      const expectedExecutor = joinRepositoryPath(domain?.root || '', operation.artifact, 'scripts/refresh-projections.mjs');
+      const expectedArgs = ['--operation', operation.id, '--json'];
+      if (
+        !registered
+        || registered.stage !== operation.stage
+        || registered.domain !== operation.domain
+        || registered.authorityKind !== 'area-set'
+        || paths?.authorityKind !== 'area-set'
+        || ownedOutputs.length === 0
+      ) {
+        block('AIH_CONTRACT_INVALID', '投影刷新 operation 未绑定具有对应只读投影的 Area Set Artifact。', operation.id);
+      }
+      if (
+        operation.outputRole === 'generated-support'
+        && (
+          operation.id !== expectedId
+          || operation.npmScript !== expectedScript
+          || operation.run !== 'npm run ' + expectedScript
+          || operation.executor?.kind !== 'module'
+          || operation.executor.path !== expectedExecutor
+          || JSON.stringify(operation.executor.args || []) !== JSON.stringify(expectedArgs)
+        )
+      ) {
+        block('AIH_CONTRACT_INVALID', 'generated-support 刷新入口必须精确绑定其领域 projector、operation 与 package script。', operation.id);
+      }
+      continue;
+    }
     if (operation.kind === 'repair') {
       const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
       if (
@@ -351,6 +416,17 @@ if (manifest && manifestValid) {
         || !stage?.artifacts?.[operation.artifact]
       ) {
         block('AIH_CONTRACT_INVALID', '修复 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+      }
+      const prerequisiteCommands = operation.prerequisiteCommands || [];
+      const repairCommands = operation.repairCommands || [];
+      for (const commandId of [...prerequisiteCommands, ...repairCommands]) {
+        const command = manifest.commands.find((item) => item.id === commandId);
+        if (!command || command.domain !== operation.domain || command.executor?.kind !== 'module') {
+          block('AIH_COMMAND_INVALID', '修复 operation 引用未知或跨领域模块命令：' + commandId, operation.id);
+        }
+      }
+      if (prerequisiteCommands.some((commandId) => repairCommands.includes(commandId))) {
+        block('AIH_COMMAND_INVALID', '修复 operation 的前置命令与可修复命令不得重叠。', operation.id);
       }
       continue;
     }
@@ -376,7 +452,7 @@ if (manifest && manifestValid) {
       }
       continue;
     }
-    if (['review', 'publish', 'reopen'].includes(operation.kind)) {
+    if (['review', 'verification', 'publish', 'reopen'].includes(operation.kind)) {
       const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
       if (
         !registered
@@ -385,10 +461,10 @@ if (manifest && manifestValid) {
         || !['area', 'area-set'].includes(registered.authorityKind)
         || !stage?.artifacts?.[operation.artifact]
       ) {
-        block('AIH_CONTRACT_INVALID', 'UI HTML 生命周期 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+        block('AIH_CONTRACT_INVALID', '领域生命周期 operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
       }
       if (operation.profile && !profiles.has(operation.profile)) {
-        block('AIH_PROFILE_INVALID', 'UI HTML 生命周期 operation 引用未知 Profile：' + operation.profile, operation.id);
+        block('AIH_PROFILE_INVALID', '领域生命周期 operation 引用未知 Profile：' + operation.profile, operation.id);
       }
       if (operation.receipt && operation.receipt !== stage?.publication?.receipt) {
         block('AIH_PROJECT_BINDING_INVALID', '发布凭证路径与项目绑定不一致：' + operation.id, operation.id);
@@ -409,6 +485,26 @@ if (manifest && manifestValid) {
   }
   if (workspaceScopes.length !== 1) {
     block('AIH_SCOPE_INVALID', 'Harness 必须声明且只声明一个 workspace Scope。', 'scopes');
+  }
+  for (const [stageId, stage] of Object.entries(project?.stages || {})) {
+    for (const [artifactId, binding] of Object.entries(stage.artifacts || {})) {
+      const generatedSupport = [
+        ...(binding.outputs || []),
+        ...(binding.projections || []),
+        ...(binding.memberOutputs || []),
+        ...(binding.memberProjections || []),
+      ].filter((item) => item.role === 'generated-support');
+      if (generatedSupport.length === 0) continue;
+      const maintainers = [...operations.values()].filter((operation) => (
+        operation.kind === 'projection-refresh'
+        && operation.stage === stageId
+        && operation.artifact === artifactId
+        && generatedSupport.some((item) => item.role === operation.outputRole)
+      ));
+      if (maintainers.length !== 1) {
+        block('AIH_CONTRACT_INVALID', '每个只读投影必须且只能有一个 active 阶段刷新入口：' + stageId + '/' + artifactId, artifactId);
+      }
+    }
   }
   for (const profile of profiles.values()) {
     if (!profile.commands.includes('harness')) {
@@ -528,6 +624,7 @@ if (manifest && manifestValid) {
 
   const adjacency = new Map([...dagNodes.keys()].map((id) => [id, []]));
   const edgeIdentities = new Set();
+  const handoffProfiles = new Set();
   for (const edge of manifest.projectDag.edges) {
     const pair = edge.from + '->' + edge.to;
     const location = pair + ':' + edge.type;
@@ -545,11 +642,68 @@ if (manifest && manifestValid) {
     if (edge.type === 'dependency') {
       if (edge.analysisCommand !== 'project-consistency') block('AIH_DAG_EDGE_CONFLICT', 'Dependency 必须登记一致性分析命令。', location);
       adjacency.get(edge.from).push(edge.to);
-    } else if (!profiles.has(edge.profile) || !profiles.get(edge.profile).allowedContexts.includes('handoff')) {
-      block('AIH_PROFILE_INVALID', 'Handoff 边必须登记 handoff Profile。', location);
+    } else {
+      const profile = profiles.get(edge.profile);
+      const sourceScope = scopes.get(edge.from);
+      const readiness = profiles.get(sourceScope?.readinessProfile);
+      const expectedCommands = readiness
+        ? ['harness', 'project-consistency', ...readiness.commands.filter((id) => !['harness', 'project-consistency'].includes(id))]
+        : [];
+      handoffProfiles.add(edge.profile);
+      if (!profile || !profile.allowedContexts.includes('handoff')) {
+        block('AIH_PROFILE_INVALID', 'Handoff 边必须登记 handoff Profile。', location);
+      } else {
+        if (profile.handoffSource !== edge.from || sourceScope?.handoffProfile !== profile.id) {
+          block('AIH_PROFILE_INVALID', 'Handoff Profile 必须只绑定边的来源 Scope：' + location, location);
+        }
+        if (!readiness || JSON.stringify(profile.commands) !== JSON.stringify(expectedCommands)) {
+          block('AIH_PROFILE_INVALID', 'Handoff Profile 只能执行来源 readiness 与 dependency closure consistency：' + location, location);
+        }
+        const allowedArtifacts = new Set(collectDependencyArtifactIds(manifest, edge.from));
+        const stageArtifacts = new Set(
+          manifest.artifactRegistry.filter((item) => item.stage === fromNode.stage).map((item) => item.id),
+        );
+        for (const commandId of profile.commands.filter((id) => !['harness', 'project-consistency'].includes(id))) {
+          const command = commands.get(commandId);
+          if (command?.executor?.kind !== 'module') {
+            block('AIH_PROFILE_INVALID', 'Handoff readiness 命令必须绑定可审计的 module executor：' + commandId, location);
+            continue;
+          }
+          const executorPath = command.executor.path;
+          const domainValidator = executorPath.endsWith('/scripts/validate.mjs');
+          const args = command.executor.args || [];
+          const stepIndex = args.indexOf('--step');
+          const isStrict = args.includes('--strict');
+          if (domainValidator) {
+            const wholeStageAllowed = stageArtifacts.size === allowedArtifacts.size
+              && [...stageArtifacts].every((id) => allowedArtifacts.has(id));
+            if (
+              (stepIndex >= 0 && args[stepIndex + 1] !== edge.from)
+              || ((isStrict || stepIndex < 0) && !wholeStageAllowed)
+            ) {
+              block('AIH_PROFILE_INVALID', 'Handoff 领域 Validator 的实际 step 超出来源 dependency closure：' + commandId, location);
+            }
+            try {
+              const source = await readFile(repositoryFile(root, executorPath), 'utf8');
+              if (!source.includes('collectDependencyArtifactIds')) {
+                block('AIH_PROFILE_INVALID', 'Handoff 领域 Validator 必须复用 token 相同的 dependency closure 解析器：' + commandId, location);
+              }
+            } catch (error) {
+              block('AIH_ENTRYPOINT_MISSING', error.message, executorPath);
+            }
+          } else if (![...allowedArtifacts].some((artifactId) => executorPath.includes('/' + artifactId + '/'))) {
+            block('AIH_PROFILE_INVALID', 'Handoff 命令 executor 不属于来源 dependency closure：' + commandId, location);
+          }
+        }
+      }
     }
     if (toNode.stage === 'architecture-design' && fromNode.stage === 'product-design') {
       block('AIH_HARNESS_COUPLED', 'Architecture Design DAG 节点不得依赖 Product Design 生命周期节点。', location);
+    }
+  }
+  for (const profile of profiles.values()) {
+    if (profile.handoffSource && !handoffProfiles.has(profile.id)) {
+      block('AIH_PROFILE_INVALID', '来源特定 Handoff Profile 未被任何边引用：' + profile.id, profile.id);
     }
   }
 
@@ -584,7 +738,7 @@ if (manifest && manifestValid) {
       }
     }
   }
-  for (const operation of manifest.operations.filter((item) => ['artifact', 'repair', 'review', 'publish', 'reopen'].includes(item.kind))) {
+  for (const operation of manifest.operations.filter((item) => ['artifact', 'projection-refresh', 'repair', 'review', 'verification', 'publish', 'reopen'].includes(item.kind))) {
     const domain = domains.get(operation.domain);
     if (!domain || operation.executor.kind !== 'module' || !operation.executor.path.startsWith(domain.root + '/')) {
       block('AIH_DOMAIN_BOUNDARY_INVALID', '领域 Operation 执行器越出已注册 Domain Skill：' + operation.id, operation.id);
@@ -661,7 +815,7 @@ if (manifest && manifestValid) {
     for (const path of await allTextFiles(repositoryFile(root, '.psp/harness'))) {
       const content = await readFile(repositoryFile(root, path), 'utf8');
       for (const userRoot of roots) {
-        if (content.includes(userRoot)) {
+        if (content.includes(userRoot + '/') || content.includes(userRoot + '\\')) {
           block('AIH_HARNESS_COUPLED', 'Harness 文件硬编码用户目录：' + userRoot, path);
         }
       }
@@ -731,17 +885,7 @@ if (manifest && manifestValid) {
       } else if (stage.status === 'uninitialized') {
         const firstId = Object.keys(stage.artifacts)[0];
         const firstPath = artifactPaths(project, firstId, stageId).authorityPath;
-        const stageScope = manifest.scopes.find((scope) =>
-          scope.selector?.type === 'stage' && scope.selector.stage === stageId,
-        );
-        const hasUnreadyUpstream = dependencyIds(manifest, stageScope?.id).some((dependencyId) => {
-          const dependency = manifest.scopes.find((scope) => scope.id === dependencyId);
-          const dependencyStage = scopeStage(dependency);
-          return dependencyStage && dependencyStage !== stageId && !stageIsReadable(project.stages?.[dependencyStage]);
-        });
-        selfChecks.push(hasUnreadyUpstream
-          ? [firstPath, 'local-edit', 'BLOCKED', 'AIH_UPSTREAM_NOT_READY']
-          : [firstPath, 'local-edit', 'READY']);
+        selfChecks.push([firstPath, 'local-edit', 'READY']);
         selfChecks.push([firstPath, 'release', 'BLOCKED', 'AIH_STAGE_UNINITIALIZED']);
       } else {
         selfChecks.push([stage.root + '/README.md', 'local-edit', 'BLOCKED', stage.blockerCode]);

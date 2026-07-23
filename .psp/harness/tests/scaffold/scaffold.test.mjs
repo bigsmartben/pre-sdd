@@ -83,9 +83,91 @@ test('scaffold consistency traces every Standard clause to registered downstream
   const result = await checkScaffoldConsistency(repositoryRoot);
   assert.equal(result.status, 'PASS');
   assert.ok(result.scope.selected.includes('AIH-STD-AUTHORITY-001'));
+  assert.ok(result.scope.selected.includes('workspace-handoff-liveness'));
+  assert.ok(result.scope.selected.includes('workspace-projection-liveness'));
   assert.ok(result.dependencies.some((item) => item.id === 'projection-authority-001-1'));
+  assert.ok(result.dependencies.some((item) => item.id === 'handoff-liveness-use-cases-visual-spec' && item.status === 'PASS'));
+  assert.ok(result.dependencies.some((item) => item.id === 'projection-liveness-canonical-ui-prototype' && item.status === 'PASS'));
   assert.deepEqual(result.changes, []);
   assert.equal(result.sideEffects.status, 'PASS');
+});
+
+test('scaffold consistency blocks an over-broad Handoff Profile that validates a consumer', async () => {
+  const root = await fixture();
+  const path = resolve(root, 'templates/workspace/.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  manifest.validationProfiles.find((item) => item.id === 'use-cases-handoff').commands.push('canonical-ui-build');
+  await writeFile(path, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await checkScaffoldConsistency(root);
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.diagnostics.some((item) => (
+    item.code === 'AIH_SCAFFOLD_CONSISTENCY_FAILED'
+    && item.message.includes('来源特定 Profile')
+  )));
+
+  const coupledRoot = await fixture();
+  const coupledPath = resolve(coupledRoot, 'templates/workspace/.psp/harness/harness.manifest.json');
+  const coupledManifest = JSON.parse(await readFile(coupledPath, 'utf8'));
+  coupledManifest.validationProfiles.find((item) => item.id === 'use-cases-readiness').commands.push('canonical-ui-build');
+  coupledManifest.validationProfiles.find((item) => item.id === 'use-cases-handoff').commands.push('canonical-ui-build');
+  await writeFile(coupledPath, JSON.stringify(coupledManifest, null, 2) + '\n', 'utf8');
+  const coupled = await checkScaffoldConsistency(coupledRoot);
+  assert.equal(coupled.status, 'BLOCKED');
+  assert.ok(coupled.diagnostics.some((item) => (
+    item.code === 'AIH_SCAFFOLD_CONSISTENCY_FAILED'
+    && item.message.includes('来源特定 Profile')
+  )));
+});
+
+test('scaffold consistency blocks a validator that stops using the shared dependency closure', async () => {
+  const root = await fixture();
+  const path = resolve(root, 'templates/workspace/.agents/skills/architecture-design/scripts/validate.mjs');
+  const source = await readFile(path, 'utf8');
+  await writeFile(path, source.replaceAll('collectDependencyArtifactIds', 'legacyArtifactSelection'), 'utf8');
+  const result = await checkScaffoldConsistency(root);
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.diagnostics.some((item) => (
+    item.code === 'AIH_SCAFFOLD_CONSISTENCY_FAILED'
+    && item.message.includes('来源特定 Profile')
+  )));
+});
+
+test('scaffold consistency blocks generated-support without an active projection refresh path', async () => {
+  const root = await fixture();
+  const path = resolve(root, 'templates/workspace/.psp/harness/harness.manifest.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  manifest.operations = manifest.operations.filter((item) => item.id !== 'refresh-canonical-ui-projections');
+  await writeFile(path, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  const result = await checkScaffoldConsistency(root);
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.diagnostics.some((item) => (
+    item.code === 'AIH_SCAFFOLD_CONSISTENCY_FAILED'
+    && item.message.includes('generated-support')
+  )));
+});
+
+test('scaffold consistency blocks Canonical UI projection refresh wiring drift', async () => {
+  for (const mutate of [
+    (item) => { item.executor.path = '.agents/skills/product-design/canonical-ui-prototype/scripts/visual-acceptance.mjs'; },
+    (item) => { item.executor.args = ['--operation', item.id]; },
+    (item) => {
+      item.npmScript = 'repair:canonical-ui';
+      item.run = 'npm run repair:canonical-ui';
+    },
+    (item) => { item.outputRole = 'runtime-projection'; },
+  ]) {
+    const root = await fixture();
+    const path = resolve(root, 'templates/workspace/.psp/harness/harness.manifest.json');
+    const manifest = JSON.parse(await readFile(path, 'utf8'));
+    mutate(manifest.operations.find((item) => item.id === 'refresh-canonical-ui-projections'));
+    await writeFile(path, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+    const result = await checkScaffoldConsistency(root);
+    assert.equal(result.status, 'BLOCKED');
+    assert.ok(result.diagnostics.some((item) => (
+      item.code === 'AIH_SCAFFOLD_CONSISTENCY_FAILED'
+      && item.message.includes('generated-support')
+    )));
+  }
 });
 
 test('scaffold consistency blocks an unregistered Standard clause marker', async () => {
@@ -204,6 +286,7 @@ test('resolver separates local-edit, pull-request, and release gates for Product
     'npm run test:harness',
     'npm run test:workspace:harness',
     'npm run test:workspace:product',
+    'npm run test:workspace:mockcase',
     'npm run test:workspace:architecture',
     'npm run test:package',
     'npm run pack:check',
@@ -223,6 +306,7 @@ test('local edit remains quick while PR uses targeted template suites', () => {
     'npm run validate:harness',
     'npm run test:template:harness',
     'npm run test:template:product',
+    'npm run test:template:mockcase',
     'npm run test:template:architecture',
   ]);
 });
@@ -281,6 +365,7 @@ test('continuous-integration plan comes from Resolver commands', () => {
     'npm run test:harness',
     'npm run test:workspace:harness',
     'npm run test:workspace:product',
+    'npm run test:workspace:mockcase',
     'npm run test:workspace:architecture',
     'npm run test:package',
   ]);
@@ -303,6 +388,7 @@ test('release validation requires an explicit isolated context and is the only c
     'npm run test:harness',
     'npm run test:workspace:harness',
     'npm run test:workspace:product',
+    'npm run test:workspace:mockcase',
     'npm run test:workspace:architecture',
     'npm run test:package',
     'npm run pack:check',

@@ -36,6 +36,27 @@ stages:
     areas:
       canonical-ui-prototypes:
         root: Canonical-UI-Prototypes
+  mockcase:
+    status: uninitialized
+    root: MockCase
+    artifacts:
+      mockcase-suite:
+        authority:
+          kind: area-set
+          area: mockcase-suites
+          semanticEntry: suite.json
+          companionEntries:
+            - mockdata.json
+            - mockcases.json
+          partitionKey: actor
+        memberProjections:
+          - root: runtime
+            member: mockcase-runtime.json
+            role: runtime-projection
+            projection: mockcase-runtime
+    areas:
+      mockcase-suites:
+        root: actors
   architecture-design:
     status: uninitialized
     root: 02-architecture-design

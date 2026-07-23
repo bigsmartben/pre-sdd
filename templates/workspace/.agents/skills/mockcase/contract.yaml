@@ -1,0 +1,57 @@
+apiVersion: psp.dev/v1
+kind: ArtifactContract
+metadata:
+  id: mockcase-suite
+  version: 1.0.0
+spec:
+  stage: mockcase
+  internalModelFormat: json
+  outputRole: user-artifact
+  purpose: 按 Actor 管理独立的 MockData 网络事实、MockCase 场景编排、输入锁和确定性浏览器运行投影。
+  references:
+    - stage: product-design
+      artifact: capabilities
+      required: true
+      access: read-only
+      fixedVersionField: inputLock.capabilitiesDigest
+      lifecycleControl: none
+    - stage: product-design
+      artifact: canonical-ui-prototype
+      required: true
+      access: read-only
+      fixedVersionField: inputLock.canonicalUiDigest
+      lifecycleControl: none
+  owns:
+    - suite.json 输入锁与组合文件摘要
+    - mockdata.json Fixture 与请求响应行为
+    - mockcases.json Case、Activation、Effect 与预期状态引用
+    - 确定性 Runtime Bundle、Review Extension 与验证证据
+  excludes:
+    - Use Cases、Visual Spec、Canonical UI 与 UI HTML 写入
+    - Product Design readiness、review、publish 或 reopen
+    - Handoff 自动初始化、自动 Apply 或业务就绪声明
+    - 浏览器 Plugin 文件系统写入
+  domainRules:
+    - mockdata-network-only
+    - mockcase-orchestration-only
+    - actor-partition-isolated
+    - candidate-deterministic
+    - candidate-latest-upstream-incremental-diff
+    - suite-atomic-write
+    - request-matcher-selects-one-complete-behavior
+    - headed-review-requires-user-decision
+    - mapped-ready-verified-separated
+  projections:
+    - id: mockcase-runtime
+      outputRole: runtime-projection
+      readOnly: true
+      sources:
+        - suite.json
+        - mockdata.json
+        - mockcases.json
+        - product-design/capabilities
+        - product-design/canonical-ui-prototype
+  readiness:
+    requiredStatus: ready
+    requireNoGaps: true
+    requireAllGates: true

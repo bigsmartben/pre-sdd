@@ -9,13 +9,17 @@ const suites = new Map([
   ['harness', { command: 'test:harness', tests: ['.psp/harness/tests', '.agents/skills/project-consistency/tests'] }],
   ['product', {
     command: 'test:product',
-    tests: ['.agents/skills/product-design/tests', '.agents/skills/mockcase-coverage/tests'],
-    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Figma source registration packet|mockcase-coverage|Product Design apply operation|stale candidates)',
+    tests: ['.agents/skills/product-design/tests'],
+    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Canonical UI projection refresh|visual policy supports|exact visual repair emits|canonical UI repair blocks|repair entry does not depend|browser validator|Component Contract runner|Figma source registration packet|Product Design apply operation|stale candidates)',
+  }],
+  ['mockcase', {
+    command: 'test:mockcase',
+    tests: ['.agents/skills/mockcase/tests'],
   }],
   ['architecture', {
     command: 'test:architecture',
     tests: ['.agents/skills/architecture-design/tests'],
-    changePattern: '^(architecture empty scaffold|architecture initialization|architecture artifact operation|complete Architecture mapping|optional Product Design reference|each Architecture artifact|strict validation accepts|all architecture artifacts declare fixed inputs)',
+    changePattern: '^(architecture empty scaffold|architecture initialization|architecture artifact operation|complete Architecture mapping|optional Product Design reference|each Architecture artifact|strict validation accepts|all architecture artifacts declare fixed inputs|System Boundary Handoff)',
   }],
 ]);
 
@@ -45,7 +49,7 @@ const mode = modeIndex >= 0 ? process.argv[modeIndex + 1] : undefined;
 const suiteDefinition = suites.get(suite);
 
 if (!suiteDefinition || !['template', 'generated'].includes(mode)) {
-  console.error('[AIH_COMMAND_INVALID] --suite 必须是 harness、product 或 architecture，--mode 必须是 template 或 generated。');
+  console.error('[AIH_COMMAND_INVALID] --suite 必须是 harness、product、mockcase 或 architecture，--mode 必须是 template 或 generated。');
   process.exit(1);
 }
 

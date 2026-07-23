@@ -20,6 +20,29 @@ function duplicateValues(values) {
   return [...new Set(values.filter((value, index) => values.indexOf(value) !== index))];
 }
 
+function dependencyClosureIds(manifest, sourceId) {
+  const selected = new Set([sourceId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const edge of manifest.projectDag?.edges || []) {
+      if (edge.type === 'dependency' && selected.has(edge.to) && !selected.has(edge.from)) {
+        selected.add(edge.from);
+        changed = true;
+      }
+    }
+  }
+  return selected;
+}
+
+function dependencyArtifactIds(manifest, sourceId) {
+  const scopes = new Map((manifest.scopes || []).map((scope) => [scope.id, scope]));
+  return new Set([...dependencyClosureIds(manifest, sourceId)].flatMap((scopeId) => {
+    const selector = scopes.get(scopeId)?.selector;
+    return selector?.type === 'artifact' ? selector.artifacts || [] : [];
+  }));
+}
+
 async function projectionAnalysis(root, manifest, standardContent) {
   const diagnostics = [];
   const dependencies = [];
@@ -127,6 +150,166 @@ async function projectionAnalysis(root, manifest, standardContent) {
   return { diagnostics, dependencies, selected: [...new Set(registeredClauseIds)] };
 }
 
+async function workspaceLivenessAnalysis(root, project, manifest, packageJson, dispatch) {
+  const diagnostics = [];
+  const dependencies = [];
+  const profiles = new Map((manifest.validationProfiles || []).map((item) => [item.id, item]));
+  const scopes = new Map((manifest.scopes || []).map((item) => [item.id, item]));
+  for (const edge of (manifest.projectDag?.edges || []).filter((item) => item.type === 'handoff')) {
+    const location = edge.from + '->' + edge.to + ':handoff';
+    const profile = profiles.get(edge.profile);
+    const sourceScope = scopes.get(edge.from);
+    const readiness = profiles.get(sourceScope?.readinessProfile);
+    const expectedCommands = readiness
+      ? ['harness', 'project-consistency', ...readiness.commands.filter((id) => !['harness', 'project-consistency'].includes(id))]
+      : [];
+    let valid = Boolean(
+      profile
+      && profile.handoffSource === edge.from
+      && profile.allowedContexts?.includes('handoff')
+      && sourceScope?.handoffProfile === profile.id
+      && JSON.stringify(profile.commands) === JSON.stringify(expectedCommands),
+    );
+    if (valid) {
+      const commands = new Map((manifest.commands || []).map((item) => [item.id, item]));
+      const sourceNode = (manifest.projectDag?.nodes || []).find((item) => item.id === edge.from);
+      const allowedArtifacts = dependencyArtifactIds(manifest, edge.from);
+      const stageArtifacts = new Set(
+        (manifest.artifactRegistry || []).filter((item) => item.stage === sourceNode?.stage).map((item) => item.id),
+      );
+      for (const commandId of profile.commands.filter((id) => !['harness', 'project-consistency'].includes(id))) {
+        const command = commands.get(commandId);
+        if (command?.executor?.kind !== 'module') {
+          valid = false;
+          break;
+        }
+        const executorPath = command.executor.path;
+        const domainValidator = executorPath.endsWith('/scripts/validate.mjs');
+        const args = command.executor.args || [];
+        const stepIndex = args.indexOf('--step');
+        const wholeStageAllowed = stageArtifacts.size === allowedArtifacts.size
+          && [...stageArtifacts].every((id) => allowedArtifacts.has(id));
+        if (
+          domainValidator
+          && (
+            (stepIndex >= 0 && args[stepIndex + 1] !== edge.from)
+            || ((args.includes('--strict') || stepIndex < 0) && !wholeStageAllowed)
+          )
+        ) {
+          valid = false;
+          break;
+        }
+        if (!domainValidator && ![...allowedArtifacts].some((artifactId) => executorPath.includes('/' + artifactId + '/'))) {
+          valid = false;
+          break;
+        }
+        if (domainValidator) {
+          try {
+            const executor = await readFile(resolve(root, 'templates/workspace', executorPath), 'utf8');
+            if (!executor.includes('collectDependencyArtifactIds')) {
+              valid = false;
+              break;
+            }
+          } catch {
+            valid = false;
+            break;
+          }
+        }
+      }
+    }
+    if (!valid) {
+      diagnostics.push(diagnostic(
+        PROJECTION_BLOCKER,
+        'Handoff 边必须使用只验证来源 readiness 与 dependency closure 的来源特定 Profile：' + location,
+        'templates/workspace/.psp/harness/harness.manifest.json',
+      ));
+    }
+    dependencies.push({
+      id: 'handoff-liveness-' + edge.from + '-' + edge.to,
+      from: edge.from,
+      to: edge.to,
+      status: valid ? 'PASS' : 'BLOCKED',
+    });
+  }
+
+  const refreshOperations = manifest.operations || [];
+  for (const [stageId, stage] of Object.entries(project.stages || {})) {
+    for (const [artifactId, binding] of Object.entries(stage.artifacts || {})) {
+      const generatedSupport = [
+        ...(binding.outputs || []),
+        ...(binding.projections || []),
+        ...(binding.memberOutputs || []),
+        ...(binding.memberProjections || []),
+      ].filter((item) => item.role === 'generated-support');
+      if (generatedSupport.length === 0) continue;
+      const maintainers = refreshOperations.filter((operation) => (
+        operation.kind === 'projection-refresh'
+        && operation.stage === stageId
+        && operation.artifact === artifactId
+        && generatedSupport.some((item) => item.role === operation.outputRole)
+      ));
+      let valid = maintainers.length === 1;
+      const operation = maintainers[0];
+      if (operation) {
+        const registry = (manifest.artifactRegistry || []).find((item) => item.id === artifactId);
+        const domain = (manifest.domainRegistry || []).find((item) => item.id === registry?.domain);
+        const generatedSupportOperation = operation.outputRole === 'generated-support';
+        const projectionName = artifactId.endsWith('-prototype')
+          ? artifactId.slice(0, -'-prototype'.length)
+          : artifactId;
+        const expectedId = 'refresh-' + projectionName + '-projections';
+        const expectedScript = 'refresh:' + projectionName + '-projections';
+        const expectedExecutor = [domain?.root, artifactId, 'scripts/refresh-projections.mjs'].filter(Boolean).join('/');
+        const expectedArgs = ['--operation', operation.id, '--json'];
+        valid = valid
+          && operation.run === 'npm run ' + operation.npmScript
+          && Boolean(packageJson.scripts?.[operation.npmScript])
+          && operation.executor?.kind === 'module'
+          && (!generatedSupportOperation || (
+            operation.id === expectedId
+            && operation.npmScript === expectedScript
+            && operation.executor.path === expectedExecutor
+            && JSON.stringify(operation.executor.args || []) === JSON.stringify(expectedArgs)
+          ));
+        try {
+          const executor = await readFile(resolve(root, 'templates/workspace', operation.executor.path), 'utf8');
+          valid = valid
+            && executor.includes('commitManagedWrites')
+            && executor.includes('AIH_STAGE_LOCKED')
+            && executor.includes('--dry-run');
+        } catch {
+          valid = false;
+        }
+      }
+      if (!valid) {
+        diagnostics.push(diagnostic(
+          PROJECTION_BLOCKER,
+          'generated-support 缺少 active 可达、published 锁定的确定性刷新入口：' + stageId + '/' + artifactId,
+          'templates/workspace/.psp/harness/harness.manifest.json',
+        ));
+      }
+      dependencies.push({
+        id: 'projection-liveness-' + artifactId,
+        from: stageId + '/' + artifactId,
+        to: operation?.executor?.path || 'missing-projection-refresh',
+        status: valid ? 'PASS' : 'BLOCKED',
+      });
+    }
+  }
+  if (!dispatch.includes('loaded.manifest.operations') || !dispatch.includes('executor.args')) {
+    diagnostics.push(diagnostic(
+      PROJECTION_BLOCKER,
+      '打包运行时没有闭合 Manifest operation 与 executor args 分发。',
+      'runtime/dispatch.mjs',
+    ));
+  }
+  return {
+    diagnostics,
+    dependencies,
+    selected: ['workspace-handoff-liveness', 'workspace-projection-liveness'],
+  };
+}
+
 async function validateReport(root, report) {
   const schema = await readJson(resolve(root, '.psp/harness/schemas/consistency-report.schema.json'));
   const validate = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(schema);
@@ -137,12 +320,13 @@ async function validateReport(root, report) {
 
 export async function checkScaffoldConsistency(root) {
   const diagnostics = [];
-  const [project, templateProject, manifest, templateManifest, packageJson, dispatch, standardContent] = await Promise.all([
+  const [project, templateProject, manifest, templateManifest, packageJson, templatePackageJson, dispatch, standardContent] = await Promise.all([
     readFile(resolve(root, 'psp.project.yaml'), 'utf8').then(parseYaml),
     readFile(resolve(root, 'templates/workspace/psp.project.yaml'), 'utf8').then(parseYaml),
     readJson(resolve(root, '.psp/harness/harness.manifest.json')),
     readJson(resolve(root, 'templates/workspace/.psp/harness/harness.manifest.json')),
     readJson(resolve(root, 'package.json')),
+    readJson(resolve(root, 'templates/workspace/package.json')),
     readFile(resolve(root, 'runtime/dispatch.mjs'), 'utf8'),
     readFile(resolve(root, '.psp/harness/HARNESS-BOUNDARY.md'), 'utf8'),
   ]);
@@ -165,11 +349,13 @@ export async function checkScaffoldConsistency(root) {
   }));
   const projections = await projectionAnalysis(root, manifest, standardContent);
   diagnostics.push(...projections.diagnostics);
-  const dependencies = [...structuralDependencies, ...projections.dependencies];
+  const liveness = await workspaceLivenessAnalysis(root, templateProject, templateManifest, templatePackageJson, dispatch);
+  diagnostics.push(...liveness.diagnostics);
+  const dependencies = [...structuralDependencies, ...projections.dependencies, ...liveness.dependencies];
   return validateReport(root, {
     protocol: PROTOCOL,
     status: diagnostics.length === 0 ? 'PASS' : 'BLOCKED',
-    scope: { requested: ['scaffold-repository'], selected: [...facts.map(([id]) => id), ...projections.selected] },
+    scope: { requested: ['scaffold-repository'], selected: [...facts.map(([id]) => id), ...projections.selected, ...liveness.selected] },
     dependencies,
     diagnostics,
     acceptedRisks: [],

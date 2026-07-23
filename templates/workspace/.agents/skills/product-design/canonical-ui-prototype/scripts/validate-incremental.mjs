@@ -80,7 +80,7 @@ function impacted(model, normalizedPaths) {
       continue;
     }
     if (path.startsWith('src/mocks/')) { all('mock-behavior-changed'); continue; }
-    if (/^(?:index\.html|package\.json|tsconfig\.json|vite\.config\.ts|src\/(?:main|state-gallery|mockcase-switcher|inconsistency-annotator)\.ts|src\/.*\.css)$/.test(path)) { all('shared-runtime-changed'); continue; }
+    if (/^(?:index\.html|package\.json|tsconfig\.json|vite\.config\.ts|src\/(?:main|state-gallery|review-shell|inconsistency-annotator)\.ts|src\/.*\.css)$/.test(path)) { all('shared-runtime-changed'); continue; }
     all('unknown-path-conservative-fallback');
   }
   return { components: [...components], routes: [...routes], reasons: [...reasons] };
@@ -120,7 +120,7 @@ if (await exists(cachePath)) {
   try { cache = JSON.parse(await readFile(cachePath, 'utf8')); } catch { /* Invalid cache is a deterministic miss. */ }
 }
 const implementationFiles = [...new Set(model.componentContracts.filter((item) => impact.components.includes(item.componentId)).flatMap((item) => item.implementationPaths))];
-const globalFiles = ['index.html', 'package.json', 'tsconfig.json', 'vite.config.ts', 'src/main.ts', 'src/state-gallery.ts', 'src/mockcase-switcher.ts', 'src/inconsistency-annotator.ts'];
+const globalFiles = ['index.html', 'package.json', 'tsconfig.json', 'vite.config.ts', 'src/main.ts', 'src/state-gallery.ts', 'src/review-shell.ts', 'src/inconsistency-annotator.ts'];
 const hashes = {};
 for (const path of [...new Set([authorityPath, ...implementationFiles.map((item) => paths.authorityRoot + '/' + actor + '/' + item), ...globalFiles.map((item) => paths.authorityRoot + '/' + actor + '/' + item)])]) {
   hashes[path] = await fileHash(repositoryFile(root, path));
@@ -133,7 +133,7 @@ const fingerprints = {
   staticInput: sha256(JSON.stringify({ authority: hashes[authorityPath], version: model.version })),
   assets: sha256(JSON.stringify({ assets: model.assets, designSources: model.designSources, assetHashes })),
   components: sha256(JSON.stringify({ components: impact.components, contracts: model.componentContracts.filter((item) => impact.components.includes(item.componentId)), matrix: model.stateMatrix, hashes })),
-  routes: sha256(JSON.stringify({ routes: impact.routes, viewports, scenarios, mockCases: model.mockCases.filter((item) => impact.routes.includes(item.routeId)), hashes, assetHashes, includeVisualDiagnostics })),
+  routes: sha256(JSON.stringify({ routes: impact.routes, viewports, scenarios, hashes, assetHashes, includeVisualDiagnostics })),
 };
 
 const layers = [];

@@ -71,7 +71,11 @@ export async function canonicalLocks(root, project) {
   for (const member of await artifactCollectionMembers(root, paths)) {
     const areaPath = paths.authorityRoot + '/' + member.actor;
     const tree = await treeLock(root, areaPath);
-    const sourceFiles = tree.files.filter((item) => /^(?:index\.html|public\/|src\/)/.test(item.path.slice(areaPath.length + 1)));
+    const reviewPluginPattern = /^src\/review-shell\.ts$/;
+    const sourceFiles = tree.files.filter((item) => {
+      const relativePath = item.path.slice(areaPath.length + 1);
+      return /^(?:index\.html|public\/|src\/)/.test(relativePath) && !reviewPluginPattern.test(relativePath);
+    });
     const buildFiles = tree.files.filter((item) => /\/(?:package\.json|tsconfig\.json|vite\.config\.ts)$/.test(item.path));
     const model = await extractCanonicalUi(root, member.authorityPath);
     actors.push({

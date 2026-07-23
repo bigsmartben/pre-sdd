@@ -40,8 +40,8 @@
       ".agents/skills/organize-figma-assets/SKILL.md",
       ".agents/skills/figma-component-from-design/SKILL.md",
       ".agents/skills/implement-figma-lit-page/SKILL.md",
-      ".agents/skills/repair-canonical-ui-visual/SKILL.md",
-      ".agents/skills/mockcase-coverage/SKILL.md"
+      ".agents/skills/repair-canonical-ui/SKILL.md",
+      ".agents/skills/mockcase/SKILL.md"
     ]
   },
   "readOrder": [
@@ -137,6 +137,26 @@
       "schema": ".agents/skills/architecture-design/technical-validation/schema.json",
       "template": ".agents/skills/architecture-design/technical-validation/template.yaml",
       "renderer": "technical-validation-markdown"
+    },
+    {
+      "id": "mockcase-suite",
+      "stage": "mockcase",
+      "domain": "mockcase",
+      "authorityKind": "area-set",
+      "format": "json",
+      "contract": ".agents/skills/mockcase/contract.yaml",
+      "schema": ".agents/skills/mockcase/suite.schema.json",
+      "memberSchemas": {
+        "mockdata.json": ".agents/skills/mockcase/mockdata.schema.json",
+        "mockcases.json": ".agents/skills/mockcase/mockcases.schema.json"
+      },
+      "projector": "project-mockcase-runtime",
+      "projections": [
+        {
+          "id": "mockcase-runtime",
+          "renderer": "project-mockcase-runtime"
+        }
+      ]
     }
   ],
   "projectDag": {
@@ -172,6 +192,14 @@
         "validators": [
           "product-structure",
           "canonical-ui-input"
+        ]
+      },
+      {
+        "id": "mockcase",
+        "kind": "stage",
+        "stage": "mockcase",
+        "validators": [
+          "mockcase-static"
         ]
       },
       {
@@ -220,7 +248,7 @@
         "from": "use-cases",
         "to": "visual-spec",
         "type": "handoff",
-        "profile": "product-handoff"
+        "profile": "use-cases-handoff"
       },
       {
         "from": "use-cases",
@@ -232,13 +260,31 @@
         "from": "visual-spec",
         "to": "canonical-ui-prototype",
         "type": "handoff",
-        "profile": "product-handoff"
+        "profile": "visual-spec-handoff"
       },
       {
         "from": "system-boundary",
         "to": "conceptual-model",
         "type": "dependency",
         "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "use-cases",
+        "to": "mockcase",
+        "type": "dependency",
+        "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "canonical-ui-prototype",
+        "to": "mockcase",
+        "type": "dependency",
+        "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "canonical-ui-prototype",
+        "to": "mockcase",
+        "type": "handoff",
+        "profile": "canonical-ui-handoff"
       },
       {
         "from": "system-boundary",
@@ -274,13 +320,13 @@
         "from": "system-boundary",
         "to": "conceptual-model",
         "type": "handoff",
-        "profile": "architecture-handoff"
+        "profile": "system-boundary-handoff"
       },
       {
         "from": "system-boundary",
         "to": "technical-validation",
         "type": "handoff",
-        "profile": "architecture-handoff"
+        "profile": "system-boundary-handoff"
       }
     ]
   },
@@ -402,23 +448,99 @@
       ]
     },
     {
+      "id": "initialize-mockcase",
+      "kind": "stage",
+      "npmScript": "init:mockcase",
+      "run": "npm run init:mockcase",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase/scripts/initialize.mjs"
+      },
+      "stage": "mockcase",
+      "fromState": "uninitialized",
+      "toState": "active",
+      "areaTemplates": {},
+      "commands": [
+        "mockcase-static"
+      ]
+    },
+    {
       "id": "apply-mockcase-candidate",
       "kind": "artifact",
       "npmScript": "apply:mockcase-candidate",
       "run": "npm run apply:mockcase-candidate",
       "executor": {
         "kind": "module",
-        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/apply-mockcase-candidate.mjs",
+        "path": ".agents/skills/mockcase/scripts/apply.mjs"
+      },
+      "domain": "mockcase",
+      "stage": "mockcase",
+      "artifacts": [
+        "mockcase-suite"
+      ]
+    },
+    {
+      "id": "project-mockcase-runtime",
+      "kind": "projection-refresh",
+      "npmScript": "project:mockcase-runtime",
+      "run": "npm run project:mockcase-runtime",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase/scripts/project.mjs"
+      },
+      "domain": "mockcase",
+      "stage": "mockcase",
+      "artifact": "mockcase-suite",
+      "outputRole": "runtime-projection"
+    },
+    {
+      "id": "review-mockcase",
+      "kind": "review",
+      "npmScript": "review:mockcase",
+      "run": "npm run review:mockcase",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase/scripts/review.mjs"
+      },
+      "domain": "mockcase",
+      "stage": "mockcase",
+      "artifact": "mockcase-suite",
+      "profile": "mockcase-runtime",
+      "evidenceVersion": "1.0.0"
+    },
+    {
+      "id": "verify-mockcase",
+      "kind": "verification",
+      "npmScript": "verify:mockcase",
+      "run": "npm run verify:mockcase",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase/scripts/verify.mjs"
+      },
+      "domain": "mockcase",
+      "stage": "mockcase",
+      "artifact": "mockcase-suite",
+      "profile": "mockcase-readiness",
+      "evidenceVersion": "1.0.0"
+    },
+    {
+      "id": "refresh-canonical-ui-projections",
+      "kind": "projection-refresh",
+      "npmScript": "refresh:canonical-ui-projections",
+      "run": "npm run refresh:canonical-ui-projections",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs",
         "args": [
           "--operation",
-          "apply-mockcase-candidate"
+          "refresh-canonical-ui-projections",
+          "--json"
         ]
       },
       "domain": "product-design",
       "stage": "product-design",
-      "artifacts": [
-        "canonical-ui-prototype"
-      ]
+      "artifact": "canonical-ui-prototype",
+      "outputRole": "generated-support"
     },
     {
       "id": "ingest-figma-assets",
@@ -456,7 +578,14 @@
       },
       "domain": "product-design",
       "stage": "product-design",
-      "artifact": "canonical-ui-prototype"
+      "artifact": "canonical-ui-prototype",
+      "prerequisiteCommands": [
+        "canonical-ui-input"
+      ],
+      "repairCommands": [
+        "canonical-ui-runtime",
+        "canonical-ui-contract-tests"
+      ]
     },
     {
       "id": "canonical-ui-review",
@@ -552,14 +681,15 @@
   ],
   "commands": [
     {
-      "id": "mockcase-coverage-analyze",
-      "npmScript": "analyze:mockcase-coverage",
-      "run": "npm run analyze:mockcase-coverage",
-      "purpose": "只读分析正式 UI Scenario 的 business MockCase 覆盖、stale Case 与上游行为缺口",
+      "id": "mockcase-analyze",
+      "npmScript": "analyze:mockcase",
+      "run": "npm run analyze:mockcase",
+      "purpose": "只读分析当前 Actor 的 MockCase 覆盖、漂移与上游事实缺口",
       "blocking": true,
+      "domain": "mockcase",
       "executor": {
         "kind": "module",
-        "path": ".agents/skills/mockcase-coverage/scripts/analyze.mjs"
+        "path": ".agents/skills/mockcase/scripts/analyze.mjs"
       },
       "costClass": "quick",
       "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
@@ -567,14 +697,15 @@
       "cache": {"mode": "disabled"}
     },
     {
-      "id": "mockcase-coverage-generate",
-      "npmScript": "generate:mockcase-coverage",
-      "run": "npm run generate:mockcase-coverage",
-      "purpose": "基于当前工作区本地权威输入生成确定性 MockCase 候选，不修改正式文件",
+      "id": "mockcase-generate",
+      "npmScript": "generate:mockcase-candidate",
+      "run": "npm run generate:mockcase-candidate",
+      "purpose": "只读生成绑定实际依赖与目标 Suite 摘要的确定性 Candidate",
       "blocking": true,
+      "domain": "mockcase",
       "executor": {
         "kind": "module",
-        "path": ".agents/skills/mockcase-coverage/scripts/generate.mjs"
+        "path": ".agents/skills/mockcase/scripts/generate.mjs"
       },
       "costClass": "quick",
       "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
@@ -582,20 +713,37 @@
       "cache": {"mode": "disabled"}
     },
     {
-      "id": "test-mockcase-coverage",
-      "npmScript": "test:mockcase-coverage",
-      "run": "npm run test:mockcase-coverage",
-      "purpose": "验证 MockCase 覆盖分析、确定候选、输入锁、上游缺口与 Product Design 原子 Apply",
+      "id": "mockcase-static",
+      "npmScript": "validate:mockcase",
+      "run": "npm run validate:mockcase",
+      "purpose": "验证 MockCase Suite 的 Schema、跨文件引用、输入锁与 MAPPED/STALE 边界",
       "blocking": true,
+      "domain": "mockcase",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase/scripts/validate.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "test-mockcase",
+      "npmScript": "test:mockcase",
+      "run": "npm run test:mockcase",
+      "purpose": "验证 MockCase 单一垂直域的契约、原子事务、运行投影与 Review Extension",
+      "blocking": true,
+      "domain": "mockcase",
       "executor": {
         "kind": "node-test",
         "paths": [
-          ".agents/skills/mockcase-coverage/tests/*.test.mjs"
+          ".agents/skills/mockcase/tests/*.test.mjs"
         ]
       },
-      "costClass": "quick",
+      "costClass": "standard",
       "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
-      "timeoutMs": 120000,
+      "timeoutMs": 600000,
       "cache": {"mode": "content-addressed"}
     },
     {
@@ -1450,7 +1598,6 @@
         "harness",
         "workspace-structure",
         "test-harness",
-        "test-mockcase-coverage",
         "test-product-fast",
         "test-product-slow",
         "product-structure",
@@ -1469,10 +1616,30 @@
       }
     },
     {
-      "id": "mockcase-coverage",
+      "id": "mockcase-uninitialized",
+      "commands": [
+        "harness"
+      ],
+      "version": "1.0.0",
+      "costClass": "quick",
+      "allowedContexts": [
+        "local-edit",
+        "explicit-consistency",
+        "handoff",
+        "pull-request",
+        "main",
+        "release"
+      ],
+      "timeoutMs": 240000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "mockcase-quick",
       "commands": [
         "harness",
-        "test-mockcase-coverage"
+        "mockcase-static"
       ],
       "version": "1.0.0",
       "costClass": "quick",
@@ -1785,8 +1952,6 @@
       "id": "system-boundary-readiness",
       "commands": [
         "harness",
-        "test-architecture",
-        "architecture-structure",
         "architecture-system-boundary"
       ],
       "version": "3.0.0",
@@ -1960,6 +2125,123 @@
       }
     },
     {
+      "id": "mockcase-readiness",
+      "commands": [
+        "harness",
+        "mockcase-static",
+        "test-mockcase"
+      ],
+      "version": "1.0.0",
+      "costClass": "standard",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 900000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "mockcase-runtime",
+      "commands": [
+        "harness",
+        "mockcase-static",
+        "test-mockcase"
+      ],
+      "version": "1.0.0",
+      "costClass": "standard",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 900000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "mockcase-main",
+      "commands": [
+        "harness",
+        "mockcase-static",
+        "test-mockcase"
+      ],
+      "version": "1.0.0",
+      "costClass": "standard",
+      "allowedContexts": ["main", "release"],
+      "timeoutMs": 900000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "use-cases-handoff",
+      "commands": [
+        "harness",
+        "project-consistency",
+        "use-cases-strict"
+      ],
+      "version": "3.0.0",
+      "handoffSource": "use-cases",
+      "allowedContexts": [
+        "handoff"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 900000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "visual-spec-handoff",
+      "commands": [
+        "harness",
+        "project-consistency",
+        "visual-spec-strict"
+      ],
+      "version": "3.0.0",
+      "handoffSource": "visual-spec",
+      "allowedContexts": [
+        "handoff"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 900000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "canonical-ui-handoff",
+      "commands": [
+        "harness",
+        "project-consistency",
+        "product-structure",
+        "canonical-ui-input",
+        "canonical-ui-typecheck",
+        "canonical-ui-build",
+        "canonical-ui-contract-tests",
+        "canonical-ui-runtime",
+        "product-strict"
+      ],
+      "version": "3.0.0",
+      "handoffSource": "canonical-ui-prototype",
+      "allowedContexts": [
+        "handoff"
+      ],
+      "costClass": "full",
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
+      "id": "system-boundary-handoff",
+      "commands": [
+        "harness",
+        "project-consistency",
+        "architecture-system-boundary"
+      ],
+      "version": "3.0.0",
+      "handoffSource": "system-boundary",
+      "allowedContexts": [
+        "handoff"
+      ],
+      "costClass": "standard",
+      "timeoutMs": 1200000,
+      "cache": {
+        "mode": "content-addressed"
+      }
+    },
+    {
       "id": "product-handoff",
       "commands": [
         "harness",
@@ -1975,7 +2257,6 @@
       ],
       "version": "3.0.0",
       "allowedContexts": [
-        "handoff",
         "pull-request",
         "main",
         "release"
@@ -1997,7 +2278,6 @@
       ],
       "version": "3.0.0",
       "allowedContexts": [
-        "handoff",
         "pull-request",
         "main",
         "release"
@@ -2014,7 +2294,6 @@
         "harness",
         "workspace-structure",
         "test-harness",
-        "test-mockcase-coverage",
         "test-product-fast",
         "test-product-slow",
         "product-strict",
@@ -2052,23 +2331,67 @@
       "mainProfile": "workspace-main"
     },
     {
-      "id": "mockcase-coverage",
-      "kind": "repository",
-      "selectionGroup": "mockcase-coverage",
-      "priority": 300,
+      "id": "mockcase-framework",
+      "kind": "domain",
+      "domain": "mockcase",
+      "selectionGroup": "mockcase",
+      "priority": 200,
       "status": "active",
       "selector": {
-        "type": "static",
-        "paths": [
-          ".agents/skills/mockcase-coverage/**"
+        "type": "domain",
+        "domain": "mockcase"
+      },
+      "defaultProfile": "mockcase-quick",
+      "readinessProfile": "mockcase-readiness",
+      "uninitializedProfile": "mockcase-uninitialized",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "mockcase-readiness",
+      "checkpointProfile": "mockcase-readiness",
+      "mainProfile": "mockcase-main"
+    },
+    {
+      "id": "mockcase",
+      "kind": "stage",
+      "domain": "mockcase",
+      "selectionGroup": "mockcase",
+      "priority": 100,
+      "status": "active",
+      "selector": {
+        "type": "stage",
+        "stage": "mockcase"
+      },
+      "defaultProfile": "mockcase-quick",
+      "readinessProfile": "mockcase-readiness",
+      "uninitializedProfile": "mockcase-uninitialized",
+      "consistencyProfile": "project-consistency",
+      "handoffProfile": "mockcase-readiness",
+      "checkpointProfile": "mockcase-readiness",
+      "mainProfile": "mockcase-main"
+    },
+    {
+      "id": "mockcase-suite",
+      "kind": "artifact",
+      "domain": "mockcase",
+      "selectionGroup": "mockcase",
+      "priority": 350,
+      "status": "active",
+      "selector": {
+        "type": "artifact",
+        "stage": "mockcase",
+        "artifacts": [
+          "mockcase-suite"
+        ],
+        "areas": [
+          "mockcase-suites"
         ]
       },
-      "defaultProfile": "mockcase-coverage",
-      "readinessProfile": "mockcase-coverage",
+      "defaultProfile": "mockcase-quick",
+      "readinessProfile": "mockcase-readiness",
+      "uninitializedProfile": "mockcase-uninitialized",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "project-consistency",
-      "checkpointProfile": "mockcase-coverage",
-      "mainProfile": "workspace-main"
+      "handoffProfile": "mockcase-readiness",
+      "checkpointProfile": "mockcase-readiness",
+      "mainProfile": "mockcase-main"
     },
     {
       "id": "repository-harness",
@@ -2122,7 +2445,7 @@
       "defaultProfile": "product-framework",
       "readinessProfile": "product-framework",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "product-handoff",
+      "handoffProfile": "project-consistency",
       "checkpointProfile": "product-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2140,7 +2463,7 @@
       "defaultProfile": "architecture-framework",
       "readinessProfile": "architecture-framework",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "architecture-handoff",
+      "handoffProfile": "project-consistency",
       "checkpointProfile": "architecture-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2159,7 +2482,7 @@
       "readinessProfile": "product-delivery",
       "uninitializedProfile": "product-uninitialized",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "product-handoff",
+      "handoffProfile": "project-consistency",
       "checkpointProfile": "product-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2181,7 +2504,7 @@
       "readinessProfile": "use-cases-readiness",
       "uninitializedProfile": "product-uninitialized",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "product-handoff",
+      "handoffProfile": "use-cases-handoff",
       "checkpointProfile": "product-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2203,7 +2526,7 @@
       "readinessProfile": "visual-spec-readiness",
       "uninitializedProfile": "product-uninitialized",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "product-handoff",
+      "handoffProfile": "visual-spec-handoff",
       "checkpointProfile": "product-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2225,10 +2548,10 @@
         ]
       },
       "defaultProfile": "canonical-ui-quick",
-      "readinessProfile": "product-delivery",
+      "readinessProfile": "canonical-ui-prototype",
       "uninitializedProfile": "product-uninitialized",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "product-handoff",
+      "handoffProfile": "canonical-ui-handoff",
       "checkpointProfile": "product-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2247,7 +2570,7 @@
       "uninitializedProfile": "architecture-uninitialized",
       "domain": "architecture-design",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "architecture-handoff",
+      "handoffProfile": "project-consistency",
       "checkpointProfile": "architecture-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2269,7 +2592,7 @@
       "uninitializedProfile": "architecture-uninitialized",
       "domain": "architecture-design",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "architecture-handoff",
+      "handoffProfile": "system-boundary-handoff",
       "checkpointProfile": "architecture-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2291,7 +2614,7 @@
       "uninitializedProfile": "architecture-uninitialized",
       "domain": "architecture-design",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "architecture-handoff",
+      "handoffProfile": "project-consistency",
       "checkpointProfile": "architecture-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2316,7 +2639,7 @@
       "uninitializedProfile": "architecture-uninitialized",
       "domain": "architecture-design",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "architecture-handoff",
+      "handoffProfile": "project-consistency",
       "checkpointProfile": "architecture-handoff",
       "mainProfile": "workspace-main"
     },
@@ -2338,7 +2661,7 @@
       "uninitializedProfile": "architecture-uninitialized",
       "domain": "architecture-design",
       "consistencyProfile": "project-consistency",
-      "handoffProfile": "architecture-handoff",
+      "handoffProfile": "project-consistency",
       "checkpointProfile": "architecture-handoff",
       "mainProfile": "workspace-main"
     }
@@ -2827,27 +3150,35 @@
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_VISUAL_REPAIR_REQUIRED",
+      "code": "AIH_UI_REPAIR_REQUIRED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "完全实现视觉验收失败并已生成 Repair Packet，等待 Agent 在允许路径内修复实现",
+      "meaning": "统一 Canonical UI 门禁产生完整 Repair Packet，等待 Agent 执行一次实现修复",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_VISUAL_REPAIR_PACKET_FAILED",
+      "code": "AIH_UI_REPAIR_PACKET_FAILED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "视觉校验失败但无法生成符合 Schema 的 Repair Packet",
+      "meaning": "Canonical UI 失败没有完整修复诊断或无法生成符合 Schema 的 Repair Packet",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_VISUAL_REPAIR_EXHAUSTED",
+      "code": "AIH_UI_REPAIR_EXHAUSTED",
       "severity": "blocker",
       "owner": "product-design",
       "domain": "product-design",
-      "meaning": "完全实现经过三次 Agent 实现修复后仍未通过视觉验收",
+      "meaning": "Canonical UI 经过一次 Agent 实现修复后仍未通过统一门禁",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_UI_REPAIR_SESSION_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Canonical UI Repair Session 缺失、过期、已终止或与当前 Actor 不一致",
       "gateClass": "domain-diagnostic"
     },
     {
@@ -2868,95 +3199,104 @@
     {
       "code": "AIH_MOCKCASE_UPSTREAM_GAP",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "正式 Use Case 或 Scenario 缺少生成 MockCase 所需的业务结果、恢复状态或真实激活事实",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_CANDIDATE_STALE",
       "severity": "blocker",
-      "owner": "repository-harness",
-      "meaning": "MockCase 候选绑定的 Use Cases、Canonical UI、Manifest、目标模型或输入哈希已变化",
-      "gateClass": "safety-structure"
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "MockCase 候选绑定的 Schema、Generator、Use Cases、Canonical UI、目标 Suite 或输入哈希已变化",
+      "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_APPLY_FAILED",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
-      "meaning": "MockCase 候选未能原子应用到 Canonical UI Prototype",
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "MockCase 候选未能原子应用到 MockCase Suite",
       "gateClass": "safety-structure"
     },
     {
       "code": "AIH_MOCKCASE_CONTRACT_INVALID",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "MockCase 或 Effect 的 Route、Scenario、实例、Activation、Behavior 或 Matrix 引用无效",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_COVERAGE_FAILED",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "MockCase 默认 Case 或 business Scenario 覆盖不符合领域规则",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_STATE_MISMATCH",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "MockCase 声明的 State Matrix 结果与实际组件状态不一致",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_TARGET_MISSING",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "MockCase 目标组件实例或 Activation Control 在当前 Route 中不存在",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_CONFLICT",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "多个 MockCase 要求同一组件实例进入互斥 State Matrix Entry",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_PLUGIN_FAILED",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "MockCase Review Plugin 未能加载、挂载或完成运行事务",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_REVIEW_CANCELLED",
+      "severity": "blocker",
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "用户取消了可视 MockCase 评审，因此不形成新的 READY Evidence",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_TOOL_MISSING",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
-      "meaning": "普通 Review Route 缺少唯一 MockCase Review Plugin 或工具开关隔离失效",
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "已请求 MockCase Review 的页面未加载唯一 MockCase Extension，或工具隔离失效",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_ROLLBACK_FAILED",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "MockCase 失败事务未能在错误事件前恢复全部受影响实例、属性与原激活集合",
       "gateClass": "domain-diagnostic"
     },
     {
       "code": "AIH_MOCKCASE_TIMEOUT",
       "severity": "blocker",
-      "owner": "product-design",
-      "domain": "product-design",
+      "owner": "mockcase",
+      "domain": "mockcase",
       "meaning": "MockCase 事务或组件状态观测在稳定超时内未完成",
       "gateClass": "domain-diagnostic"
     },
@@ -3104,6 +3444,11 @@
       "id": "architecture-design",
       "skill": "architecture-design",
       "root": ".agents/skills/architecture-design"
+    },
+    {
+      "id": "mockcase",
+      "skill": "mockcase",
+      "root": ".agents/skills/mockcase"
     }
   ],
   "standard": {

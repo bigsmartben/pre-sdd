@@ -173,6 +173,8 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
 
   const project = parseYaml(await readFile(resolve(target, 'psp.project.yaml'), 'utf8'));
   assert.equal(project.stages['product-design'].status, 'uninitialized');
+  assert.equal(project.stages.mockcase.status, 'uninitialized');
+  assert.equal(project.stages.mockcase.root, 'MockCase');
   assert.equal(project.stages['architecture-design'].status, 'uninitialized');
   const workspacePackage = JSON.parse(await readFile(resolve(target, 'package.json'), 'utf8'));
   const workspaceLock = JSON.parse(await readFile(resolve(target, 'package-lock.json'), 'utf8'));
@@ -204,8 +206,8 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
     'organize-figma-assets',
     'figma-component-from-design',
     'implement-figma-lit-page',
-    'repair-canonical-ui-visual',
-    'mockcase-coverage',
+    'repair-canonical-ui',
+    'mockcase',
   ];
   for (const skill of auxiliarySkills) {
     const skillPath = `.agents/skills/${skill}/SKILL.md`;
@@ -225,11 +227,11 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   const captureSkill = await readFile(resolve(target, '.agents/skills/capture-figma-design-source/SKILL.md'), 'utf8');
   const organizeSkill = await readFile(resolve(target, '.agents/skills/organize-figma-assets/SKILL.md'), 'utf8');
   const componentSkill = await readFile(resolve(target, '.agents/skills/figma-component-from-design/SKILL.md'), 'utf8');
-  const repairSkill = await readFile(resolve(target, '.agents/skills/repair-canonical-ui-visual/SKILL.md'), 'utf8');
+  const repairSkill = await readFile(resolve(target, '.agents/skills/repair-canonical-ui/SKILL.md'), 'utf8');
   const workspaceReadme = await readFile(resolve(target, 'README.md'), 'utf8');
   assert.doesNotMatch(productSkill, /读取节点设计上下文|获取同一节点截图/);
   assert.match(productSkill, /\$capture-figma-design-source/);
-  assert.match(productSkill, /\$repair-canonical-ui-visual/);
+  assert.match(productSkill, /\$repair-canonical-ui/);
   assert.match(captureSkill, /Frame 尺寸/);
   assert.match(captureSkill, /不得选择或改变 `visualPolicy\.mode`/);
   assert.match(captureSkill, /调用 `get_design_context` 读取节点设计上下文前，必须先加载 `\$figma:figma-design-to-code`/);
@@ -311,7 +313,7 @@ test('scaffold source and generated workspace keep separate project contexts', a
     'organize-figma-assets',
     'figma-component-from-design',
     'implement-figma-lit-page',
-    'repair-canonical-ui-visual',
+    'repair-canonical-ui',
   ]) {
     assert.equal(await exists(resolve(repositoryRoot, '.agents/skills', forbidden, 'SKILL.md')), false);
     assert.equal(await exists(resolve(repositoryRoot, 'templates/workspace/.agents/skills', forbidden, 'SKILL.md')), true);
@@ -516,6 +518,8 @@ test('Vite and browser execution are registered in the Product Design domain Ski
   assert.equal(repair.kind, 'repair');
   assert.equal(repair.npmScript, 'repair:canonical-ui');
   assert.equal(repair.artifact, 'canonical-ui-prototype');
+  assert.deepEqual(repair.prerequisiteCommands, ['canonical-ui-input']);
+  assert.deepEqual(repair.repairCommands, ['canonical-ui-runtime', 'canonical-ui-contract-tests']);
   assert.match(repair.executor.path, /^\.agents\/skills\/product-design\/canonical-ui-prototype\//);
   const visualApply = manifest.operations.find((item) => item.id === 'apply-visual-spec');
   assert.equal(visualApply.kind, 'artifact');
@@ -546,9 +550,10 @@ test('Vite and browser execution are registered in the Product Design domain Ski
     'AIH_CANONICAL_UI_ACCESSIBILITY_FAILED',
     'AIH_CANONICAL_UI_ASSET_FAILED',
     'AIH_CANONICAL_UI_SERVER_FAILED',
-    'AIH_VISUAL_REPAIR_REQUIRED',
-    'AIH_VISUAL_REPAIR_PACKET_FAILED',
-    'AIH_VISUAL_REPAIR_EXHAUSTED',
+    'AIH_UI_REPAIR_REQUIRED',
+    'AIH_UI_REPAIR_PACKET_FAILED',
+    'AIH_UI_REPAIR_EXHAUSTED',
+    'AIH_UI_REPAIR_SESSION_INVALID',
   ]) assert.ok(manifest.blockers.some((item) => item.code === code), code);
 });
 
@@ -609,8 +614,8 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.equal(files.has('templates/workspace/.agents/skills/export-marked-assets/SKILL.md'), false);
   assert.equal(files.has('templates/workspace/.agents/skills/export-marked-assets/scripts/validate-png-assets.mjs'), false);
   assert.ok(files.has('templates/workspace/.agents/skills/implement-figma-lit-page/SKILL.md'));
-  assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui-visual/SKILL.md'));
-  assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui-visual/agents/openai.yaml'));
+  assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui/agents/openai.yaml'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/repair-packet.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'));

@@ -34,7 +34,6 @@ function previewUrl(entry: MatrixEntry): string {
     __pspComponentContract: entry.componentContractId,
     __pspStateMatrix: entry.id,
     annotate: '0',
-    mockcase: '0',
   });
   return `/?${query.toString()}`;
 }

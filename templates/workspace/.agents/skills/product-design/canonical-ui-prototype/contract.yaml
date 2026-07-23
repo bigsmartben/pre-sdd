@@ -2,7 +2,7 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: canonical-ui-prototype
-  version: 9.0.0
+  version: 10.0.0
 spec:
   stage: product-design
   internalModelFormat: typescript
@@ -30,6 +30,7 @@ spec:
     - 对 Low-Fi UI Blueprint 的结构或像素复刻
     - 用户未确认的多设备、响应式、横竖屏或无障碍范围
     - Validator 直接修改实现代码、自动放宽视觉容差或修改设计来源与业务语义
+    - 可选 Review Extension 的领域模型、运行事务、工具 UI、证据与生命周期；Review Shell 只提供中性宿主
     - 可重新生成的 dist 构建输出、会话级 HTTP 评审地址与临时运行证据；这些由运行器和 Validator 管理
   domainRules:
     - canonical-semantic-entry
@@ -50,12 +51,6 @@ spec:
     - finite-state-axis-kinds-distinct
     - state-matrix-combination-classification-complete
     - component-state-gallery-generated
-    - mock-case-business-and-technical-distinct
-    - mock-case-effect-target-and-activation-complete
-    - mock-case-instance-conflict-transactional
-    - mock-case-all-touched-targets-rollback-before-error
-    - mock-case-activation-dispatched-by-kind
-    - mock-case-request-ready-browser-verified
     - component-contract-playwright-matrix-generated
     - exact-human-visual-acceptance-current
     - pixel-comparison-diagnostic-only
@@ -87,19 +82,29 @@ spec:
     orchestrator: agent
     validatorRole: decision-and-evidence-only
     maxAttempts: 1
-    mode: manual-single-attempt
+    mode: agent-single-attempt
+    allowedVisualModes:
+      - autonomous
+      - guided
+      - exact
+    defectClasses:
+      - source-parity
+      - html-structure
+      - css-rendering
+      - html-accessibility
+      - asset-binding
+      - component-contract
     packetSchema: .agents/skills/product-design/canonical-ui-prototype/repair-packet.schema.json
     actionReportSchema: .agents/skills/product-design/canonical-ui-prototype/repair-action-report.schema.json
     implementationPolicy:
       evidenceBeforeEdit: true
-      requireSourceResolution: true
+      sourceResolution: when-source-backed
       preserveInteractiveDom: true
       preferSourceAssets: true
       allowSubjectiveApproximation: false
       minimalImplementationScope: true
       stableComparisonEnvironment: true
       fixOrder:
-        - source-resolution
         - structure
         - geometry
         - typography

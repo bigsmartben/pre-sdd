@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MockCase Suite Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "actor", "inputLock", "files"],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "actor": {"$ref": "#/$defs/actor"},
+    "inputLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilitiesDigest", "canonicalUiDigest"],
+      "properties": {
+        "capabilitiesDigest": {"$ref": "#/$defs/digest"},
+        "canonicalUiDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mockdata.json", "mockcases.json"],
+      "properties": {
+        "mockdata.json": {"$ref": "#/$defs/digest"},
+        "mockcases.json": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "$defs": {
+    "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+  }
+}
+

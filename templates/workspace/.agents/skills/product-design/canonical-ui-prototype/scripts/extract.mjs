@@ -29,27 +29,31 @@ function maskQuotedStrings(value) {
   return masked;
 }
 
-export async function extractCanonicalUi(root, path) {
+export async function extractStaticConst(root, path, exportName) {
   const source = await readFile(repositoryFile(root, path), 'utf8');
-  const prefix = /export\s+const\s+canonicalUi\s*=\s*/m.exec(source);
-  if (!prefix) throw new Error('语义入口必须导出静态 const canonicalUi。');
+  const prefix = new RegExp(`export\\s+const\\s+${exportName}\\s*=\\s*`, 'm').exec(source);
+  if (!prefix) throw new Error(`语义入口必须导出静态 const ${exportName}。`);
   const remainder = source.slice(prefix.index + prefix[0].length);
   const suffix = remainder.lastIndexOf('as const');
   if (suffix < 0 || remainder.slice(suffix + 'as const'.length).trim() !== ';') {
-    throw new Error('canonicalUi 必须以静态对象字面量和 as const 结束。');
+    throw new Error(`${exportName} 必须以静态对象字面量和 as const 结束。`);
   }
   const literal = remainder.slice(0, suffix).trim();
-  if (!literal.startsWith('{') || !literal.endsWith('}')) throw new Error('canonicalUi 必须是对象字面量。');
+  if (!literal.startsWith('{') || !literal.endsWith('}')) throw new Error(`${exportName} 必须是对象字面量。`);
   if (/[`]|\$\{|\.\.\.|:\s*[*&!]/m.test(literal)) {
-    throw new Error('canonicalUi 不允许模板字符串、展开、别名、标签或动态表达式。');
+    throw new Error(`${exportName} 不允许模板字符串、展开、别名、标签或动态表达式。`);
   }
   const syntaxOnly = maskQuotedStrings(literal);
   for (const match of syntaxOnly.matchAll(/:\s*([A-Za-z_$][A-Za-z0-9_$.]*(?:\([^)]*\))?)/g)) {
     if (!['true', 'false', 'null'].includes(match[1])) {
-      throw new Error('canonicalUi 的字符串值必须加引号，且不得引用变量或调用函数：' + match[1]);
+      throw new Error(`${exportName} 的字符串值必须加引号，且不得引用变量或调用函数：` + match[1]);
     }
   }
   const value = parseYaml(literal);
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('canonicalUi 静态对象无法解析。');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${exportName} 静态对象无法解析。`);
   return value;
+}
+
+export async function extractCanonicalUi(root, path) {
+  return extractStaticConst(root, path, 'canonicalUi');
 }

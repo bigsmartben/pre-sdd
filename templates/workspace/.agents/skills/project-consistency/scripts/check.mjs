@@ -28,6 +28,7 @@ async function validateReport(root, manifest, report) {
 function parseArguments(argv) {
   const scopes = [];
   let json = false;
+  let selectionMode = 'downstream-impact';
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--json') {
@@ -45,9 +46,22 @@ function parseArguments(argv) {
       scopes.push(...argument.slice('--scope='.length).split(',').filter(Boolean));
       continue;
     }
+    if (argument === '--mode') {
+      const value = argv[index + 1];
+      if (!['downstream-impact', 'handoff-source'].includes(value)) throw new Error('--mode 只支持 downstream-impact 或 handoff-source。');
+      selectionMode = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--mode=')) {
+      const value = argument.slice('--mode='.length);
+      if (!['downstream-impact', 'handoff-source'].includes(value)) throw new Error('--mode 只支持 downstream-impact 或 handoff-source。');
+      selectionMode = value;
+      continue;
+    }
     throw new Error('未知参数：' + argument);
   }
-  return { json, scopes: [...new Set(scopes)] };
+  return { json, scopes: [...new Set(scopes)], selectionMode };
 }
 
 function analyzeDag(manifest) {
@@ -115,6 +129,18 @@ function downstreamClosure(dag, requested) {
     if (selected.has(nodeId) || !dag.nodes.has(nodeId)) continue;
     selected.add(nodeId);
     for (const edge of dag.outgoing.get(nodeId) || []) queue.push(edge.to);
+  }
+  return selected;
+}
+
+function sourceDependencyClosure(dag, requested) {
+  const selected = new Set();
+  const queue = [...requested];
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    if (selected.has(nodeId) || !dag.nodes.has(nodeId)) continue;
+    selected.add(nodeId);
+    for (const edge of dag.incoming.get(nodeId) || []) queue.push(edge.from);
   }
   return selected;
 }
@@ -238,6 +264,7 @@ function optionalActionsFor(blockers, nodeId) {
 export async function checkProjectConsistency(root, options = {}) {
   const { project, manifest } = await loadProjectAndManifest(root);
   const requested = [...new Set(options.scopes || [])];
+  const selectionMode = options.selectionMode || 'downstream-impact';
   const dag = analyzeDag(manifest);
   const topLevelBlockers = [...dag.blockers];
   for (const nodeId of requested) {
@@ -246,9 +273,13 @@ export async function checkProjectConsistency(root, options = {}) {
     }
   }
 
-  const selected = downstreamClosure(dag, requested);
+  const selected = selectionMode === 'handoff-source'
+    ? sourceDependencyClosure(dag, requested)
+    : downstreamClosure(dag, requested);
   const selectedOrder = dag.topologicalOrder.filter((nodeId) => selected.has(nodeId));
-  const relevantEdges = dag.edges.filter((edge) => selected.has(edge.from) || selected.has(edge.to));
+  const relevantEdges = dag.edges.filter((edge) => selectionMode === 'handoff-source'
+    ? selected.has(edge.from) && selected.has(edge.to)
+    : selected.has(edge.from) || selected.has(edge.to));
   const scopes = new Map((manifest.scopes || []).map((scope) => [scope.id, scope]));
   const commands = new Map((manifest.commands || []).map((command) => [command.id, command]));
   const contractsByNode = new Map();
@@ -444,7 +475,10 @@ async function main() {
   const root = resolve(process.env.PSP_REPOSITORY_ROOT || process.env.AI_HARNESS_ROOT || process.cwd());
   let result;
   try {
-    result = await checkProjectConsistency(root, { scopes: args.scopes });
+    result = await checkProjectConsistency(root, {
+      scopes: args.scopes,
+      selectionMode: args.selectionMode,
+    });
   } catch (error) {
     result = {
       protocol: 'pre-sdd-harness/v3',

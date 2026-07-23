@@ -112,6 +112,80 @@ async function acquireLock(root, artifactId, transactionId) {
   return absolute;
 }
 
+export async function commitManagedWrites({
+  root,
+  ownerId,
+  writes,
+  beforeReplace = null,
+  afterReplace = null,
+  cleanupBackup = (path) => rm(path, { force: true }),
+}) {
+  if (!ownerId || !Array.isArray(writes) || writes.length === 0) {
+    fail('AIH_CONTRACT_INVALID', '受控写入必须提供 ownerId 与至少一个目标。');
+  }
+  if (new Set(writes.map((item) => item.target)).size !== writes.length) {
+    fail('AIH_PROJECT_BINDING_INVALID', '受控写入目标路径重复：' + ownerId);
+  }
+  const transactionId = randomUUID();
+  const staged = [];
+  const backups = [];
+  let lockPath = null;
+  let committed = false;
+  let rollbackComplete = false;
+  const cleanupBackups = async () => {
+    await Promise.allSettled(backups.map((item) => cleanupBackup(item.backup)));
+  };
+  try {
+    lockPath = await acquireLock(root, ownerId, transactionId);
+    for (let index = 0; index < writes.length; index += 1) {
+      const target = repositoryFile(root, writes[index].target);
+      if (await exists(target) && !(await stat(target)).isFile()) {
+        fail('AIH_USER_CHANGE_COLLISION', '受控写入目标不是普通文件：' + writes[index].target);
+      }
+      const temporary = repositoryFile(root, writes[index].target + '.aih-' + transactionId + '-' + index + '.new');
+      staged.push(temporary);
+      await durableWrite(temporary, writes[index].content);
+    }
+    for (let index = 0; index < writes.length; index += 1) {
+      const target = repositoryFile(root, writes[index].target);
+      const backup = repositoryFile(root, writes[index].target + '.aih-' + transactionId + '-' + index + '.bak');
+      if (beforeReplace) await beforeReplace({ index, target: writes[index].target });
+      const hadOriginal = await exists(target);
+      if (hadOriginal) await rename(target, backup);
+      backups.push({ target, backup, hadOriginal });
+      await rename(staged[index], target);
+    }
+    if (afterReplace) await afterReplace();
+    committed = true;
+    await cleanupBackups();
+    return transactionId;
+  } catch (error) {
+    const rollbackFailures = [];
+    for (const item of [...backups].reverse()) {
+      try {
+        await rm(item.target, { force: true });
+        if (item.hadOriginal && await exists(item.backup)) await rename(item.backup, item.target);
+      } catch (rollbackError) {
+        rollbackFailures.push(rollbackError);
+      }
+    }
+    if (rollbackFailures.length > 0) {
+      throw Object.assign(new Error(
+        `受控写入失败，且 ${rollbackFailures.length} 个目标未能完整回滚；Backup 已保留。原始错误：${error.message}`,
+      ), {
+        code: 'AIH_ARTIFACT_TRANSACTION_FAILED',
+        cause: error,
+      });
+    }
+    rollbackComplete = true;
+    throw error;
+  } finally {
+    await Promise.allSettled(staged.map((path) => rm(path, { force: true })));
+    if (committed || rollbackComplete) await cleanupBackups();
+    if (lockPath) await rm(lockPath, { force: true }).catch(() => {});
+  }
+}
+
 async function readCandidate(argument) {
   if (argument === '-') {
     const chunks = [];

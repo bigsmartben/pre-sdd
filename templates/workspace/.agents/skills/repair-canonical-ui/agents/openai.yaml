@@ -1,0 +1,4 @@
+interface:
+  display_name: "修复 Canonical UI"
+  short_description: "按统一诊断对 HTML、CSS 与 Lit 渲染执行一次自动修复"
+  default_prompt: "Use $repair-canonical-ui to start one bounded repair session, apply the schema-valid HTML/CSS/Lit diagnostics once, and finish immediately when canonical-ui-repair returns PASS."

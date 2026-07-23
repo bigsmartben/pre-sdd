@@ -53,7 +53,7 @@
             "required": ["id", "outputRole", "readOnly", "sources"],
             "properties": {
               "id": {"$ref": "#/$defs/identifier"},
-              "outputRole": {"enum": ["user-artifact", "generated-support"]},
+              "outputRole": {"enum": ["user-artifact", "generated-support", "runtime-projection"]},
               "readOnly": {"const": true},
               "sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
             }
@@ -95,15 +95,34 @@
         "repair": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["orchestrator", "validatorRole", "maxAttempts", "mode", "packetSchema", "actionReportSchema", "implementationPolicy"],
+          "required": ["orchestrator", "validatorRole", "maxAttempts", "mode", "allowedVisualModes", "defectClasses", "packetSchema", "actionReportSchema", "implementationPolicy"],
           "properties": {
             "orchestrator": {"const": "agent"},
             "validatorRole": {"const": "decision-and-evidence-only"},
             "maxAttempts": {"const": 1},
-            "mode": {"const": "manual-single-attempt"},
+            "mode": {"const": "agent-single-attempt"},
+            "allowedVisualModes": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": {"enum": ["autonomous", "guided", "exact"]},
+              "allOf": [
+                {"contains": {"const": "autonomous"}},
+                {"contains": {"const": "guided"}},
+                {"contains": {"const": "exact"}}
+              ]
+            },
+            "defectClasses": {
+              "type": "array",
+              "minItems": 6,
+              "maxItems": 6,
+              "uniqueItems": true,
+              "items": {"enum": ["source-parity", "html-structure", "css-rendering", "html-accessibility", "asset-binding", "component-contract"]}
+            },
             "packetSchema": {"type": "string", "minLength": 1},
             "actionReportSchema": {"type": "string", "minLength": 1},
-            "implementationPolicy": {"$ref": "#/$defs/visualRepairImplementationPolicy"}
+            "implementationPolicy": {"$ref": "#/$defs/uiRepairImplementationPolicy"}
           }
         },
         "review": {
@@ -171,18 +190,18 @@
       "properties": {
         "stage": {"$ref": "#/$defs/identifier"},
         "artifact": {"$ref": "#/$defs/identifier"},
-        "required": {"const": false},
+        "required": {"type": "boolean"},
         "access": {"const": "read-only"},
         "fixedVersionField": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*(?:\\.[A-Za-z][A-Za-z0-9]*)+$"},
         "lifecycleControl": {"const": "none"}
       }
     },
-    "visualRepairImplementationPolicy": {
+    "uiRepairImplementationPolicy": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "evidenceBeforeEdit",
-        "requireSourceResolution",
+        "sourceResolution",
         "preserveInteractiveDom",
         "preferSourceAssets",
         "allowSubjectiveApproximation",
@@ -192,13 +211,13 @@
       ],
       "properties": {
         "evidenceBeforeEdit": {"const": true},
-        "requireSourceResolution": {"const": true},
+        "sourceResolution": {"const": "when-source-backed"},
         "preserveInteractiveDom": {"const": true},
         "preferSourceAssets": {"const": true},
         "allowSubjectiveApproximation": {"const": false},
         "minimalImplementationScope": {"const": true},
         "stableComparisonEnvironment": {"const": true},
-        "fixOrder": {"const": ["source-resolution", "structure", "geometry", "typography", "paint", "effects", "assets"]}
+        "fixOrder": {"const": ["structure", "geometry", "typography", "paint", "effects", "assets"]}
       }
     }
   }

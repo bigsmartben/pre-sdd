@@ -1,0 +1,576 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import Ajv2020 from 'ajv/dist/2020.js';
+import {
+  artifactCollectionMembers,
+  artifactPaths,
+  loadProjectAndManifest,
+  readStructured,
+  repositoryFile,
+  repositoryRootFrom,
+} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { extractCanonicalUi } from '../../product-design/canonical-ui-prototype/scripts/extract.mjs';
+
+export const MODEL_VERSION = '1.0.0';
+export const HOST_API_VERSION = 'psp.review-extension/v1';
+
+export function sha256(value) {
+  return 'sha256:' + createHash('sha256').update(value).digest('hex');
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+}
+
+export function stableJson(value, pretty = false) {
+  return JSON.stringify(canonical(value), null, pretty ? 2 : undefined);
+}
+
+export function jsonText(value) {
+  return stableJson(value, true) + '\n';
+}
+
+export function fail(code, message) {
+  throw Object.assign(new Error(message), { code });
+}
+
+export function argument(name, argv = process.argv) {
+  const index = argv.indexOf(name);
+  return index >= 0 ? argv[index + 1] : null;
+}
+
+export function argumentsFor(name, argv = process.argv) {
+  const values = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === name && argv[index + 1]) values.push(argv[index + 1]);
+  }
+  return [...new Set(values)].sort();
+}
+
+export function actorArgument(argv = process.argv) {
+  const actor = argument('--actor', argv);
+  if (!actor || !/^ACTOR-[0-9]{3}$/.test(actor)) fail('AIH_SCOPE_UNRESOLVED', '必须提供 --actor ACTOR-NNN。');
+  return actor;
+}
+
+export function emptyMockData(actor) {
+  return { schemaVersion: MODEL_VERSION, actor, fixtures: [], behaviors: [] };
+}
+
+export function emptyMockCases(actor) {
+  return { schemaVersion: MODEL_VERSION, actor, cases: [] };
+}
+
+export function suiteManifest(actor, upstream, mockdata, mockcases) {
+  return {
+    schemaVersion: MODEL_VERSION,
+    actor,
+    inputLock: {
+      capabilitiesDigest: upstream.capabilitiesDigest,
+      canonicalUiDigest: upstream.canonicalUiDigest,
+    },
+    files: {
+      'mockdata.json': sha256(jsonText(mockdata)),
+      'mockcases.json': sha256(jsonText(mockcases)),
+    },
+  };
+}
+
+export function compositeDigest(suite, mockdata, mockcases) {
+  return sha256(stableJson({ suite, mockdata, mockcases }));
+}
+
+export function suitePaths(paths, actor) {
+  const root = `${paths.authorityRoot}/${actor}`;
+  return {
+    root,
+    suite: `${root}/suite.json`,
+    mockdata: `${root}/mockdata.json`,
+    mockcases: `${root}/mockcases.json`,
+    runtime: `${paths.memberOutputs.find((item) => item.role === 'runtime-projection')?.root}/${actor}/mockcase-runtime.json`,
+  };
+}
+
+async function exists(path) {
+  try {
+    await readFile(path);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+export async function workspaceContext(actor, { allowMissingSuite = true } = {}) {
+  const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
+  const { project, manifest } = await loadProjectAndManifest(root);
+  if (project.kind !== 'PSPProject') fail('AIH_PROJECT_BINDING_INVALID', 'MockCase 只能在生成工作区 PSPProject 中运行。');
+  const stage = project.stages?.mockcase;
+  const registry = manifest.artifactRegistry?.find((item) => item.id === 'mockcase-suite' && item.domain === 'mockcase');
+  const paths = artifactPaths(project, 'mockcase-suite', 'mockcase');
+  if (!stage || !registry || !paths || paths.authorityKind !== 'area-set') {
+    fail('AIH_PROJECT_BINDING_INVALID', '项目未完整绑定 mockcase Stage 与 mockcase-suite。');
+  }
+  const capabilitiesPaths = artifactPaths(project, 'capabilities', 'product-design');
+  const canonicalPaths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
+  if (!capabilitiesPaths || !canonicalPaths) fail('AIH_PROJECT_BINDING_INVALID', 'MockCase 缺少 Product Design 只读依赖。');
+  let capabilitiesSource;
+  let capabilities;
+  try {
+    capabilitiesSource = await readFile(repositoryFile(root, capabilitiesPaths.authorityPath), 'utf8');
+    capabilities = await readStructured(root, capabilitiesPaths.authorityPath, 'yaml');
+  } catch {
+    fail('AIH_MOCKCASE_UPSTREAM_GAP', 'Use Cases 权威模型不存在或不可读。');
+  }
+  const canonicalMember = (await artifactCollectionMembers(root, canonicalPaths)).find((item) => item.actor === actor);
+  if (!canonicalMember) fail('AIH_SCOPE_UNRESOLVED', 'Canonical UI Actor 不存在：' + actor);
+  const canonicalSource = await readFile(repositoryFile(root, canonicalMember.authorityPath), 'utf8');
+  const canonicalUi = await extractCanonicalUi(root, canonicalMember.authorityPath);
+  const upstream = {
+    capabilitiesDigest: sha256(capabilitiesSource),
+    canonicalUiDigest: sha256(canonicalSource),
+  };
+  const files = suitePaths(paths, actor);
+  const suiteExists = await exists(repositoryFile(root, files.suite));
+  if (!suiteExists && !allowMissingSuite) fail('AIH_ARTIFACT_INCOMPLETE', 'MockCase Suite 不存在：' + actor);
+  let mockdata = emptyMockData(actor);
+  let mockcases = emptyMockCases(actor);
+  let suite = suiteManifest(actor, upstream, mockdata, mockcases);
+  if (suiteExists) {
+    try {
+      [suite, mockdata, mockcases] = await Promise.all([
+        readStructured(root, files.suite, 'json'),
+        readStructured(root, files.mockdata, 'json'),
+        readStructured(root, files.mockcases, 'json'),
+      ]);
+    } catch {
+      fail('AIH_ARTIFACT_INCOMPLETE', 'MockCase Suite 三个权威 JSON 必须同时存在且可读：' + actor);
+    }
+  }
+  return {
+    root,
+    project,
+    manifest,
+    stage,
+    registry,
+    paths,
+    files,
+    actor,
+    capabilities,
+    canonicalUi,
+    upstream,
+    suite,
+    mockdata,
+    mockcases,
+    suiteExists,
+    suiteDigest: compositeDigest(suite, mockdata, mockcases),
+  };
+}
+
+export async function compileSchemas(root) {
+  const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
+  const load = async (name) => JSON.parse(await readFile(repositoryFile(root, `.agents/skills/mockcase/${name}.schema.json`), 'utf8'));
+  return {
+    ajv,
+    suite: ajv.compile(await load('suite')),
+    mockdata: ajv.compile(await load('mockdata')),
+    mockcases: ajv.compile(await load('mockcases')),
+    candidate: ajv.compile(await load('candidate')),
+    runtime: ajv.compile(await load('runtime')),
+    evidence: ajv.compile(await load('evidence')),
+  };
+}
+
+function schemaFailure(validate, name) {
+  const detail = (validate.errors || []).map((item) => `${item.instancePath || '/'} ${item.message}`).join('; ');
+  fail('AIH_ARTIFACT_SCHEMA_FAILED', `${name} Schema 校验失败：${detail}`);
+}
+
+export async function validateSuiteData(
+  context,
+  {
+    requireCurrentInputs = true,
+    requireCurrentReferences = true,
+    requireCoverage = true,
+  } = {},
+) {
+  const schemas = await compileSchemas(context.root);
+  if (!schemas.suite(context.suite)) schemaFailure(schemas.suite, 'suite.json');
+  if (!schemas.mockdata(context.mockdata)) schemaFailure(schemas.mockdata, 'mockdata.json');
+  if (!schemas.mockcases(context.mockcases)) schemaFailure(schemas.mockcases, 'mockcases.json');
+  if (context.suite.actor !== context.actor || context.mockdata.actor !== context.actor || context.mockcases.actor !== context.actor) {
+    fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Suite 三个文件必须属于同一 Actor。');
+  }
+  if (
+    context.suite.files['mockdata.json'] !== sha256(jsonText(context.mockdata))
+    || context.suite.files['mockcases.json'] !== sha256(jsonText(context.mockcases))
+  ) fail('AIH_MOCKCASE_CANDIDATE_STALE', 'suite.json 文件摘要与权威 JSON 不匹配。');
+  if (requireCurrentInputs && (
+    context.suite.inputLock.capabilitiesDigest !== context.upstream.capabilitiesDigest
+    || context.suite.inputLock.canonicalUiDigest !== context.upstream.canonicalUiDigest
+  )) fail('AIH_MOCKCASE_CANDIDATE_STALE', 'MockCase Suite 的 Product 输入锁已漂移。');
+
+  const fixtureIds = new Set();
+  for (const fixture of context.mockdata.fixtures) {
+    if (fixtureIds.has(fixture.id)) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Fixture ID 重复：' + fixture.id);
+    fixtureIds.add(fixture.id);
+  }
+  const behaviorIds = new Set();
+  for (const behavior of context.mockdata.behaviors) {
+    if (behaviorIds.has(behavior.id)) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Behavior ID 重复：' + behavior.id);
+    behaviorIds.add(behavior.id);
+    if (!fixtureIds.has(behavior.response.fixtureId)) {
+      fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Behavior 引用不存在 Fixture：' + behavior.id);
+    }
+  }
+  for (const fixtureId of fixtureIds) {
+    if (!context.mockdata.behaviors.some((item) => item.response.fixtureId === fixtureId)) {
+      fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Fixture 未被任何 Behavior 使用：' + fixtureId);
+    }
+  }
+  const caseIds = new Set();
+  const scenarioIds = new Set();
+  for (const item of context.mockcases.cases) {
+    if (caseIds.has(item.id)) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Case ID 重复：' + item.id);
+    caseIds.add(item.id);
+    if (item.kind === 'business') scenarioIds.add(item.scenarioId);
+    for (const effect of item.effects) {
+      if (effect.behaviorIds.some((id) => !behaviorIds.has(id))) {
+        fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Effect 引用不存在 Behavior：' + item.id);
+      }
+      if (effect.activation.kind === 'request' && effect.behaviorIds.length === 0) {
+        fail('AIH_MOCKCASE_CONTRACT_INVALID', 'request Activation 必须引用 Behavior：' + item.id);
+      }
+      if (requireCurrentReferences) {
+        const route = context.canonicalUi.routes.find((entry) => entry.id === item.routeId);
+        const scenario = item.scenarioId && context.canonicalUi.scenarios.find((entry) => entry.id === item.scenarioId);
+        if (!route || (item.kind === 'business' && (!scenario || scenario.routeId !== route.id))) {
+          fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Case 的 Route 或 Scenario 引用无效：' + item.id);
+        }
+        const screen = context.canonicalUi.screens.find((entry) => entry.id === route.screenId);
+        const contract = context.canonicalUi.componentContracts.find((entry) =>
+          entry.pageInstances.some((instance) => instance.id === effect.targetInstanceId && instance.screenId === screen?.id));
+        const matrix = context.canonicalUi.stateMatrix.find((entry) =>
+          entry.id === effect.expectedStateMatrixEntryId && entry.classification === 'legal');
+        if (!contract || !matrix || matrix.componentContractId !== contract.id) {
+          fail('AIH_MOCKCASE_TARGET_MISSING', 'Effect 目标实例或 State Matrix 引用无效：' + item.id);
+        }
+        if (effect.activation.controlId) {
+          const control = context.canonicalUi.controls.find((entry) => entry.id === effect.activation.controlId);
+          if (!control || control.componentId !== contract.componentId) {
+            fail('AIH_MOCKCASE_TARGET_MISSING', 'Activation Control 不属于目标组件：' + item.id);
+          }
+        }
+      }
+    }
+  }
+  for (const behaviorId of behaviorIds) {
+    if (!context.mockcases.cases.some((item) => item.effects.some((effect) => effect.behaviorIds.includes(behaviorId)))) {
+      fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Behavior 未被任何 Case 使用：' + behaviorId);
+    }
+  }
+  const routesWithCases = new Set(context.mockcases.cases.map((item) => item.routeId));
+  for (const routeId of routesWithCases) {
+    if (context.mockcases.cases.filter((item) => item.routeId === routeId && item.isDefault).length !== 1) {
+      fail('AIH_MOCKCASE_COVERAGE_FAILED', '每个含 Case 的 Route 必须恰好有一个 Default Case：' + routeId);
+    }
+  }
+  if (requireCoverage && requireCurrentReferences) {
+    const requiredScenarioIds = new Set(context.canonicalUi.scenarios.map((item) => item.id));
+    const missing = [...requiredScenarioIds].filter((id) =>
+      context.mockcases.cases.filter((item) => item.kind === 'business' && item.scenarioId === id).length !== 1);
+    const unexpected = [...scenarioIds].filter((id) => !requiredScenarioIds.has(id));
+    if (missing.length > 0 || unexpected.length > 0) {
+      fail(
+        'AIH_MOCKCASE_COVERAGE_FAILED',
+        `MockCase 必须恰好覆盖每个 Canonical UI Scenario：missing=${missing.join(',') || 'none'}；`
+        + `unexpected=${unexpected.join(',') || 'none'}`,
+      );
+    }
+  }
+  return { schemas, scenarioIds };
+}
+
+function requestedScope(argv = process.argv) {
+  return {
+    routeIds: argumentsFor('--route', argv),
+    useCaseIds: argumentsFor('--use-case', argv),
+    scenarioIds: argumentsFor('--scenario', argv),
+  };
+}
+
+function scopeScenarios(context, scope) {
+  const routes = new Set(scope.routeIds);
+  const useCases = new Set(scope.useCaseIds);
+  const scenarios = new Set(scope.scenarioIds);
+  for (const id of routes) if (!context.canonicalUi.routes.some((item) => item.id === id)) fail('AIH_SCOPE_UNRESOLVED', '未知 Route：' + id);
+  for (const id of scenarios) if (!context.canonicalUi.scenarios.some((item) => item.id === id)) fail('AIH_SCOPE_UNRESOLVED', '未知 Scenario：' + id);
+  const actorUseCases = (context.capabilities.useCases || []).filter((item) => item.actor === context.actor && item.uiApplicability?.mode === 'required');
+  for (const id of useCases) if (!actorUseCases.some((item) => item.id === id)) fail('AIH_SCOPE_UNRESOLVED', '未知或非 UI Use Case：' + id);
+  return context.canonicalUi.scenarios.filter((item) => (
+    (routes.size === 0 || routes.has(item.routeId))
+    && (useCases.size === 0 || useCases.has(item.useCaseId))
+    && (scenarios.size === 0 || scenarios.has(item.id))
+  )).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function entryStateIds(model, entry) {
+  return model.stateAxes.filter((axis) => axis.componentContractId === entry.componentContractId).flatMap((axis) => {
+    const value = axis.values.find((candidate) => candidate.id === entry.values[axis.id]);
+    return value?.stateId ? [value.stateId] : [];
+  });
+}
+
+function generateCase(context, scenario, behaviorBindings) {
+  const route = context.canonicalUi.routes.find((item) => item.id === scenario.routeId);
+  const screen = context.canonicalUi.screens.find((item) => item.id === route?.screenId);
+  const wanted = new Set([...(scenario.expectedStateIds || []), ...(scenario.recoveryStateIds || [])]);
+  const matrix = context.canonicalUi.stateMatrix
+    .filter((item) => item.classification === 'legal' && entryStateIds(context.canonicalUi, item).some((id) => wanted.has(id)))
+    .sort((a, b) => a.id.localeCompare(b.id))[0];
+  const contract = matrix && context.canonicalUi.componentContracts.find((item) =>
+    item.id === matrix.componentContractId && screen?.componentIds.includes(item.componentId));
+  const instance = contract?.pageInstances.filter((item) => item.screenId === screen?.id).sort((a, b) => a.id.localeCompare(b.id))[0];
+  if (!route || !screen || !matrix || !contract || !instance) return { gap: `Scenario 缺少合法 Route、组件实例或 State Matrix：${scenario.id}` };
+  const event = (scenario.eventIds || []).map((id) => context.canonicalUi.events.find((item) => item.id === id)).find((item) => {
+    const action = context.canonicalUi.actions.find((candidate) => candidate.eventId === item?.id);
+    return item && action?.resultingStateIds.some((id) => wanted.has(id));
+  });
+  const behaviorIds = behaviorBindings.get(scenario.id) || [];
+  if (!event && behaviorIds.length === 0) return { gap: `Scenario 缺少可执行 Control/Event 或显式 Behavior 绑定：${scenario.id}` };
+  const id = `MOCK-CASE-${scenario.id}`;
+  return {
+    item: {
+      id,
+      kind: 'business',
+      label: `${scenario.useCaseId} · ${scenario.id}`,
+      routeId: scenario.routeId,
+      scenarioId: scenario.id,
+      effects: [{
+        targetInstanceId: instance.id,
+        behaviorIds,
+        activation: {
+          kind: behaviorIds.length > 0 ? 'request' : 'control-event',
+          ...(event?.controlId ? { controlId: event.controlId } : {}),
+        },
+        expectedStateMatrixEntryId: matrix.id,
+      }],
+      isDefault: false,
+    },
+  };
+}
+
+async function seedPacket(context, path) {
+  if (!path) return { fixtures: [], behaviors: [], bindings: [] };
+  let packet;
+  try {
+    packet = JSON.parse(await readFile(resolve(process.cwd(), path), 'utf8'));
+  } catch (error) {
+    fail('AIH_ARTIFACT_SCHEMA_FAILED', '显式 MockData Packet 无法读取：' + error.message);
+  }
+  const candidateData = {
+    schemaVersion: MODEL_VERSION,
+    actor: context.actor,
+    fixtures: packet.fixtures || [],
+    behaviors: packet.behaviors || [],
+  };
+  const schemas = await compileSchemas(context.root);
+  if (!schemas.mockdata(candidateData)) schemaFailure(schemas.mockdata, 'MockData Packet');
+  return { ...candidateData, bindings: packet.bindings || [] };
+}
+
+export async function buildCandidate(actor, { argv = process.argv, scope = null, seedPath = null } = {}) {
+  const context = await workspaceContext(actor);
+  await validateSuiteData(context, {
+    requireCurrentInputs: false,
+    requireCurrentReferences: false,
+    requireCoverage: false,
+  });
+  const selectedScope = scope || requestedScope(argv);
+  const scenarios = scopeScenarios(context, selectedScope);
+  const seed = await seedPacket(context, seedPath ?? argument('--mockdata', argv));
+  const bindings = new Map(seed.bindings.map((item) => [item.scenarioId, [...new Set(item.behaviorIds || [])].sort()]));
+  const availableBehaviorIds = new Set([...context.mockdata.behaviors, ...seed.behaviors].map((item) => item.id));
+  const existingBusiness = context.mockcases.cases
+    .filter((item) => item.kind === 'business')
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const existingByScenario = new Map();
+  for (const item of existingBusiness) {
+    if (!existingByScenario.has(item.scenarioId)) existingByScenario.set(item.scenarioId, item);
+  }
+  for (const scenario of scenarios) {
+    if (bindings.has(scenario.id)) continue;
+    const existing = existingByScenario.get(scenario.id);
+    if (!existing) continue;
+    bindings.set(scenario.id, [...new Set(existing.effects.flatMap((effect) => effect.behaviorIds))].sort());
+  }
+  for (const [scenarioId, ids] of bindings) {
+    if (ids.some((id) => !availableBehaviorIds.has(id))) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Scenario Binding 引用不存在 Behavior：' + scenarioId);
+  }
+  const generated = [];
+  const gaps = [];
+  for (const scenario of scenarios) {
+    const result = generateCase(context, scenario, bindings);
+    if (result.gap) gaps.push({
+      code: 'AIH_MOCKCASE_UPSTREAM_GAP',
+      message: result.gap,
+      scenarioId: scenario.id,
+      targetDomain: 'product-design',
+      targetArtifact: 'capabilities',
+      targetOperation: 'apply-product-artifact',
+    });
+    else {
+      const existing = existingByScenario.get(scenario.id);
+      generated.push({
+        ...result.item,
+        id: existing?.id ?? result.item.id,
+        isDefault: existing?.isDefault ?? false,
+      });
+    }
+  }
+  const selectedScenarioIds = new Set(scenarios.map((item) => item.id));
+  const explicitScope = Object.values(selectedScope).some((ids) => ids.length > 0);
+  const currentScenarioIds = new Set(context.canonicalUi.scenarios.map((item) => item.id));
+  const currentRouteIds = new Set(context.canonicalUi.routes.map((item) => item.id));
+  const removeCaseIds = new Set();
+  for (const item of context.mockcases.cases) {
+    if (!explicitScope && !currentRouteIds.has(item.routeId)) {
+      removeCaseIds.add(item.id);
+      continue;
+    }
+    if (item.kind !== 'business') continue;
+    if (!explicitScope && !currentScenarioIds.has(item.scenarioId)) {
+      removeCaseIds.add(item.id);
+      continue;
+    }
+    if (selectedScenarioIds.has(item.scenarioId) && existingByScenario.get(item.scenarioId)?.id !== item.id) {
+      removeCaseIds.add(item.id);
+    }
+  }
+  const byId = new Map(context.mockcases.cases
+    .filter((item) => !removeCaseIds.has(item.id))
+    .map((item) => [item.id, item]));
+  for (const item of generated) byId.set(item.id, item);
+  const proposedCases = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const casesByRoute = new Map();
+  for (const item of proposedCases) {
+    if (!casesByRoute.has(item.routeId)) casesByRoute.set(item.routeId, []);
+    casesByRoute.get(item.routeId).push(item);
+  }
+  const normalizedCases = [];
+  for (const items of casesByRoute.values()) {
+    const ordered = items.sort((a, b) => a.id.localeCompare(b.id));
+    const selectedDefault = ordered.filter((item) => item.isDefault)[0] ?? ordered[0];
+    normalizedCases.push(...ordered.map((item) => ({
+      ...item,
+      isDefault: item.id === selectedDefault.id,
+    })));
+  }
+  normalizedCases.sort((a, b) => a.id.localeCompare(b.id));
+
+  const currentCasesById = new Map(context.mockcases.cases.map((item) => [item.id, item]));
+  const nextCaseIds = new Set(normalizedCases.map((item) => item.id));
+  const caseUpserts = normalizedCases.filter((item) =>
+    !currentCasesById.has(item.id) || stableJson(currentCasesById.get(item.id)) !== stableJson(item));
+  const caseRemovals = context.mockcases.cases
+    .filter((item) => !nextCaseIds.has(item.id))
+    .map((item) => item.id)
+    .sort();
+
+  const nextBehaviorsById = new Map(context.mockdata.behaviors.map((item) => [item.id, item]));
+  for (const item of seed.behaviors) nextBehaviorsById.set(item.id, item);
+  const referencedBehaviorIds = new Set(normalizedCases.flatMap((item) =>
+    item.effects.flatMap((effect) => effect.behaviorIds)));
+  for (const id of nextBehaviorsById.keys()) {
+    if (!referencedBehaviorIds.has(id)) nextBehaviorsById.delete(id);
+  }
+  const nextBehaviors = [...nextBehaviorsById.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const nextFixturesById = new Map(context.mockdata.fixtures.map((item) => [item.id, item]));
+  for (const item of seed.fixtures) nextFixturesById.set(item.id, item);
+  const referencedFixtureIds = new Set(nextBehaviors.map((item) => item.response.fixtureId));
+  for (const id of nextFixturesById.keys()) {
+    if (!referencedFixtureIds.has(id)) nextFixturesById.delete(id);
+  }
+  const nextFixtures = [...nextFixturesById.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const currentBehaviorsById = new Map(context.mockdata.behaviors.map((item) => [item.id, item]));
+  const currentFixturesById = new Map(context.mockdata.fixtures.map((item) => [item.id, item]));
+  const behaviorUpserts = nextBehaviors.filter((item) =>
+    !currentBehaviorsById.has(item.id) || stableJson(currentBehaviorsById.get(item.id)) !== stableJson(item));
+  const fixtureUpserts = nextFixtures.filter((item) =>
+    !currentFixturesById.has(item.id) || stableJson(currentFixturesById.get(item.id)) !== stableJson(item));
+  const behaviorRemovals = context.mockdata.behaviors
+    .filter((item) => !nextBehaviorsById.has(item.id))
+    .map((item) => item.id)
+    .sort();
+  const fixtureRemovals = context.mockdata.fixtures
+    .filter((item) => !nextFixturesById.has(item.id))
+    .map((item) => item.id)
+    .sort();
+
+  const before = scenarios.filter((item) => existingByScenario.has(item.id)).length;
+  if (gaps.length === 0) {
+    const nextMockdata = {
+      ...context.mockdata,
+      fixtures: nextFixtures,
+      behaviors: nextBehaviors,
+    };
+    const nextMockcases = {
+      ...context.mockcases,
+      cases: normalizedCases,
+    };
+    const nextSuite = suiteManifest(actor, context.upstream, nextMockdata, nextMockcases);
+    await validateSuiteData({
+      ...context,
+      suite: nextSuite,
+      mockdata: nextMockdata,
+      mockcases: nextMockcases,
+    });
+  }
+  const body = {
+    schemaVersion: MODEL_VERSION,
+    status: gaps.length === 0 ? 'PASS' : 'BLOCKED',
+    actor,
+    scope: selectedScope,
+    inputLock: {
+      generatorVersion: MODEL_VERSION,
+      schemaVersions: {
+        suite: MODEL_VERSION,
+        mockdata: MODEL_VERSION,
+        mockcases: MODEL_VERSION,
+      },
+      ...context.upstream,
+      suiteDigest: context.suiteDigest,
+    },
+    mockDataChanges: {
+      upsertFixtures: fixtureUpserts,
+      removeFixtureIds: fixtureRemovals,
+      upsertBehaviors: behaviorUpserts,
+      removeBehaviorIds: behaviorRemovals,
+    },
+    mockCaseChanges: {
+      upsertCases: caseUpserts,
+      removeCaseIds: caseRemovals,
+    },
+    coverageBefore: { requiredScenarios: scenarios.length, coveredScenarios: before },
+    coverageAfter: {
+      requiredScenarios: scenarios.length,
+      coveredScenarios: scenarios.filter((scenario) =>
+        normalizedCases.some((item) => item.kind === 'business' && item.scenarioId === scenario.id)).length,
+    },
+    gaps: gaps.sort((a, b) => a.scenarioId.localeCompare(b.scenarioId)),
+  };
+  return { context, candidate: { ...body, candidateHash: sha256(stableJson(body)) } };
+}
+
+export function failure(error, operation) {
+  return {
+    status: 'BLOCKED',
+    operation,
+    blockers: [{ code: error.code || 'AIH_MOCKCASE_CONTRACT_INVALID', message: error.message }],
+  };
+}

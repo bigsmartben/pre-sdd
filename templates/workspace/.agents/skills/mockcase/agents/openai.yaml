@@ -1,0 +1,4 @@
+interface:
+  display_name: "MockCase"
+  short_description: "管理独立 MockCase Suite、运行扩展与验证证据"
+  default_prompt: "Use $mockcase for the explicit side-path MockCase workflow. Treat this user trigger as authorization for the full scoped workflow, do not ask for Candidate or Apply confirmation, and do not modify Product Design."

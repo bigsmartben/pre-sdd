@@ -7,6 +7,7 @@ import playwright from '@playwright/test';
 import { createServer } from 'vite';
 import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 import { extractCanonicalUi } from './extract.mjs';
+import { createRepairDiagnostic } from './lib/repair-diagnostics.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const { chromium } = playwright;
@@ -22,7 +23,6 @@ const scenarioFilter = new Set(valuesFor('scenario'));
 const componentFilter = new Set(valuesFor('component'));
 const skipVisualDiagnostics = process.argv.includes('--skip-visual-diagnostics');
 const skipStateGallery = process.argv.includes('--skip-state-gallery');
-const skipMockCases = process.argv.includes('--skip-mockcases');
 const forwardedFilters = [
   ...[...routeFilter].flatMap((value) => ['--route', value]),
   ...[...viewportFilter].flatMap((value) => ['--viewport', value]),
@@ -30,7 +30,6 @@ const forwardedFilters = [
   ...[...componentFilter].flatMap((value) => ['--component', value]),
   ...(skipVisualDiagnostics ? ['--skip-visual-diagnostics'] : []),
   ...(skipStateGallery ? ['--skip-state-gallery'] : []),
-  ...(skipMockCases ? ['--skip-mockcases'] : []),
 ];
 
 if (!requestedActor) {
@@ -72,12 +71,47 @@ let browser;
 let evidenceRoot;
 let reviewAddress;
 let visualDiagnosticDurationMs = 0;
+let currentRepairContext = null;
 
-function block(code, message, location) {
-  const key = [code, message, location || ''].join('|');
+function block(code, message, location, diagnosticId = null) {
+  let effectiveDiagnosticId = diagnosticId;
+  const automaticClass = {
+    AIH_COMPONENT_IMPLEMENTATION_MISMATCH: 'html-structure',
+    AIH_CANONICAL_UI_ACCESSIBILITY_FAILED: 'html-accessibility',
+  }[code];
+  if (!effectiveDiagnosticId && automaticClass && currentRepairContext) {
+    const item = createRepairDiagnostic('canonical-ui-runtime', {
+      blockerCode: code,
+      defectClass: automaticClass,
+      message,
+      location: location || currentRepairContext.location,
+      scope: currentRepairContext.scope,
+      check: { kind: automaticClass },
+      evidence: [{ kind: 'actual-screenshot', path: currentRepairContext.screenshot }],
+    });
+    evidence.push(item);
+    effectiveDiagnosticId = item.diagnosticId;
+  }
+  const key = [code, message, location || '', effectiveDiagnosticId || ''].join('|');
   if (blockerKeys.has(key)) return;
   blockerKeys.add(key);
-  blockers.push({ code, message, ...(location ? { location } : {}) });
+  blockers.push({ code, message, ...(location ? { location } : {}), ...(effectiveDiagnosticId ? { diagnosticId: effectiveDiagnosticId } : {}) });
+}
+
+function repairBlock(code, message, location, diagnostic) {
+  const item = createRepairDiagnostic('canonical-ui-runtime', {
+    blockerCode: code,
+    message,
+    location,
+    ...diagnostic,
+  });
+  evidence.push(item);
+  block(code, message, location, item.diagnosticId);
+}
+
+function routeScreenshotPath(routeId, viewportId, scenarioId = null) {
+  const kind = scenarioId ? 'scenario' : 'route';
+  return join(evidenceRoot, [kind, viewportId, routeId, scenarioId].filter(Boolean).join('-') + '.png');
 }
 
 function selectorForId(id) {
@@ -479,14 +513,21 @@ async function guardedPage(viewport, base) {
   return { context, page };
 }
 
-async function verifyBaseSemantics(page, model, route) {
+async function verifyBaseSemantics(page, model, route, viewport, scenarioId = null) {
   const screen = model.screens.find((item) => item.id === route.screenId);
   if (!screen) {
     block('AIH_CANONICAL_UI_RUNTIME_FAILED', '路由引用未知 Screen：' + route.screenId, route.path);
     return null;
   }
+  const scope = { routeId: route.id, viewportId: viewport.id, ...(scenarioId ? { scenarioId } : {}) };
+  const screenshot = routeScreenshotPath(route.id, viewport.id, scenarioId);
   if (await page.locator('[data-screen-id="' + screen.id + '"]').count() === 0) {
-    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '路由未渲染声明的 data-screen-id：' + screen.id, route.path);
+    repairBlock('AIH_CANONICAL_UI_RUNTIME_FAILED', '路由未渲染声明的 data-screen-id：' + screen.id, route.path, {
+      defectClass: 'html-structure',
+      scope: { ...scope, targetIds: [screen.id] },
+      check: { kind: 'screen-mounted', expected: true, actual: false },
+      evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+    });
   }
   for (const stateId of screen.stateIds) {
     if (await page.locator('[data-state-id="' + stateId + '"]').count() === 0) {
@@ -495,13 +536,23 @@ async function verifyBaseSemantics(page, model, route) {
   }
   for (const componentId of screen.componentIds) {
     if (await page.locator('[data-component-id="' + componentId + '"]').count() === 0) {
-      block('AIH_CANONICAL_UI_RUNTIME_FAILED', '缺少 data-component-id：' + componentId, route.path);
+      repairBlock('AIH_CANONICAL_UI_RUNTIME_FAILED', '缺少 data-component-id：' + componentId, route.path, {
+        defectClass: 'html-structure',
+        scope: { ...scope, componentId, targetIds: [componentId] },
+        check: { kind: 'component-mounted', expected: true, actual: false },
+        evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+      });
     }
   }
   for (const control of controlsForScreen(model, screen)) {
     const locator = page.locator('[data-control-id="' + control.id + '"]');
     if (await locator.count() === 0) {
-      block('AIH_CANONICAL_UI_RUNTIME_FAILED', '缺少 data-control-id：' + control.id, route.path);
+      repairBlock('AIH_CANONICAL_UI_RUNTIME_FAILED', '缺少 data-control-id：' + control.id, route.path, {
+        defectClass: 'html-structure',
+        scope: { ...scope, targetIds: [control.id] },
+        check: { kind: 'control-mounted', expected: true, actual: false },
+        evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+      });
       continue;
     }
     if (hasAccessibilityCheck(model, 'accessible-name')) {
@@ -522,10 +573,15 @@ async function verifyBaseSemantics(page, model, route) {
   return screen;
 }
 
-async function verifyTarget(page, id, assertionId) {
+async function verifyTarget(page, id, assertion, scope, screenshot) {
   const locator = locatorForId(page, id);
   if (await locator.count() === 0) {
-    block('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标不存在：' + id, assertionId);
+    repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标不存在：' + id, assertion.id, {
+      defectClass: 'html-structure',
+      scope: { ...scope, assertionId: assertion.id, targetIds: [id] },
+      check: { kind: 'target-exists', expected: true, actual: false },
+      evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+    });
     return null;
   }
   return locator.first();
@@ -538,16 +594,27 @@ async function runVisualAssertions(page, model, routeId, viewport, scenarioId = 
     && (scenarioId ? assertion.scenarioId === scenarioId : !assertion.scenarioId)
   ));
   for (const assertion of assertions) {
+    const scope = {
+      routeId,
+      viewportId: viewport.id,
+      ...(scenarioId ? { scenarioId } : {}),
+    };
+    const screenshot = routeScreenshotPath(routeId, viewport.id, scenarioId);
     for (const check of assertion.checks) {
       if (check.kind === 'document-no-horizontal-overflow') {
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
-        if (overflow) block('AIH_CANONICAL_UI_VISUAL_FAILED', '视口产生水平溢出：' + viewport.id, assertion.id);
+        if (overflow) repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '视口产生水平溢出：' + viewport.id, assertion.id, {
+          defectClass: 'css-rendering',
+          scope: { ...scope, assertionId: assertion.id },
+          check: { kind: check.kind, expected: false, actual: true },
+          evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+        });
         continue;
       }
       if (check.kind === 'elements-no-overlap') {
         const boxes = [];
         for (const id of check.targetIds) {
-          const target = await verifyTarget(page, id, assertion.id);
+          const target = await verifyTarget(page, id, assertion, scope, screenshot);
           if (target) boxes.push({ id, box: await target.boundingBox() });
         }
         for (let left = 0; left < boxes.length; left += 1) {
@@ -557,38 +624,68 @@ async function runVisualAssertions(page, model, routeId, viewport, scenarioId = 
             if (!a.box || !b.box) continue;
             const width = Math.min(a.box.x + a.box.width, b.box.x + b.box.width) - Math.max(a.box.x, b.box.x);
             const height = Math.min(a.box.y + a.box.height, b.box.y + b.box.height) - Math.max(a.box.y, b.box.y);
-            if (width > 0.5 && height > 0.5) block('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标发生重叠：' + a.id + ' / ' + b.id, assertion.id);
+            if (width > 0.5 && height > 0.5) repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标发生重叠：' + a.id + ' / ' + b.id, assertion.id, {
+              defectClass: 'css-rendering',
+              scope: { ...scope, assertionId: assertion.id, targetIds: [a.id, b.id] },
+              check: { kind: check.kind, expected: false, actual: true },
+              evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+            });
           }
         }
         continue;
       }
       if (check.kind === 'computed-style') {
-        const target = await verifyTarget(page, check.targetId, assertion.id);
+        const target = await verifyTarget(page, check.targetId, assertion, scope, screenshot);
         if (!target) continue;
         const actual = await target.evaluate((element, property) => getComputedStyle(element).getPropertyValue(property).trim(), check.property);
-        if (actual !== check.expected) block('AIH_CANONICAL_UI_VISUAL_FAILED', '计算样式不匹配：' + check.targetId + ' / ' + check.property + '，实际为 ' + actual, assertion.id);
+        if (actual !== check.expected) repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '计算样式不匹配：' + check.targetId + ' / ' + check.property + '，实际为 ' + actual, assertion.id, {
+          defectClass: 'css-rendering',
+          scope: { ...scope, assertionId: assertion.id, targetIds: [check.targetId] },
+          check: { kind: check.kind, property: check.property, expected: check.expected, actual },
+          evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+        });
         continue;
       }
       for (const id of check.targetIds) {
-        const target = await verifyTarget(page, id, assertion.id);
+        const target = await verifyTarget(page, id, assertion, scope, screenshot);
         if (!target) continue;
         if (check.kind === 'element-visible' && !await target.isVisible()) {
-          block('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标不可见：' + id, assertion.id);
+          repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标不可见：' + id, assertion.id, {
+            defectClass: 'css-rendering',
+            scope: { ...scope, assertionId: assertion.id, targetIds: [id] },
+            check: { kind: check.kind, expected: true, actual: false },
+            evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+          });
         } else if (check.kind === 'element-in-viewport') {
           const box = await target.boundingBox();
           if (!box || box.x < -0.5 || box.y < -0.5 || box.x + box.width > viewport.width + 0.5 || box.y + box.height > viewport.height + 0.5) {
-            block('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标超出视口：' + id, assertion.id);
+            repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '视觉断言目标超出视口：' + id, assertion.id, {
+              defectClass: 'css-rendering',
+              scope: { ...scope, assertionId: assertion.id, targetIds: [id] },
+              check: { kind: check.kind, expected: true, actual: false },
+              evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+            });
           }
         } else if (check.kind === 'text-no-clipping') {
           const clipped = await target.evaluate((element) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1);
-          if (clipped) block('AIH_CANONICAL_UI_VISUAL_FAILED', '文本发生裁切：' + id, assertion.id);
+          if (clipped) repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '文本发生裁切：' + id, assertion.id, {
+            defectClass: 'css-rendering',
+            scope: { ...scope, assertionId: assertion.id, targetIds: [id] },
+            check: { kind: check.kind, expected: false, actual: true },
+            evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+          });
         } else if (check.kind === 'text-max-lines') {
           const lines = await target.evaluate((element) => {
             const style = getComputedStyle(element);
             const lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.2;
             return element.getBoundingClientRect().height / lineHeight;
           });
-          if (lines > check.maxLines + 0.15) block('AIH_CANONICAL_UI_VISUAL_FAILED', '文本行数超过声明上限：' + id, assertion.id);
+          if (lines > check.maxLines + 0.15) repairBlock('AIH_CANONICAL_UI_VISUAL_FAILED', '文本行数超过声明上限：' + id, assertion.id, {
+            defectClass: 'css-rendering',
+            scope: { ...scope, assertionId: assertion.id, targetIds: [id] },
+            check: { kind: check.kind, expected: check.maxLines, actual: Number(lines.toFixed(3)) },
+            evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+          });
         }
       }
     }
@@ -626,56 +723,64 @@ async function runSourceParityAssertions(page, model, routeId, viewport, parityE
         const target = locatorForId(page, check.targetId);
         if (await target.count() === 0) {
           const message = '来源样式断言目标不存在：' + check.targetId;
-          block('AIH_VISUAL_STYLE_BINDING_FAILED', message, assertion.id);
           const prefix = safeEvidenceName('style-missing', viewport.id, routeId, scenarioId, assertion.id, checkIndex);
           const actualScreenshot = join(evidenceRoot, prefix + '-actual.png');
           const differenceScreenshot = join(evidenceRoot, prefix + '-difference.png');
           await page.screenshot({ path: actualScreenshot, fullPage: true, animations: 'disabled' });
           await page.screenshot({ path: differenceScreenshot, fullPage: true, animations: 'disabled' });
-          evidence.push({
-            kind: 'source-parity-failure',
-            blockerCode: 'AIH_VISUAL_STYLE_BINDING_FAILED',
-            assertionId: assertion.id,
-            ...sourceDetails,
-            targetId: check.targetId,
-            styleProperty: check.property,
-            routeId,
-            viewportId: viewport.id,
-            ...(scenarioId ? { scenarioId } : {}),
-            message,
-            expectedStyle: check.expected,
-            actualStyle: '',
-            ...(sourceScreenshot ? { sourceBaseline: sourceScreenshot.path } : {}),
-            actualScreenshot,
-            differenceScreenshot,
+          repairBlock('AIH_VISUAL_STYLE_BINDING_FAILED', message, assertion.id, {
+            defectClass: 'source-parity',
+            scope: {
+              routeId,
+              viewportId: viewport.id,
+              ...(scenarioId ? { scenarioId } : {}),
+              assertionId: assertion.id,
+              targetIds: [check.targetId],
+            },
+            check: { kind: check.kind, property: check.property, expected: check.expected, actual: '' },
+            evidence: [
+              { kind: 'actual-screenshot', path: actualScreenshot },
+              { kind: 'difference-screenshot', path: differenceScreenshot },
+              ...(sourceScreenshot ? [{ kind: 'source-baseline', path: sourceScreenshot.path }] : []),
+              ...(source.designContext ? [{ kind: 'design-context', ...(source.designContextEvidenceItemId ? { id: source.designContextEvidenceItemId } : {}), path: source.designContext }] : []),
+            ],
+            source: {
+              sourceId: assertion.sourceId,
+              sourceKind: source.kind,
+              evidenceItemIds: sourceEvidenceItemIds,
+            },
           });
           continue;
         }
         const actual = await target.first().evaluate((element, property) => getComputedStyle(element).getPropertyValue(property).trim(), check.property);
         if (actual !== check.expected) {
           const message = '来源样式不匹配：' + check.targetId + ' / ' + check.property + '，实际为 ' + actual;
-          block('AIH_VISUAL_STYLE_BINDING_FAILED', message, assertion.id);
           const prefix = safeEvidenceName('style', viewport.id, routeId, scenarioId, assertion.id, checkIndex);
           const actualScreenshot = join(evidenceRoot, prefix + '-actual.png');
           const differenceScreenshot = join(evidenceRoot, prefix + '-difference.png');
           await page.screenshot({ path: actualScreenshot, fullPage: true, animations: 'disabled' });
           await captureStyleDifference(page, target.first(), differenceScreenshot);
-          evidence.push({
-            kind: 'source-parity-failure',
-            blockerCode: 'AIH_VISUAL_STYLE_BINDING_FAILED',
-            assertionId: assertion.id,
-            ...sourceDetails,
-            targetId: check.targetId,
-            styleProperty: check.property,
-            routeId,
-            viewportId: viewport.id,
-            ...(scenarioId ? { scenarioId } : {}),
-            message,
-            expectedStyle: check.expected,
-            actualStyle: actual,
-            ...(sourceScreenshot ? { sourceBaseline: sourceScreenshot.path } : {}),
-            actualScreenshot,
-            differenceScreenshot,
+          repairBlock('AIH_VISUAL_STYLE_BINDING_FAILED', message, assertion.id, {
+            defectClass: 'source-parity',
+            scope: {
+              routeId,
+              viewportId: viewport.id,
+              ...(scenarioId ? { scenarioId } : {}),
+              assertionId: assertion.id,
+              targetIds: [check.targetId],
+            },
+            check: { kind: check.kind, property: check.property, expected: check.expected, actual },
+            evidence: [
+              { kind: 'actual-screenshot', path: actualScreenshot },
+              { kind: 'difference-screenshot', path: differenceScreenshot },
+              ...(sourceScreenshot ? [{ kind: 'source-baseline', path: sourceScreenshot.path }] : []),
+              ...(source.designContext ? [{ kind: 'design-context', ...(source.designContextEvidenceItemId ? { id: source.designContextEvidenceItemId } : {}), path: source.designContext }] : []),
+            ],
+            source: {
+              sourceId: assertion.sourceId,
+              sourceKind: source.kind,
+              evidenceItemIds: sourceEvidenceItemIds,
+            },
           });
         }
       } else if (check.kind === 'screenshot-match') {
@@ -695,21 +800,38 @@ async function runSourceParityAssertions(page, model, routeId, viewport, parityE
           await writeFile(actualScreenshot, difference.actualScreenshot);
           await writeDataUrl(differenceScreenshot, difference.differenceDataUrl);
           const message = '实现与视觉来源截图差异超限：' + (difference.ratio * 100).toFixed(3) + '%，允许 ' + (thresholds.maxDifferentPixelRatio * 100).toFixed(3) + '%；实际 ' + difference.actual.join('×') + '，基线 ' + difference.expected.join('×');
-          evidence.push({
-            kind: 'source-parity-diagnostic',
-            diagnosticCode: 'AIH_VISUAL_PIXEL_DIAGNOSTIC',
-            assertionId: assertion.id,
-            ...sourceDetails,
-            routeId,
-            viewportId: viewport.id,
-            ...(scenarioId ? { scenarioId } : {}),
-            message,
-            differenceRatio: difference.ratio,
-            differenceRegions: difference.differenceRegions,
-            sourceBaseline: baseline.path,
-            actualScreenshot,
-            differenceScreenshot,
-          });
+          const diagnostic = {
+            defectClass: 'source-parity',
+            scope: {
+              routeId,
+              viewportId: viewport.id,
+              ...(scenarioId ? { scenarioId } : {}),
+              assertionId: assertion.id,
+            },
+            check: { kind: check.kind, expected: thresholds.maxDifferentPixelRatio, actual: difference.ratio },
+            evidence: [
+              { kind: 'source-baseline', ...(assertion.baselineEvidenceItemId ? { id: assertion.baselineEvidenceItemId } : {}), path: baseline.path },
+              { kind: 'actual-screenshot', path: actualScreenshot },
+              { kind: 'difference-screenshot', path: differenceScreenshot },
+              ...(source.designContext ? [{ kind: 'design-context', ...(source.designContextEvidenceItemId ? { id: source.designContextEvidenceItemId } : {}), path: source.designContext }] : []),
+            ],
+            source: {
+              sourceId: assertion.sourceId,
+              sourceKind: source.kind,
+              evidenceItemIds: sourceEvidenceItemIds,
+            },
+            difference: { ratio: difference.ratio, regions: difference.differenceRegions },
+          };
+          if (model.visualPolicy.mode === 'exact') {
+            repairBlock('AIH_VISUAL_SOURCE_PARITY_FAILED', message, assertion.id, diagnostic);
+          } else {
+            evidence.push(createRepairDiagnostic('canonical-ui-runtime', {
+              blockerCode: 'AIH_VISUAL_PIXEL_DIAGNOSTIC',
+              message,
+              location: assertion.id,
+              ...diagnostic,
+            }));
+          }
         }
       }
     }
@@ -843,7 +965,6 @@ async function verifyReducedMotion(page, model, routePath) {
 function cleanReviewUrl(base, routePath) {
   const url = new URL(routePath, base);
   url.searchParams.set('annotate', '0');
-  url.searchParams.set('mockcase', '0');
   return url.href;
 }
 
@@ -998,316 +1119,6 @@ async function verifyStateGallery(viewport, base, model) {
   }
 }
 
-async function verifyMockCases(viewport, base, model) {
-  const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-  const page = await context.newPage();
-  const observedNetworkRequests = [];
-  page.on('request', (request) => {
-    if (['fetch', 'xhr'].includes(request.resourceType())) observedNetworkRequests.push({ method: request.method(), url: request.url() });
-  });
-  await page.addInitScript(() => {
-    globalThis.__pspMockcaseReadySets = [];
-    globalThis.__pspMockcaseErrors = [];
-    globalThis.__pspMockcaseControlClicks = [];
-    globalThis.__pspMockcaseFindInstance = (instanceId) => {
-      const selector = `[data-component-instance-id="${CSS.escape(instanceId)}"]`;
-      const roots = [document];
-      while (roots.length > 0) {
-        const root = roots.shift();
-        const direct = root.querySelector(selector);
-        if (direct) return direct;
-        for (const element of root.querySelectorAll('*')) {
-          if (element.shadowRoot) roots.push(element.shadowRoot);
-        }
-      }
-      return null;
-    };
-    globalThis.__pspMockcaseCaptureTargets = (targetIds) => ({
-      behaviorIds: [...(globalThis.__pspMockBehaviorIds || [])],
-      targets: targetIds.map((targetInstanceId) => {
-        const target = globalThis.__pspMockcaseFindInstance(targetInstanceId);
-        if (!target) return { targetInstanceId, exists: false, mockCaseIds: null, stateIds: [] };
-        const stateIds = new Set();
-        const scan = (root) => {
-          const elements = root instanceof Element ? [root, ...root.querySelectorAll('*')] : [...root.querySelectorAll('*')];
-          for (const element of elements) {
-            for (const attribute of ['data-component-state', 'data-state-id']) {
-              const value = element.getAttribute(attribute);
-              if (value) stateIds.add(value);
-            }
-            if (element.shadowRoot) scan(element.shadowRoot);
-          }
-        };
-        scan(target);
-        return {
-          targetInstanceId,
-          exists: true,
-          mockCaseIds: target.getAttribute('data-mockcase-ids'),
-          stateIds: [...stateIds].sort(),
-        };
-      }),
-    });
-    document.addEventListener('click', (event) => {
-      const control = event.composedPath().find((item) => item instanceof Element && item.hasAttribute('data-control-id'));
-      const controlId = control?.getAttribute('data-control-id');
-      if (controlId) globalThis.__pspMockcaseControlClicks.push(controlId);
-    }, true);
-    window.addEventListener('psp:mockcase-ready', (event) => globalThis.__pspMockcaseReadySets.push([...event.detail.activeCaseIds].sort().join(',')));
-    window.addEventListener('psp:mockcase-error', (event) => {
-      globalThis.__pspMockcaseErrors.push(event.detail);
-      if (globalThis.__pspMockcaseErrorCaptureTargetIds) {
-        globalThis.__pspMockcaseRollbackAtError = {
-          transactionId: event.detail.transactionId,
-          activeCaseIds: [...event.detail.activeCaseIds],
-          ...globalThis.__pspMockcaseCaptureTargets(globalThis.__pspMockcaseErrorCaptureTargetIds),
-        };
-      }
-    });
-  });
-  const caseKey = (ids) => [...ids].sort().join(',');
-  const waitReady = async (ids) => page.waitForFunction((key) => globalThis.__pspMockcaseReadySets?.includes(key), caseKey(ids), { timeout: 5000 });
-  const effectState = (effect) => {
-    const entry = model.stateMatrix.find((item) => item.id === effect.expectedStateMatrixEntryId);
-    const axes = model.stateAxes.filter((item) => item.componentContractId === entry?.componentContractId);
-    return axes.flatMap((axis) => {
-      const selected = axis.values.find((item) => item.id === entry?.values[axis.id]);
-      return selected?.stateId && model.states.find((item) => item.id === selected.stateId)?.scope === 'component' ? [selected.stateId] : [];
-    });
-  };
-  const assertEffects = async (mockCase, location) => {
-    for (const effect of mockCase.effects) {
-      const target = page.locator(`[data-component-instance-id="${effect.targetInstanceId}"]`).first();
-      if (await target.count() === 0) {
-        block('AIH_MOCKCASE_TARGET_MISSING', 'Mock Case 目标实例未出现在真实页面：' + mockCase.id + ' / ' + effect.targetInstanceId, location);
-        continue;
-      }
-      for (const stateId of effectState(effect)) {
-        const ownState = await target.getAttribute('data-component-state');
-        const nested = target.locator(`[data-component-state="${stateId}"]`);
-        if (ownState !== stateId && await nested.count() === 0) {
-          block('AIH_MOCKCASE_STATE_MISMATCH', 'Effect 未呈现声明的 State Matrix 结果：' + mockCase.id + ' / ' + stateId, location);
-        }
-      }
-    }
-  };
-  try {
-    for (const route of model.routes.filter((item) => routeFilter.size === 0 || routeFilter.has(item.id))) {
-      const routeCases = model.mockCases.filter((item) => item.routeId === route.id);
-      await page.goto(new URL(route.path, base).href, { waitUntil: 'networkidle' });
-      if (await page.locator('mockcase-switcher[data-review-tool="mockcase-review-plugin"]').count() !== 1) {
-        block('AIH_MOCKCASE_TOOL_MISSING', '普通 Review 地址缺少唯一 MockCase Review Plugin。', route.path);
-      }
-      const defaultCase = routeCases.find((item) => item.isDefault);
-      if (defaultCase) {
-        try {
-          await waitReady([defaultCase.id]);
-        } catch {
-          block('AIH_MOCKCASE_TIMEOUT', '默认 Mock Case 未完成 request/ready 握手：' + defaultCase.id, route.path);
-        }
-      }
-
-      const annotateOff = new URL(route.path, base);
-      annotateOff.searchParams.set('annotate', '0');
-      await page.goto(annotateOff.href, { waitUntil: 'networkidle' });
-      if (await page.locator('inconsistency-annotator').count() !== 0 || await page.locator('mockcase-switcher').count() !== 1) {
-        block('AIH_MOCKCASE_TOOL_MISSING', 'annotate=0 必须只关闭不一致标记工具，保留 Mock Case 切换器。', route.path);
-      }
-
-      const mockcaseOff = new URL(route.path, base);
-      mockcaseOff.searchParams.set('mockcase', '0');
-      await page.goto(mockcaseOff.href, { waitUntil: 'networkidle' });
-      if (await page.locator('mockcase-switcher').count() !== 0 || await page.locator('inconsistency-annotator').count() !== 1) {
-        block('AIH_MOCKCASE_TOOL_MISSING', 'mockcase=0 必须只关闭 Mock Case 切换器，保留不一致标记工具。', route.path);
-      }
-
-      const gallery = new URL('/__review/components', base);
-      await page.goto(gallery.href, { waitUntil: 'networkidle' });
-      if (await page.locator('mockcase-switcher').count() !== 0) {
-        block('AIH_MOCKCASE_TOOL_MISSING', 'State Gallery 不得加载 MockCase Review Plugin。', '/__review/components');
-      }
-
-      for (const mockCase of routeCases) {
-        const requestStart = observedNetworkRequests.length;
-        const deepLink = new URL(route.path, base);
-        deepLink.searchParams.set('psp-cases', mockCase.id);
-        deepLink.searchParams.set('annotate', '0');
-        await page.goto(deepLink.href, { waitUntil: 'networkidle' });
-        try {
-          await waitReady([mockCase.id]);
-        } catch {
-          block('AIH_MOCKCASE_TIMEOUT', 'Mock Case 深链未完成 request/ready 握手：' + mockCase.id, route.path);
-          continue;
-        }
-        if (new URL(page.url()).searchParams.get('psp-cases') !== mockCase.id || new URL(page.url()).searchParams.has('psp-case')) {
-          block('AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 深链在加载后未保留：' + mockCase.id, route.path);
-        }
-        await assertEffects(mockCase, route.path);
-        const requestControlEffects = mockCase.effects.filter((effect) => effect.activation.kind === 'request' && effect.activation.controlId);
-        if (requestControlEffects.length > 0) {
-          const requests = observedNetworkRequests.slice(requestStart);
-          const controlClicks = await page.evaluate(() => [...(globalThis.__pspMockcaseControlClicks || [])]);
-          for (const effect of requestControlEffects) {
-            for (const behaviorId of effect.mockBehaviorIds) {
-              const behavior = model.mockBehaviors.find((item) => item.id === behaviorId);
-              const [method, requestPath] = behavior?.request.split(/\s+/, 2) ?? [];
-              const expectedUrl = requestPath ? new URL(requestPath, base).href : '';
-              if (!requests.some((item) => item.method === method && item.url === expectedUrl)) {
-                block('AIH_MOCKCASE_STATE_MISMATCH', 'request + controlId 未执行声明的网络请求：' + mockCase.id + ' / ' + behaviorId, route.path);
-              }
-            }
-            if (controlClicks.includes(effect.activation.controlId)) {
-              block('AIH_MOCKCASE_STATE_MISMATCH', 'request + controlId 被错误执行为 click：' + mockCase.id + ' / ' + effect.activation.controlId, route.path);
-            }
-          }
-        }
-      }
-
-      const legacyCase = routeCases.find((item) => !item.isDefault) ?? defaultCase;
-      if (legacyCase) {
-        const legacy = new URL(route.path, base);
-        legacy.searchParams.set('psp-case', legacyCase.id);
-        legacy.searchParams.set('annotate', '0');
-        await page.goto(legacy.href, { waitUntil: 'networkidle' });
-        try { await waitReady([legacyCase.id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '旧 psp-case 深链未能只读恢复：' + legacyCase.id, route.path); }
-        if (new URL(page.url()).searchParams.get('psp-cases') !== legacyCase.id || new URL(page.url()).searchParams.has('psp-case')) {
-          block('AIH_MOCKCASE_STATE_MISMATCH', '旧 psp-case 必须迁移为只写 psp-cases。', route.path);
-        }
-      }
-
-      const compatible = routeCases.filter((item) => !item.isDefault).flatMap((left, leftIndex, all) => all.slice(leftIndex + 1).map((right) => [left, right]))
-        .find(([left, right]) => left.effects.every((leftEffect) => right.effects.every((rightEffect) => leftEffect.targetInstanceId !== rightEffect.targetInstanceId)));
-      if (compatible) {
-        const comboIds = compatible.map((item) => item.id).sort();
-        const combo = new URL(route.path, base);
-        combo.searchParams.set('psp-cases', comboIds.slice().reverse().join(','));
-        combo.searchParams.set('annotate', '0');
-        await page.goto(combo.href, { waitUntil: 'networkidle' });
-        try { await waitReady(comboIds); } catch { block('AIH_MOCKCASE_TIMEOUT', '不同组件实例的兼容 Case 未能同时 READY：' + comboIds.join(', '), route.path); }
-        if (new URL(page.url()).searchParams.get('psp-cases') !== comboIds.join(',')) {
-          block('AIH_MOCKCASE_STATE_MISMATCH', 'psp-cases 未使用稳定排序保存兼容组合。', route.path);
-        }
-        await assertEffects(compatible[0], route.path);
-        await assertEffects(compatible[1], route.path);
-        await page.locator(`[data-mockcase-id="${compatible[0].id}"] input`).uncheck();
-        try { await waitReady([compatible[1].id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '取消一个 Case 后其余 Case 未保持 READY。', route.path); }
-        if (new URL(page.url()).searchParams.get('psp-cases') !== compatible[1].id) block('AIH_MOCKCASE_STATE_MISMATCH', '取消 Case 后 URL 未只保留其余 Case。', route.path);
-      }
-
-      const sameInstanceCompatible = routeCases.filter((item) => !item.isDefault).flatMap((left, leftIndex, all) => all.slice(leftIndex + 1).map((right) => [left, right]))
-        .find(([left, right]) => left.effects.some((leftEffect) => right.effects.some((rightEffect) => (
-          leftEffect.targetInstanceId === rightEffect.targetInstanceId
-          && leftEffect.expectedStateMatrixEntryId === rightEffect.expectedStateMatrixEntryId
-        ))) && !left.effects.some((leftEffect) => right.effects.some((rightEffect) => (
-          leftEffect.targetInstanceId === rightEffect.targetInstanceId
-          && leftEffect.expectedStateMatrixEntryId !== rightEffect.expectedStateMatrixEntryId
-        ))));
-      if (sameInstanceCompatible) {
-        const comboIds = sameInstanceCompatible.map((item) => item.id).sort();
-        const combo = new URL(route.path, base);
-        combo.searchParams.set('psp-cases', comboIds.join(','));
-        combo.searchParams.set('annotate', '0');
-        await page.goto(combo.href, { waitUntil: 'networkidle' });
-        try { await waitReady(comboIds); } catch { block('AIH_MOCKCASE_TIMEOUT', '同一实例同一 Matrix Entry 的兼容 Case 未能同时 READY：' + comboIds.join(', '), route.path); }
-        await assertEffects(sameInstanceCompatible[0], route.path);
-        await assertEffects(sameInstanceCompatible[1], route.path);
-      }
-
-      const conflictPair = routeCases.filter((item) => !item.isDefault).flatMap((left, leftIndex, all) => all.slice(leftIndex + 1).map((right) => [left, right]))
-        .find(([left, right]) => left.effects.some((leftEffect) => right.effects.some((rightEffect) => leftEffect.targetInstanceId === rightEffect.targetInstanceId && leftEffect.expectedStateMatrixEntryId !== rightEffect.expectedStateMatrixEntryId)));
-      if (conflictPair) {
-        const conflictUrl = new URL(route.path, base);
-        conflictUrl.searchParams.set('psp-cases', conflictPair[0].id);
-        conflictUrl.searchParams.set('annotate', '0');
-        await page.goto(conflictUrl.href, { waitUntil: 'networkidle' });
-        try { await waitReady([conflictPair[0].id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '冲突基线 Case 未 READY。', route.path); }
-        await page.locator(`[data-mockcase-id="${conflictPair[1].id}"] input`).check();
-        try { await page.locator(`[data-mockcase-id="${conflictPair[1].id}"][data-mockcase-status="conflict"]`).waitFor({ timeout: 2000 }); }
-        catch { block('AIH_MOCKCASE_CONFLICT', '同一实例互斥 Case 未返回 conflict。', route.path); }
-        if (new URL(page.url()).searchParams.get('psp-cases') !== conflictPair[0].id) block('AIH_MOCKCASE_STATE_MISMATCH', '冲突事务破坏了已有激活集合。', route.path);
-        await assertEffects(conflictPair[0], route.path);
-      }
-
-      const multiEffect = routeCases.find((item) => item.effects.length > 1 && !item.isDefault);
-      if (multiEffect && defaultCase) {
-        const rollbackUrl = new URL(route.path, base);
-        rollbackUrl.searchParams.set('psp-cases', defaultCase.id);
-        rollbackUrl.searchParams.set('annotate', '0');
-        await page.goto(rollbackUrl.href, { waitUntil: 'networkidle' });
-        try { await waitReady([defaultCase.id]); } catch { block('AIH_MOCKCASE_TIMEOUT', '部分失败回滚基线未 READY。', route.path); }
-        const transaction = 'rollback-check';
-        const targetIds = [...new Set([...defaultCase.effects, ...multiEffect.effects].map((effect) => effect.targetInstanceId))];
-        const baseline = await page.evaluate((ids) => globalThis.__pspMockcaseCaptureTargets(ids), targetIds);
-        const secondEffect = multiEffect.effects[1];
-        await page.evaluate(({ caseId, transactionId, effectIndex, targetInstanceId, activationKind, targetIds }) => {
-          globalThis.__pspMockcaseErrorCaptureTargetIds = targetIds;
-          globalThis.__pspMockcaseBeforeEffectForTest = (context) => {
-            if (
-              context.caseId === caseId
-              && context.effectIndex === effectIndex
-              && context.effect.targetInstanceId === targetInstanceId
-              && context.effect.activation.kind === activationKind
-            ) {
-              throw Object.assign(new Error('deterministic multi-effect failure'), { code: 'AIH_MOCKCASE_APPLY_FAILED' });
-            }
-          };
-          window.dispatchEvent(new CustomEvent('psp:mockcase-request', { detail: { transactionId, activeCaseIds: [caseId] } }));
-        }, {
-          caseId: multiEffect.id,
-          transactionId: transaction,
-          effectIndex: 1,
-          targetInstanceId: secondEffect.targetInstanceId,
-          activationKind: secondEffect.activation.kind,
-          targetIds,
-        });
-        try { await page.waitForFunction((id) => globalThis.__pspMockcaseErrors?.some((item) => item.transactionId === id), transaction, { timeout: 5000 }); }
-        catch { block('AIH_MOCKCASE_TIMEOUT', '多 Effect 部分失败未返回 error。', route.path); }
-        const rollback = await page.evaluate(() => {
-          delete globalThis.__pspMockcaseBeforeEffectForTest;
-          delete globalThis.__pspMockcaseErrorCaptureTargetIds;
-          return globalThis.__pspMockcaseRollbackAtError;
-        });
-        const error = await page.evaluate((id) => globalThis.__pspMockcaseErrors?.find((item) => item.transactionId === id), transaction);
-        if (!rollback || rollback.transactionId !== transaction || JSON.stringify(rollback.targets) !== JSON.stringify(baseline.targets)) {
-          block('AIH_MOCKCASE_STATE_MISMATCH', '多 Effect 部分失败在 error 事件前未完整恢复全部目标 state/attribute。', route.path);
-        }
-        if (JSON.stringify(rollback?.behaviorIds || []) !== JSON.stringify(baseline.behaviorIds) || JSON.stringify(error?.activeCaseIds || []) !== JSON.stringify([defaultCase.id])) {
-          block('AIH_MOCKCASE_STATE_MISMATCH', '多 Effect 部分失败未恢复原 Case 集合或 Mock Behavior 集合。', route.path);
-        }
-        if (error?.code === 'AIH_MOCKCASE_ROLLBACK_FAILED') {
-          block('AIH_MOCKCASE_ROLLBACK_FAILED', '多 Effect 部分失败触发了不完整回滚：' + error.message, route.path);
-        }
-      }
-    }
-  } finally {
-    await context.close();
-  }
-}
-
-async function verifyMockCasePluginFailure(viewport, base, routePath) {
-  const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-  const page = await context.newPage();
-  try {
-    await page.addInitScript(() => {
-      globalThis.__pspMockcasePluginErrors = [];
-      globalThis.__pspMockcasePluginLoaderForTest = async () => { throw new Error('deterministic plugin load failure'); };
-      window.addEventListener('psp:mockcase-error', (event) => globalThis.__pspMockcasePluginErrors.push(event.detail));
-    });
-    await page.goto(new URL(routePath, base).href, { waitUntil: 'networkidle' });
-    try {
-      await page.waitForFunction(() => document.documentElement.getAttribute('data-mockcase-plugin-error') === 'true', null, { timeout: 3000 });
-    } catch {
-      block('AIH_MOCKCASE_PLUGIN_FAILED', 'MockCase Plugin 模块加载失败时没有设置明确错误状态。', routePath);
-      return;
-    }
-    const honestFailure = await page.evaluate(() => globalThis.__pspMockcasePluginErrors?.some((item) => item.code === 'AIH_MOCKCASE_PLUGIN_FAILED'));
-    if (!honestFailure || await page.locator('mockcase-switcher').count() !== 0) {
-      block('AIH_MOCKCASE_PLUGIN_FAILED', 'MockCase Plugin 加载失败后伪造了工具挂载或没有发出稳定错误。', routePath);
-    }
-  } finally {
-    await context.close();
-  }
-}
-
 async function capture(page, evidenceRoot, item) {
   const parts = [item.kind, item.viewportId, item.routeId, item.scenarioId].filter(Boolean);
   const screenshot = join(evidenceRoot, parts.join('-') + '.png');
@@ -1373,16 +1184,6 @@ try {
     } catch (error) {
       block(error.code || 'AIH_STATE_GALLERY_FAILED', 'State Gallery 回归失败：' + error.message, '/__review/components');
     }
-    try {
-      if (!skipMockCases) await verifyMockCases(selectedViewports[0], base, model);
-    } catch (error) {
-      block(error.code || 'AIH_MOCKCASE_STATE_MISMATCH', 'Mock Case 浏览器回归失败：' + error.message, 'mockCases');
-    }
-    try {
-      if (!skipMockCases) await verifyMockCasePluginFailure(selectedViewports[0], base, selectedRoutes[0].path);
-    } catch (error) {
-      block(error.code || 'AIH_MOCKCASE_PLUGIN_FAILED', 'Mock Case Plugin 故障诚实性回归失败：' + error.message, selectedRoutes[0].path);
-    }
   }
 
   if (selectedViewports[0] && selectedRoutes[0]) {
@@ -1404,7 +1205,12 @@ try {
         if (await page.locator('inconsistency-annotator').count() !== 0) {
           block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'annotate=0 未关闭不一致标记工具。', route.path);
         }
-        screen = await verifyBaseSemantics(page, model, route);
+        currentRepairContext = {
+          location: route.path,
+          scope: { routeId: route.id, viewportId: viewport.id },
+          screenshot: routeScreenshotPath(route.id, viewport.id),
+        };
+        screen = await verifyBaseSemantics(page, model, route, viewport);
         await runVisualAssertions(page, model, route.id, viewport);
         await runSourceParityAssertions(page, model, route.id, viewport, parityEvidence, thresholds, evidenceRoot);
         await observeAssets(page, model, base);
@@ -1435,7 +1241,12 @@ try {
       const { context, page } = await guardedPage(viewport, base);
       try {
         await page.goto(cleanReviewUrl(base, route.path), { waitUntil: 'networkidle' });
-        const screen = await verifyBaseSemantics(page, model, route);
+        currentRepairContext = {
+          location: scenario.id + ' / ' + viewport.id,
+          scope: { routeId: route.id, viewportId: viewport.id, scenarioId: scenario.id },
+          screenshot: routeScreenshotPath(route.id, viewport.id, scenario.id),
+        };
+        const screen = await verifyBaseSemantics(page, model, route, viewport, scenario.id);
         for (const stateId of scenario.initialStateIds) {
           const initialState = page.locator(stateSelector(model, stateId)).first();
           if (await initialState.count() === 0 || !await initialState.isVisible()) {
@@ -1531,11 +1342,22 @@ try {
     }
   }
 
+  currentRepairContext = null;
   for (const asset of selectedAssets) {
-    if (!loadedAssets.has(asset.id)) block('AIH_ASSET_MISSING', '资源未成功加载：' + asset.path, asset.id);
+    if (!loadedAssets.has(asset.id)) repairBlock('AIH_ASSET_MISSING', '资源未成功加载：' + asset.path, asset.id, {
+      defectClass: 'asset-binding',
+      scope: { assetId: asset.id },
+      check: { kind: 'asset-loaded', expected: true, actual: false },
+      evidence: [{ kind: 'asset', id: asset.id, path: asset.path }],
+    });
     for (const targetId of asset.consumerTargets) {
       if (!usedAssetTargets.get(asset.id)?.has(targetId)) {
-        block('AIH_ASSET_CSS_BYPASS', '已分类 asset 未在声明目标中实际使用：' + asset.id + ' / ' + targetId, asset.path);
+        repairBlock('AIH_ASSET_CSS_BYPASS', '已分类 asset 未在声明目标中实际使用：' + asset.id + ' / ' + targetId, asset.path, {
+          defectClass: 'asset-binding',
+          scope: { assetId: asset.id, targetIds: [targetId] },
+          check: { kind: 'asset-consumed', expected: true, actual: false },
+          evidence: [{ kind: 'asset', id: asset.id, path: asset.path }],
+        });
       }
     }
   }

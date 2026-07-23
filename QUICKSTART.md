@@ -72,7 +72,7 @@ Handoff 只在用户明确请求后运行 preflight（预检）。预检会展�
 
 先提供：Figma 链接与 Frame、Team / Project、副本名、页面范围、运行环境、视觉目标和权限。
 
-技能顺序：`product-design`、`apply-repository-harness` → `organize-figma-assets` → `figma-component-from-design` → `capture-figma-design-source` → `implement-figma-lit-page` → `repair-canonical-ui-visual`。
+技能顺序：`product-design`、`apply-repository-harness` → `organize-figma-assets` → `figma-component-from-design` → `capture-figma-design-source` → `implement-figma-lit-page` → `repair-canonical-ui`。
 
 ### 2.1 创建 Figma 副本
 
@@ -158,7 +158,7 @@ Figma 再次写入后，必须重新执行 2.3 和 2.4。
 请只修复框选区域，完成后重新检查并提供当前 UI HTML 地址。
 ```
 
-视觉 Repair Packet 使用 `repair-canonical-ui-visual`；文字、状态或交互问题交给 `product-design`。Figma 需要修改时回到 2.2；来源过期时回到 2.3。
+HTML、CSS、Lit、组件渲染或来源视觉 Repair Packet 使用 `repair-canonical-ui`；业务状态或交互逻辑问题交给 `product-design`。Figma 需要修改时回到 2.2；来源过期时回到 2.3。
 
 当前页面通过后发送：
 

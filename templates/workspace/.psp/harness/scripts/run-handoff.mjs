@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { executeRegisteredCommand } from './lib/execute-command.mjs';
-import { collectDependencyIds, dagNodes, handoffEdge } from './lib/project-dag.mjs';
+import { collectDependencyClosureIds, dagNodes, handoffEdge } from './lib/project-dag.mjs';
 import {
   artifactPaths,
   loadProjectAndManifest,
@@ -178,7 +178,7 @@ export async function preflightHandoff(rootDirectory, from, to, options = {}) {
   const edge = handoffEdge(manifest, from, to);
   if (!edge) return blockedPreflight(from, to, 'AIH_HANDOFF_UNREACHABLE', '项目 DAG 未声明指定 handoff 授权边。');
 
-  const scopeIds = [...collectDependencyIds(manifest, from), from];
+  const scopeIds = collectDependencyClosureIds(manifest, from);
   for (const scopeId of scopeIds) {
     const scope = scopes.get(scopeId);
     const stageId = scopeStage(scope);
@@ -193,6 +193,9 @@ export async function preflightHandoff(rootDirectory, from, to, options = {}) {
   const profile = manifest.validationProfiles.find((item) => item.id === edge.profile);
   if (!profile || !profile.allowedContexts.includes('handoff')) {
     return blockedPreflight(from, to, 'AIH_PROFILE_INVALID', 'handoff 边引用未知或上下文不合法的 Profile：' + edge.profile);
+  }
+  if (profile.handoffSource !== from) {
+    return blockedPreflight(from, to, 'AIH_PROFILE_INVALID', 'handoff Profile 未绑定当前来源 Scope：' + edge.profile + ' / ' + from);
   }
   const commands = new Map(manifest.commands.map((item) => [item.id, item]));
   const validation = [];
@@ -211,7 +214,9 @@ export async function preflightHandoff(rootDirectory, from, to, options = {}) {
     const started = Date.now();
     const item = executeRegisteredCommand(rootDirectory, command, {
       ...options,
-      arguments: command.id === 'project-consistency' ? ['--scope', from, '--json'] : [],
+      arguments: command.id === 'project-consistency'
+        ? ['--scope', from, '--mode', 'handoff-source', '--json']
+        : [],
       timeout: Math.min(command.timeoutMs, profile.timeoutMs),
     });
     item.durationMs = Date.now() - started;

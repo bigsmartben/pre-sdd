@@ -14,6 +14,7 @@ import {
   stageHasUserFiles,
   workspaceRootMarker,
 } from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { collectDependencyArtifactIds } from '../../../../.psp/harness/scripts/lib/project-dag.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
 const stageId = 'architecture-design';
@@ -154,7 +155,12 @@ if (stage && !['active', 'uninitialized'].includes(stage.status)) {
 
 if (project && manifest && blockers.length === 0) {
   const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-  for (const registry of manifest.artifactRegistry.filter((item) => item.stage === stageId)) {
+  const architectureRegistries = manifest.artifactRegistry.filter((item) => item.stage === stageId);
+  const architectureArtifactIds = new Set(architectureRegistries.map((item) => item.id));
+  const selectedArtifactIds = step
+    ? new Set(collectDependencyArtifactIds(manifest, step).filter((id) => architectureArtifactIds.has(id)))
+    : architectureArtifactIds;
+  for (const registry of architectureRegistries.filter((item) => selectedArtifactIds.has(item.id))) {
     const paths = artifactPaths(project, registry.id, registry.stage);
     if (!paths) {
       block('AIH_PROJECT_BINDING_INVALID', '项目未绑定必需 artifact：' + registry.id, registry.id);
@@ -215,7 +221,7 @@ if (architecturePackage && blockers.every((item) => item.code !== 'AIH_ARTIFACT_
   }
 }
 
-if (models.size > 0 && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_FAILED')) {
+if (systemBoundary && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEMA_FAILED')) {
   const boundaryUseCases = duplicateValues(systemBoundary?.useCases, 'system-boundary.useCases');
   const interactionActors = duplicateValues(
     (systemBoundary?.actorInteractions || []).map((item) => item.actor),
@@ -300,174 +306,178 @@ if (models.size > 0 && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHE
     for (const useCase of constraint.useCases) requireReference(useCase, boundaryUseCases, 'system-boundary.constraints.' + constraint.id + '.useCases');
   }
 
-  const normalizedNames = new Map();
-  const allKeys = [];
-  const allRules = [];
-  for (const object of conceptualModel?.objects || []) {
-    requireReference(object.ownedBy, subsystemIds, 'conceptual-model.objects.' + object.id + '.ownedBy');
-    for (const useCase of object.useCases) requireReference(useCase, boundaryUseCases, 'conceptual-model.objects.' + object.id + '.useCases');
-    for (const capability of object.capabilities) {
-      requireReference(capability, architectureCapabilityIds, 'conceptual-model.objects.' + object.id + '.capabilities');
-      const owner = capabilityById.get(capability)?.subsystem.id;
-      if (owner && owner !== object.ownedBy) {
-        block('AIH_REFERENCE_UNRESOLVED', object.id + ' 引用了其他子系统拥有的 capability：' + capability, 'conceptual-model.objects.' + object.id);
+  if (conceptualModel) {
+    const normalizedNames = new Map();
+    const allKeys = [];
+    const allRules = [];
+    for (const object of conceptualModel.objects || []) {
+      requireReference(object.ownedBy, subsystemIds, 'conceptual-model.objects.' + object.id + '.ownedBy');
+      for (const useCase of object.useCases) requireReference(useCase, boundaryUseCases, 'conceptual-model.objects.' + object.id + '.useCases');
+      for (const capability of object.capabilities) {
+        requireReference(capability, architectureCapabilityIds, 'conceptual-model.objects.' + object.id + '.capabilities');
+        const owner = capabilityById.get(capability)?.subsystem.id;
+        if (owner && owner !== object.ownedBy) {
+          block('AIH_REFERENCE_UNRESOLVED', object.id + ' 引用了其他子系统拥有的 capability：' + capability, 'conceptual-model.objects.' + object.id);
+        }
+      }
+      const fieldNames = duplicateValues(object.fields.map((item) => item.name), 'conceptual-model.objects.' + object.id + '.fields');
+      allKeys.push(...object.keys);
+      allRules.push(...object.constraints);
+      duplicateIds(object.states, 'conceptual-model.objects.' + object.id + '.states');
+      for (const key of object.keys) {
+        for (const field of key.fields) requireReference(field, fieldNames, 'conceptual-model.objects.' + object.id + '.keys.' + key.id);
+      }
+      for (const term of [object.name, ...object.aliases]) {
+        const normalized = term.trim().toLocaleLowerCase('zh-CN');
+        const owner = normalizedNames.get(normalized);
+        if (owner && owner !== object.id) {
+          block('AIH_REFERENCE_UNRESOLVED', '对象名称或别名未归一：' + term + ' 同时属于 ' + owner + ' 与 ' + object.id, 'conceptual-model.objects');
+        } else if (owner === object.id) {
+          block('AIH_REFERENCE_UNRESOLVED', '对象规范名称与别名重复：' + term, 'conceptual-model.objects.' + object.id + '.aliases');
+        } else {
+          normalizedNames.set(normalized, object.id);
+        }
       }
     }
-    const fieldNames = duplicateValues(object.fields.map((item) => item.name), 'conceptual-model.objects.' + object.id + '.fields');
-    allKeys.push(...object.keys);
-    allRules.push(...object.constraints);
-    duplicateIds(object.states, 'conceptual-model.objects.' + object.id + '.states');
-    for (const key of object.keys) {
-      for (const field of key.fields) requireReference(field, fieldNames, 'conceptual-model.objects.' + object.id + '.keys.' + key.id);
-    }
-    for (const term of [object.name, ...object.aliases]) {
-      const normalized = term.trim().toLocaleLowerCase('zh-CN');
-      const owner = normalizedNames.get(normalized);
-      if (owner && owner !== object.id) {
-        block('AIH_REFERENCE_UNRESOLVED', '对象名称或别名未归一：' + term + ' 同时属于 ' + owner + ' 与 ' + object.id, 'conceptual-model.objects');
-      } else if (owner === object.id) {
-        block('AIH_REFERENCE_UNRESOLVED', '对象规范名称与别名重复：' + term, 'conceptual-model.objects.' + object.id + '.aliases');
-      } else {
-        normalizedNames.set(normalized, object.id);
+    duplicateIds(allKeys, 'conceptual-model.objects.keys');
+    duplicateIds(allRules, 'conceptual-model.objects.constraints');
+
+    const generalizations = [];
+    for (const relationship of conceptualModel.relationships || []) {
+      requireReference(relationship.from, objectIds, 'conceptual-model.relationships.' + relationship.id + '.from');
+      requireReference(relationship.to, objectIds, 'conceptual-model.relationships.' + relationship.id + '.to');
+      if (relationship.from === relationship.to) {
+        block('AIH_REFERENCE_UNRESOLVED', '对象关系不能自引用：' + relationship.id, 'conceptual-model.relationships.' + relationship.id);
       }
+      if (relationship.type === 'generalization') generalizations.push([relationship.from, relationship.to]);
     }
-  }
-  duplicateIds(allKeys, 'conceptual-model.objects.keys');
-  duplicateIds(allRules, 'conceptual-model.objects.constraints');
+    if (hasDirectedCycle(generalizations)) {
+      block('AIH_REFERENCE_UNRESOLVED', '对象泛化继承关系存在循环。', 'conceptual-model.relationships');
+    }
 
-  const generalizations = [];
-  for (const relationship of conceptualModel?.relationships || []) {
-    requireReference(relationship.from, objectIds, 'conceptual-model.relationships.' + relationship.id + '.from');
-    requireReference(relationship.to, objectIds, 'conceptual-model.relationships.' + relationship.id + '.to');
-    if (relationship.from === relationship.to) {
-      block('AIH_REFERENCE_UNRESOLVED', '对象关系不能自引用：' + relationship.id, 'conceptual-model.relationships.' + relationship.id);
-    }
-    if (relationship.type === 'generalization') generalizations.push([relationship.from, relationship.to]);
-  }
-  if (hasDirectedCycle(generalizations)) {
-    block('AIH_REFERENCE_UNRESOLVED', '对象泛化继承关系存在循环。', 'conceptual-model.relationships');
-  }
-
-  function validateEndpoint(endpoint, location) {
-    if (endpoint.type === 'none') {
-      if (endpoint.ref !== null) block('AIH_REFERENCE_UNRESOLVED', 'none endpoint 的 ref 必须为 null。', location);
-      return;
-    }
-    if (!endpoint.ref) {
-      block('AIH_REFERENCE_UNRESOLVED', '非 none endpoint 必须提供 ref。', location);
-      return;
-    }
-    const known = endpoint.type === 'actor'
-      ? actorIds
-      : endpoint.type === 'subsystem'
-        ? subsystemIds
-        : externalSystemIds;
-    requireReference(endpoint.ref, known, location + '.ref');
-  }
-
-  for (const flow of conceptualModel?.objectFlows || []) {
-    requireReference(flow.object, objectIds, 'conceptual-model.objectFlows.' + flow.id + '.object');
-    requireReference(flow.useCase, boundaryUseCases, 'conceptual-model.objectFlows.' + flow.id + '.useCase');
-    requireReference(flow.capability, architectureCapabilityIds, 'conceptual-model.objectFlows.' + flow.id + '.capability');
-    requireReference(flow.subsystem, subsystemIds, 'conceptual-model.objectFlows.' + flow.id + '.subsystem');
-    const capabilityOwner = capabilityById.get(flow.capability);
-    if (capabilityOwner && capabilityOwner.subsystem.id !== flow.subsystem) {
-      block('AIH_REFERENCE_UNRESOLVED', flow.id + ' 的 capability 不属于声明的 subsystem。', 'conceptual-model.objectFlows.' + flow.id);
-    }
-    if (capabilityOwner && !capabilityOwner.capability.useCases.includes(flow.useCase)) {
-      block('AIH_REFERENCE_UNRESOLVED', flow.id + ' 的 UC 不属于声明的 capability。', 'conceptual-model.objectFlows.' + flow.id);
-    }
-    const object = objectById.get(flow.object);
-    if (object) {
-      if (!object.useCases.includes(flow.useCase) || !object.capabilities.includes(flow.capability)) {
-        block('AIH_REFERENCE_UNRESOLVED', flow.id + ' 与对象声明的 UC/capability 不一致。', 'conceptual-model.objectFlows.' + flow.id);
+    function validateEndpoint(endpoint, location) {
+      if (endpoint.type === 'none') {
+        if (endpoint.ref !== null) block('AIH_REFERENCE_UNRESOLVED', 'none endpoint 的 ref 必须为 null。', location);
+        return;
       }
-      const fields = new Set(object.fields.map((item) => item.name));
-      for (const field of [...flow.inputFields, ...flow.outputFields]) requireReference(field, fields, 'conceptual-model.objectFlows.' + flow.id + '.fields');
-      const states = new Set(object.states.map((item) => item.id));
-      if (flow.fromState) requireReference(flow.fromState, states, 'conceptual-model.objectFlows.' + flow.id + '.fromState');
-      if (flow.toState) requireReference(flow.toState, states, 'conceptual-model.objectFlows.' + flow.id + '.toState');
-    }
-    validateEndpoint(flow.source, 'conceptual-model.objectFlows.' + flow.id + '.source');
-    validateEndpoint(flow.target, 'conceptual-model.objectFlows.' + flow.id + '.target');
-  }
-
-  const areaRoot = stage?.areas?.['technical-validation']?.root;
-  const technicalArea = joinRepositoryPath(stage.root, areaRoot);
-  const runnerPath = joinRepositoryPath(technicalArea, 'src/verify.mjs');
-  let runnerAvailable = false;
-  try {
-    const areaPackage = JSON.parse(await readFile(repositoryFile(root, joinRepositoryPath(technicalArea, 'package.json')), 'utf8'));
-    if (areaPackage.scripts?.verify !== 'node src/verify.mjs') {
-      block('AIH_TECHNICAL_VALIDATION_FAILED', 'technical-validation area 必须声明 verify="node src/verify.mjs"。', joinRepositoryPath(technicalArea, 'package.json'));
-    }
-    await access(repositoryFile(root, runnerPath));
-    runnerAvailable = true;
-  } catch (error) {
-    block('AIH_TECHNICAL_VALIDATION_FAILED', '技术验证 runner 不完整：' + error.message, technicalArea);
-  }
-
-  for (const decision of technicalValidation?.decisions || []) {
-    requireReference(decision.subsystem, subsystemIds, 'technical-validation.decisions.' + decision.id + '.subsystem');
-    const decisionUseCases = new Set();
-    for (const capability of decision.capabilities) {
-      requireReference(capability, architectureCapabilityIds, 'technical-validation.decisions.' + decision.id + '.capabilities');
-      const owner = capabilityById.get(capability);
-      if (owner && owner.subsystem.id !== decision.subsystem) {
-        block('AIH_REFERENCE_UNRESOLVED', decision.id + ' 引用了其他子系统的 capability：' + capability, 'technical-validation.decisions.' + decision.id);
+      if (!endpoint.ref) {
+        block('AIH_REFERENCE_UNRESOLVED', '非 none endpoint 必须提供 ref。', location);
+        return;
       }
-      for (const useCase of owner?.capability.useCases || []) decisionUseCases.add(useCase);
+      const known = endpoint.type === 'actor'
+        ? actorIds
+        : endpoint.type === 'subsystem'
+          ? subsystemIds
+          : externalSystemIds;
+      requireReference(endpoint.ref, known, location + '.ref');
     }
-    for (const useCase of decision.useCases) requireReference(useCase, decisionUseCases, 'technical-validation.decisions.' + decision.id + '.useCases');
-    for (const external of decision.externalSystems) requireReference(external, externalSystemIds, 'technical-validation.decisions.' + decision.id + '.externalSystems');
-    const localCandidateIds = new Set(decision.candidates.map((item) => item.id));
-    if (decision.selectedCandidate) requireReference(decision.selectedCandidate, localCandidateIds, 'technical-validation.decisions.' + decision.id + '.selectedCandidate');
+
+    for (const flow of conceptualModel.objectFlows || []) {
+      requireReference(flow.object, objectIds, 'conceptual-model.objectFlows.' + flow.id + '.object');
+      requireReference(flow.useCase, boundaryUseCases, 'conceptual-model.objectFlows.' + flow.id + '.useCase');
+      requireReference(flow.capability, architectureCapabilityIds, 'conceptual-model.objectFlows.' + flow.id + '.capability');
+      requireReference(flow.subsystem, subsystemIds, 'conceptual-model.objectFlows.' + flow.id + '.subsystem');
+      const capabilityOwner = capabilityById.get(flow.capability);
+      if (capabilityOwner && capabilityOwner.subsystem.id !== flow.subsystem) {
+        block('AIH_REFERENCE_UNRESOLVED', flow.id + ' 的 capability 不属于声明的 subsystem。', 'conceptual-model.objectFlows.' + flow.id);
+      }
+      if (capabilityOwner && !capabilityOwner.capability.useCases.includes(flow.useCase)) {
+        block('AIH_REFERENCE_UNRESOLVED', flow.id + ' 的 UC 不属于声明的 capability。', 'conceptual-model.objectFlows.' + flow.id);
+      }
+      const object = objectById.get(flow.object);
+      if (object) {
+        if (!object.useCases.includes(flow.useCase) || !object.capabilities.includes(flow.capability)) {
+          block('AIH_REFERENCE_UNRESOLVED', flow.id + ' 与对象声明的 UC/capability 不一致。', 'conceptual-model.objectFlows.' + flow.id);
+        }
+        const fields = new Set(object.fields.map((item) => item.name));
+        for (const field of [...flow.inputFields, ...flow.outputFields]) requireReference(field, fields, 'conceptual-model.objectFlows.' + flow.id + '.fields');
+        const states = new Set(object.states.map((item) => item.id));
+        if (flow.fromState) requireReference(flow.fromState, states, 'conceptual-model.objectFlows.' + flow.id + '.fromState');
+        if (flow.toState) requireReference(flow.toState, states, 'conceptual-model.objectFlows.' + flow.id + '.toState');
+      }
+      validateEndpoint(flow.source, 'conceptual-model.objectFlows.' + flow.id + '.source');
+      validateEndpoint(flow.target, 'conceptual-model.objectFlows.' + flow.id + '.target');
+    }
   }
 
-  for (const experiment of technicalValidation?.experiments || []) {
-    requireReference(experiment.decision, decisionIds, 'technical-validation.experiments.' + experiment.id + '.decision');
-    requireReference(experiment.candidate, candidateIds, 'technical-validation.experiments.' + experiment.id + '.candidate');
-    const decision = decisionById.get(experiment.decision);
-    if (decision && !decision.candidates.some((item) => item.id === experiment.candidate)) {
-      block('AIH_REFERENCE_UNRESOLVED', experiment.id + ' 的 candidate 不属于对应 decision。', 'technical-validation.experiments.' + experiment.id);
-    }
-    const expectedCommand = 'npm run verify -- --case ' + experiment.id;
-    if (experiment.command !== expectedCommand) {
-      block('AIH_REFERENCE_UNRESOLVED', '实验命令与 id 不一致：' + expectedCommand, 'technical-validation.experiments.' + experiment.id + '.command');
-    }
-    const expectedSource = 'cases/' + experiment.id + '.case.mjs';
-    if (experiment.source !== expectedSource) {
-      block('AIH_REFERENCE_UNRESOLVED', '实验 source 必须使用固定路径：' + expectedSource, 'technical-validation.experiments.' + experiment.id + '.source');
-    }
-    const source = joinRepositoryPath(stage.root, areaRoot, experiment.source);
+  if (technicalValidation) {
+    const areaRoot = stage?.areas?.['technical-validation']?.root;
+    const technicalArea = joinRepositoryPath(stage.root, areaRoot);
+    const runnerPath = joinRepositoryPath(technicalArea, 'src/verify.mjs');
+    let runnerAvailable = false;
     try {
-      await access(repositoryFile(root, source));
-      const content = await readFile(repositoryFile(root, source), 'utf8');
-      if (/(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._~+/=-]{20,})/.test(content)) {
-        block('AIH_TECHNICAL_VALIDATION_FAILED', '验证代码疑似包含明文凭据。', source);
+      const areaPackage = JSON.parse(await readFile(repositoryFile(root, joinRepositoryPath(technicalArea, 'package.json')), 'utf8'));
+      if (areaPackage.scripts?.verify !== 'node src/verify.mjs') {
+        block('AIH_TECHNICAL_VALIDATION_FAILED', 'technical-validation area 必须声明 verify="node src/verify.mjs"。', joinRepositoryPath(technicalArea, 'package.json'));
       }
-    } catch {
-      block('AIH_REFERENCE_UNRESOLVED', '技术验证代码不存在：' + experiment.source, source);
+      await access(repositoryFile(root, runnerPath));
+      runnerAvailable = true;
+    } catch (error) {
+      block('AIH_TECHNICAL_VALIDATION_FAILED', '技术验证 runner 不完整：' + error.message, technicalArea);
     }
-    if (runnerAvailable) {
-      const described = spawnSync(process.execPath, [repositoryFile(root, runnerPath), '--case', experiment.id, '--describe'], {
-        cwd: repositoryFile(root, technicalArea),
-        encoding: 'utf8',
-        env: { ...process.env },
-        timeout: 5_000,
-        windowsHide: true,
-      });
-      const description = parseValidatorOutput(described);
-      if (described.status !== 0 || description?.status !== 'PASS' || description?.experiment !== experiment.id || description?.source !== experiment.source) {
-        block('AIH_TECHNICAL_VALIDATION_FAILED', 'runner 无法识别实验代码或 source 不一致：' + experiment.id, source);
+
+    for (const decision of technicalValidation.decisions || []) {
+      requireReference(decision.subsystem, subsystemIds, 'technical-validation.decisions.' + decision.id + '.subsystem');
+      const decisionUseCases = new Set();
+      for (const capability of decision.capabilities) {
+        requireReference(capability, architectureCapabilityIds, 'technical-validation.decisions.' + decision.id + '.capabilities');
+        const owner = capabilityById.get(capability);
+        if (owner && owner.subsystem.id !== decision.subsystem) {
+          block('AIH_REFERENCE_UNRESOLVED', decision.id + ' 引用了其他子系统的 capability：' + capability, 'technical-validation.decisions.' + decision.id);
+        }
+        for (const useCase of owner?.capability.useCases || []) decisionUseCases.add(useCase);
       }
-      if (!sameSet(new Set(description?.requiredEnvironment || []), new Set(experiment.requiredEnvironment))) {
-        block('AIH_TECHNICAL_VALIDATION_FAILED', '真实代码声明的环境变量与技术验证模型不一致：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.requiredEnvironment');
-      }
+      for (const useCase of decision.useCases) requireReference(useCase, decisionUseCases, 'technical-validation.decisions.' + decision.id + '.useCases');
+      for (const external of decision.externalSystems) requireReference(external, externalSystemIds, 'technical-validation.decisions.' + decision.id + '.externalSystems');
+      const localCandidateIds = new Set(decision.candidates.map((item) => item.id));
+      if (decision.selectedCandidate) requireReference(decision.selectedCandidate, localCandidateIds, 'technical-validation.decisions.' + decision.id + '.selectedCandidate');
     }
-    const evidenceText = (experiment.result.evidence || []).join('\n');
-    if (/(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._~+/=-]{20,})/.test(evidenceText)) {
-      block('AIH_TECHNICAL_VALIDATION_FAILED', '实验 evidence 疑似包含明文凭据。', 'technical-validation.experiments.' + experiment.id + '.result.evidence');
+
+    for (const experiment of technicalValidation.experiments || []) {
+      requireReference(experiment.decision, decisionIds, 'technical-validation.experiments.' + experiment.id + '.decision');
+      requireReference(experiment.candidate, candidateIds, 'technical-validation.experiments.' + experiment.id + '.candidate');
+      const decision = decisionById.get(experiment.decision);
+      if (decision && !decision.candidates.some((item) => item.id === experiment.candidate)) {
+        block('AIH_REFERENCE_UNRESOLVED', experiment.id + ' 的 candidate 不属于对应 decision。', 'technical-validation.experiments.' + experiment.id);
+      }
+      const expectedCommand = 'npm run verify -- --case ' + experiment.id;
+      if (experiment.command !== expectedCommand) {
+        block('AIH_REFERENCE_UNRESOLVED', '实验命令与 id 不一致：' + expectedCommand, 'technical-validation.experiments.' + experiment.id + '.command');
+      }
+      const expectedSource = 'cases/' + experiment.id + '.case.mjs';
+      if (experiment.source !== expectedSource) {
+        block('AIH_REFERENCE_UNRESOLVED', '实验 source 必须使用固定路径：' + expectedSource, 'technical-validation.experiments.' + experiment.id + '.source');
+      }
+      const source = joinRepositoryPath(stage.root, areaRoot, experiment.source);
+      try {
+        await access(repositoryFile(root, source));
+        const content = await readFile(repositoryFile(root, source), 'utf8');
+        if (/(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._~+/=-]{20,})/.test(content)) {
+          block('AIH_TECHNICAL_VALIDATION_FAILED', '验证代码疑似包含明文凭据。', source);
+        }
+      } catch {
+        block('AIH_REFERENCE_UNRESOLVED', '技术验证代码不存在：' + experiment.source, source);
+      }
+      if (runnerAvailable) {
+        const described = spawnSync(process.execPath, [repositoryFile(root, runnerPath), '--case', experiment.id, '--describe'], {
+          cwd: repositoryFile(root, technicalArea),
+          encoding: 'utf8',
+          env: { ...process.env },
+          timeout: 5_000,
+          windowsHide: true,
+        });
+        const description = parseValidatorOutput(described);
+        if (described.status !== 0 || description?.status !== 'PASS' || description?.experiment !== experiment.id || description?.source !== experiment.source) {
+          block('AIH_TECHNICAL_VALIDATION_FAILED', 'runner 无法识别实验代码或 source 不一致：' + experiment.id, source);
+        }
+        if (!sameSet(new Set(description?.requiredEnvironment || []), new Set(experiment.requiredEnvironment))) {
+          block('AIH_TECHNICAL_VALIDATION_FAILED', '真实代码声明的环境变量与技术验证模型不一致：' + experiment.id, 'technical-validation.experiments.' + experiment.id + '.requiredEnvironment');
+        }
+      }
+      const evidenceText = (experiment.result.evidence || []).join('\n');
+      if (/(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._~+/=-]{20,})/.test(evidenceText)) {
+        block('AIH_TECHNICAL_VALIDATION_FAILED', '实验 evidence 疑似包含明文凭据。', 'technical-validation.experiments.' + experiment.id + '.result.evidence');
+      }
     }
   }
 
@@ -580,7 +590,10 @@ if (models.size > 0 && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHE
 
 if (project && manifest && ['active', 'uninitialized'].includes(stage?.status)) {
   try {
-    for (const drift of await outputDrift(root, project, manifest, stageId)) {
+    const selectedOutputs = step
+      ? collectDependencyArtifactIds(manifest, step)
+      : null;
+    for (const drift of await outputDrift(root, project, manifest, stageId, selectedOutputs)) {
       block('AIH_GENERATED_DRIFT', 'Markdown 用户产物与内部模型不一致：' + drift.internalModel, drift.output);
     }
   } catch (error) {

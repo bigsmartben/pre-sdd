@@ -79,6 +79,7 @@ function transitionBehavior(transition, useCase) {
 
 function renderInteractionFlow(flow, useCase, statesById) {
   const graph = [];
+  const alternateScenariosById = new Map(useCase.alternateScenarios.map((scenario) => [scenario.id, scenario]));
   const referenced = new Set([flow.entryState, ...flow.completionStates]);
   for (const transition of flow.transitions) {
     referenced.add(transition.from);
@@ -94,8 +95,14 @@ function renderInteractionFlow(flow, useCase, statesById) {
     graph.push(mermaidNode('state', transition.from) + ' -->|"' + mermaidText(label) + '"| ' + mermaidNode('state', transition.to));
   }
   const transitionRows = flow.transitions.map((transition) => {
+    const scenario = alternateScenariosById.get(transition.scenarioRef);
+    const scenarioSummary = transition.scenarioRef === 'main'
+      ? '主场景'
+      : scenario
+        ? scenario.name + '；' + scenario.condition
+        : transition.scenarioRef;
     return [
-      transition.id, transition.scenarioRef, transition.useCaseStepRefs.join('、'),
+      transition.id, scenarioSummary, transition.useCaseStepRefs.join('、'),
       transition.guard || '无', transition.branchLabel || '无',
       transition.failureResponse?.retry || '—',
       transition.failureResponse?.recovery || '—',
@@ -108,18 +115,18 @@ function renderInteractionFlow(flow, useCase, statesById) {
     '- 完成状态：' + flow.completionStates.join('、'),
     '- 覆盖场景（由 Transition 推导）：' + [...new Set(flow.transitions.map((transition) => transition.scenarioRef))].join('、'),
     '',
-    '##### Interaction States（交互状态）',
-    '',
-    table(['状态', '名称', '类型', '描述', '终态'], [...referenced].map((stateId) => {
-      const state = statesById.get(stateId);
-      return [stateId, state?.name, state?.type, state?.description || '—', state?.terminal ? '是' : '否'];
-    })),
-    '',
     '##### Flow 图',
     '',
     mermaidFlow(graph),
     '',
+    '##### 失败、重试、恢复与返回',
+    '',
+    '<details>',
+    '<summary>查看 Transition 与 UC 步骤追溯</summary>',
+    '',
     table(['迁移', '场景', 'UC 步骤', 'Guard', '分支', '重试', '恢复', '返回状态'], transitionRows),
+    '',
+    '</details>',
   ].join('\n');
 }
 
@@ -258,6 +265,19 @@ function renderCapabilities(data) {
       ),
     );
   }
+  lines.push(
+    '## Interaction State Catalog（交互状态目录）',
+    '',
+    '<details>',
+    '<summary>查看完整状态定义</summary>',
+    '',
+    table(['状态', '名称', '类型', '描述', '终态'], data.interactionStates.map((state) => [
+      state.id, state.name, state.type, state.description || '—', state.terminal ? '是' : '否',
+    ])),
+    '',
+    '</details>',
+    '',
+  );
   lines.push('## Low-Fi UI Blueprints', '');
   if (data.lowFiUiBlueprints.length === 0) {
     if (data.useCases.length === 0) lines.push('- 尚未判断 UI 适用性。', '');

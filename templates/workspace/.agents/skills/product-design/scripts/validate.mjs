@@ -13,6 +13,7 @@ import {
   stageHasUserFiles,
   workspaceRootMarker,
 } from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { collectDependencyArtifactIds } from '../../../../.psp/harness/scripts/lib/project-dag.mjs';
 import { outputDrift } from './lib/rendering.mjs';
 import { extractCanonicalUi } from '../canonical-ui-prototype/scripts/extract.mjs';
 import { canonicalOutputDrift } from '../canonical-ui-prototype/scripts/project.mjs';
@@ -341,12 +342,6 @@ function validateInformationArchitecture(blueprint, screenIds) {
   }
 }
 
-function readinessArtifacts(step) {
-  if (step === 'use-cases') return new Set(['capabilities']);
-  if (step === 'visual-spec') return new Set(['capabilities', 'visual-spec']);
-  return new Set(['capabilities', 'visual-spec', 'canonical-ui-prototype']);
-}
-
 function aggregateMembers(members) {
   if (!members?.length) return null;
   const first = members[0].data;
@@ -567,7 +562,9 @@ try {
     else if (strict) block('AIH_STAGE_UNINITIALIZED', '产品设计阶段尚未初始化。', stage.root);
     else warn('AIH_STAGE_UNINITIALIZED', '产品设计阶段尚未初始化，当前只验证空骨架。', stage.root);
   } else {
-    const selected = readinessArtifacts(readinessStep);
+    const selected = strict
+      ? new Set(collectDependencyArtifactIds(manifest, readinessStep))
+      : new Set(manifest.artifactRegistry.filter((item) => item.stage === 'product-design').map((item) => item.id));
     const models = new Map();
     const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
     for (const registry of manifest.artifactRegistry.filter((item) => item.stage === 'product-design')) {

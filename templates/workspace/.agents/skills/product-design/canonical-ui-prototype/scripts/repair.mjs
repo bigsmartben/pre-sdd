@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,6 +19,9 @@ const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const json = process.argv.includes('--json');
 const actorIndex = process.argv.indexOf('--actor');
 const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
+const sessionIndex = process.argv.indexOf('--session');
+const requestedSession = sessionIndex >= 0 ? process.argv[sessionIndex + 1] : null;
+const newSession = process.argv.includes('--new-session');
 
 async function readState(path) {
   try {
@@ -28,33 +32,48 @@ async function readState(path) {
   }
 }
 
+function fail(code, message) {
+  throw Object.assign(new Error(message), { code });
+}
+
 async function loadRepairContract(manifest) {
   const artifact = manifest.artifactRegistry?.find((item) => item.id === 'canonical-ui-prototype');
-  if (!artifact?.contract) {
-    const error = new Error('Canonical UI Prototype 未登记 Artifact Contract。');
-    error.code = 'AIH_CONTRACT_INVALID';
-    throw error;
-  }
+  if (!artifact?.contract) fail('AIH_CONTRACT_INVALID', 'Canonical UI Prototype 未登记 Artifact Contract。');
   const contract = parseYaml(await readFile(repositoryFile(root, artifact.contract), 'utf8'));
-  const implementationPolicy = contract?.spec?.repair?.implementationPolicy;
-  const packetSchemaPath = contract?.spec?.repair?.packetSchema;
-  if (!implementationPolicy || !packetSchemaPath) {
-    const error = new Error('Canonical UI Artifact Contract 缺少视觉修复实现策略或 Packet Schema。');
-    error.code = 'AIH_CONTRACT_INVALID';
-    throw error;
+  const repair = contract?.spec?.repair;
+  if (
+    repair?.mode !== 'agent-single-attempt'
+    || repair?.maxAttempts !== 1
+    || !repair.packetSchema
+    || !repair.actionReportSchema
+    || !repair.implementationPolicy
+  ) {
+    fail('AIH_CONTRACT_INVALID', 'Canonical UI Artifact Contract 缺少单次 Agent 修复契约。');
   }
-  return {
-    packetSchemaPath,
-    implementationPolicy,
-  };
+  return repair;
+}
+
+function repairOperation(manifest) {
+  const operation = manifest.operations?.find((item) => item.id === 'canonical-ui-repair' && item.kind === 'repair');
+  if (
+    !operation
+    || !Array.isArray(operation.prerequisiteCommands)
+    || operation.prerequisiteCommands.length === 0
+    || !Array.isArray(operation.repairCommands)
+    || operation.repairCommands.length === 0
+  ) {
+    fail('AIH_CONTRACT_INVALID', 'Manifest 未登记 canonical-ui-repair 的统一门禁。');
+  }
+  return operation;
 }
 
 function parseGateOutput(execution, commandId) {
   const stdout = execution.stdout?.trim() || '';
   try {
-    return JSON.parse(stdout);
+    return { gateId: commandId, ...JSON.parse(stdout) };
   } catch {
     return {
+      gateId: commandId,
       status: 'BLOCKED',
       blockers: [{
         code: 'AIH_VALIDATION_FAILED',
@@ -70,6 +89,7 @@ function runGate(manifest, commandId, actor) {
   const command = manifest.commands.find((item) => item.id === commandId);
   if (!command || command.executor?.kind !== 'module') {
     return {
+      gateId: commandId,
       status: 'BLOCKED',
       blockers: [{ code: 'AIH_COMMAND_INVALID', message: '修复操作引用未知模块命令：' + commandId }],
       evidence: [],
@@ -83,59 +103,65 @@ function runGate(manifest, commandId, actor) {
       env: process.env,
       encoding: 'utf8',
       windowsHide: true,
-      timeout: 180_000,
+      timeout: command.timeoutMs || 600_000,
     },
   );
   return parseGateOutput(execution, commandId);
 }
 
-function repairFailures(runtime, repairableCodes) {
-  const allowed = new Set(repairableCodes);
-  return (runtime.evidence || [])
-    .filter((item) => item.kind === 'source-parity-failure' && allowed.has(item.blockerCode))
-    .map((item) => ({
-      blockerCode: item.blockerCode,
-      assertionId: item.assertionId,
-      sourceId: item.sourceId,
-      sourceKind: item.sourceKind,
-      sourceEvidenceItemIds: item.sourceEvidenceItemIds,
-      ...(item.designContextEvidenceItemId ? { designContextEvidenceItemId: item.designContextEvidenceItemId } : {}),
-      ...(item.designContext ? { designContext: item.designContext } : {}),
-      ...(item.baselineEvidenceItemId ? { baselineEvidenceItemId: item.baselineEvidenceItemId } : {}),
-      checkKind: item.checkKind,
-      ...(item.targetId ? { targetId: item.targetId } : {}),
-      ...(item.styleProperty ? { styleProperty: item.styleProperty } : {}),
-      routeId: item.routeId,
-      viewportId: item.viewportId,
-      ...(item.scenarioId ? { scenarioId: item.scenarioId } : {}),
-      ...(typeof item.differenceRatio === 'number' ? { differenceRatio: item.differenceRatio } : {}),
-      ...(Array.isArray(item.differenceRegions) ? { differenceRegions: item.differenceRegions } : {}),
-      ...(typeof item.expectedStyle === 'string' ? { expectedStyle: item.expectedStyle } : {}),
-      ...(typeof item.actualStyle === 'string' ? { actualStyle: item.actualStyle } : {}),
-      message: item.message,
-      ...(item.sourceBaseline ? { sourceBaseline: item.sourceBaseline } : {}),
-      actualScreenshot: item.actualScreenshot,
-      ...(item.differenceScreenshot ? { differenceScreenshot: item.differenceScreenshot } : {}),
-    }));
+function runGates(manifest, commandIds, actor) {
+  return commandIds.map((commandId) => runGate(manifest, commandId, actor));
 }
 
-async function writePacket(path, packet) {
-  const schema = JSON.parse(await readFile(repositoryFile(
-    root,
-    '.agents/skills/product-design/canonical-ui-prototype/repair-packet.schema.json',
-  ), 'utf8'));
-  const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+function blockersFrom(gates) {
+  return gates.flatMap((gate) => (gate.blockers || []).map((blocker) => ({ gateId: gate.gateId, ...blocker })));
+}
+
+function repairFailures(gates) {
+  const failures = new Map();
+  for (const gate of gates) {
+    for (const item of gate.evidence || []) {
+      if (item.kind !== 'repair-diagnostic' || item.gateId !== gate.gateId) continue;
+      const { kind: _kind, actor: _actor, ...failure } = item;
+      failures.set(failure.diagnosticId, failure);
+    }
+  }
+  return [...failures.values()];
+}
+
+function uncoveredBlockers(gates, failures) {
+  const diagnosticIds = new Set(failures.map((item) => item.diagnosticId));
+  return blockersFrom(gates).filter((blocker) => !blocker.diagnosticId || !diagnosticIds.has(blocker.diagnosticId));
+}
+
+async function schema(path) {
+  return JSON.parse(await readFile(repositoryFile(root, path), 'utf8'));
+}
+
+async function writePacket(path, packet, packetSchemaPath) {
+  const packetSchema = await schema(packetSchemaPath);
+  const validate = new Ajv2020({ allErrors: true, strict: false }).compile(packetSchema);
   if (!validate(packet)) {
-    const error = new Error('Repair Packet 不符合 Schema：' + JSON.stringify(validate.errors));
-    error.code = 'AIH_VISUAL_REPAIR_PACKET_FAILED';
-    throw error;
+    fail('AIH_UI_REPAIR_PACKET_FAILED', 'Repair Packet 不符合 Schema：' + JSON.stringify(validate.errors));
   }
   await writeFile(path, JSON.stringify(packet, null, 2) + '\n', 'utf8');
 }
 
+async function writeReport(path, report, repair) {
+  const packetSchema = await schema(repair.packetSchema);
+  const reportSchema = await schema(repair.actionReportSchema);
+  const ajv = new Ajv2020({ allErrors: true, strict: false, formats: { 'date-time': true } });
+  ajv.addSchema(packetSchema);
+  const validate = ajv.compile(reportSchema);
+  if (!validate(report)) {
+    fail('AIH_UI_REPAIR_PACKET_FAILED', 'Repair Action Report 不符合 Schema：' + JSON.stringify(validate.errors));
+  }
+  await writeFile(path, JSON.stringify(report, null, 2) + '\n', 'utf8');
+}
+
 function emit(result, code = null) {
   if (json || result.status !== 'PASS') console.log(JSON.stringify(result, null, 2));
-  else console.log('[PASS] Canonical UI Prototype 视觉修复门禁通过。');
+  else console.log('[PASS] Canonical UI 单次修复门禁通过。');
   if (code) console.error('[' + code + '] ' + (result.message || result.status));
 }
 
@@ -143,149 +169,152 @@ async function main() {
   const { project, manifest } = await loadProjectAndManifest(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const stage = project.stages?.['product-design'];
-  if (stage?.status === 'published') {
-    const error = new Error('产品设计阶段已经发布并锁定；Repair 前必须先执行 Reopen。');
-    error.code = 'AIH_STAGE_LOCKED';
-    throw error;
+  if (stage?.status === 'published') fail('AIH_STAGE_LOCKED', '产品设计阶段已经发布并锁定；Repair 前必须先执行 Reopen。');
+  if (stage?.status !== 'active' || !paths?.area) fail('AIH_STAGE_UNINITIALIZED', '产品设计阶段或 Canonical UI Prototype Area 尚未激活。');
+  if ((newSession && requestedSession) || (!newSession && !requestedSession)) {
+    fail('AIH_UI_REPAIR_SESSION_INVALID', '首次运行必须传 --new-session；修复后重跑必须传 --session <repairSessionId>。');
   }
-  if (stage?.status !== 'active' || !paths?.area) {
-    const error = new Error('产品设计阶段或 Canonical UI Prototype Area 尚未激活。');
-    error.code = 'AIH_STAGE_UNINITIALIZED';
-    throw error;
-  }
+
   const members = await artifactCollectionMembers(root, paths);
   const actor = requestedActor || (members.length === 1 ? members[0].actor : null);
-  if (!actor) {
-    const error = new Error('视觉修复必须用 --actor ACTOR-NNN 指定一个独立应用。');
-    error.code = 'AIH_COMMAND_INVALID';
-    throw error;
-  }
+  if (!actor) fail('AIH_COMMAND_INVALID', 'Canonical UI 修复必须用 --actor ACTOR-NNN 指定一个独立应用。');
+
   const authorityPath = artifactMemberPath(paths, actor);
   const model = await extractCanonicalUi(root, authorityPath);
-  const {
-    implementationPolicy,
-  } = await loadRepairContract(manifest);
-  const sessionId = Buffer.from(root + ':' + actor).toString('base64url');
-  const sessionRoot = resolve(tmpdir(), 'psp-canonical-ui-repair-' + sessionId);
+  const repair = await loadRepairContract(manifest);
+  if (!repair.allowedVisualModes.includes(model.visualPolicy.mode)) {
+    fail('AIH_VISUAL_POLICY_UNRESOLVED', 'Canonical UI 修复只支持 autonomous、guided 或 exact 已解析模式。');
+  }
+  const operation = repairOperation(manifest);
+
+  const rootKey = Buffer.from(root + ':' + actor).toString('base64url');
+  const sessionRoot = resolve(tmpdir(), 'psp-canonical-ui-repair-' + rootKey);
   const statePath = resolve(sessionRoot, 'state.json');
   const packetPath = resolve(sessionRoot, 'repair-packet.json');
   const reportPath = resolve(sessionRoot, 'repair-action-report.json');
+  if (newSession) await rm(sessionRoot, { recursive: true, force: true });
   await mkdir(sessionRoot, { recursive: true });
 
-  let state = await readState(statePath);
+  const state = await readState(statePath);
+  if (requestedSession && (
+    !state
+    || state.status !== 'REPAIR_REQUIRED'
+    || state.repairSessionId !== requestedSession
+    || state.actor !== actor
+  )) {
+    fail('AIH_UI_REPAIR_SESSION_INVALID', 'Repair Session 缺失、过期、已终止或与当前 Actor 不一致。');
+  }
 
-  const input = runGate(manifest, 'canonical-ui-input', actor);
-  if (input.status !== 'PASS') {
-    if (state) await rm(sessionRoot, { recursive: true, force: true });
-    const code = input.blockers?.[0]?.code || 'AIH_VALIDATION_FAILED';
-    emit({ status: 'BLOCKED', blockers: input.blockers || [] }, code);
+  const prerequisites = runGates(manifest, operation.prerequisiteCommands, actor);
+  const prerequisiteBlockers = blockersFrom(prerequisites);
+  if (prerequisiteBlockers.length > 0 || prerequisites.some((gate) => gate.status !== 'PASS')) {
+    const code = prerequisiteBlockers[0]?.code || 'AIH_VALIDATION_FAILED';
+    emit({ status: 'BLOCKED', blockers: prerequisiteBlockers }, code);
     return 1;
   }
 
-  const runtime = runGate(manifest, 'canonical-ui-runtime', actor);
-  if (runtime.status === 'PASS') {
-    const attemptHistory = state
-      ? [...state.attempts, {
-          attempt: state.attempts.length + 1,
-          failures: state.lastFailures,
-        }]
-      : [];
-    let repairActionReport = null;
-    if (attemptHistory.length > 0) {
+  const gates = runGates(manifest, operation.repairCommands, actor);
+  const allPass = gates.every((gate) => gate.status === 'PASS');
+  if (allPass) {
+    if (requestedSession) {
       const report = {
-        version: '1.0.0',
+        version: '2.0.0',
         status: 'PASS',
         actor,
+        repairSessionId: requestedSession,
         completedAt: new Date().toISOString(),
-        attempts: attemptHistory.length,
-        resolvedFailures: attemptHistory.flatMap((item) => item.failures || []),
-        validationEvidence: runtime.evidence || [],
+        attempts: 1,
+        resolvedFailures: state.failures,
+        validationGates: gates.map((gate) => ({
+          gateId: gate.gateId,
+          status: 'PASS',
+          evidence: gate.evidence || [],
+        })),
       };
-      const reportSchema = JSON.parse(await readFile(repositoryFile(root, '.agents/skills/product-design/canonical-ui-prototype/repair-action-report.schema.json'), 'utf8'));
-      const validateReport = new Ajv2020({ allErrors: true, strict: false, formats: { 'date-time': true } }).compile(reportSchema);
-      if (!validateReport(report)) throw Object.assign(new Error('Repair Action Report 不符合 Schema：' + JSON.stringify(validateReport.errors)), { code: 'AIH_VISUAL_REPAIR_PACKET_FAILED' });
-      await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+      await writeReport(reportPath, report, repair);
       await Promise.all([rm(statePath, { force: true }), rm(packetPath, { force: true })]);
-      repairActionReport = reportPath;
+      emit({ status: 'PASS', attempts: 1, repairSessionId: requestedSession, repairActionReport: reportPath });
     } else {
       await rm(sessionRoot, { recursive: true, force: true });
+      emit({ status: 'PASS', attempts: 0 });
     }
-    emit({ status: 'PASS', attempts: attemptHistory.length, attemptHistory, ...(repairActionReport ? { repairActionReport } : {}) });
     return 0;
   }
 
-  const blockerCodes = new Set((runtime.blockers || []).map((item) => item.code));
-  const repairable = new Set(model.repairPolicy.repairableBlockerCodes);
-  const containsNonRepairable = [...blockerCodes].some((code) => !repairable.has(code));
-  if (
-    model.visualPolicy.mode !== 'exact'
-    || model.repairPolicy.enabled !== true
-    || containsNonRepairable
-  ) {
-    if (state) await rm(sessionRoot, { recursive: true, force: true });
-    const code = runtime.blockers?.[0]?.code || 'AIH_VALIDATION_FAILED';
-    emit({ status: 'BLOCKED', blockers: runtime.blockers || [], evidence: runtime.evidence || [] }, code);
-    return 1;
-  }
-
-  const failures = repairFailures(runtime, model.repairPolicy.repairableBlockerCodes);
-  if (failures.length === 0) {
+  const failures = repairFailures(gates);
+  const uncovered = uncoveredBlockers(gates, failures);
+  if (newSession && (failures.length === 0 || uncovered.length > 0)) {
+    await rm(sessionRoot, { recursive: true, force: true });
     emit({
       status: 'BLOCKED',
-      message: '可修复视觉失败没有生成可执行差异证据。',
-      blockers: runtime.blockers || [],
-    }, 'AIH_VISUAL_REPAIR_PACKET_FAILED');
+      message: '统一门禁包含不可修复失败或缺少完整 Repair Diagnostic。',
+      blockers: blockersFrom(gates),
+      uncoveredBlockers: uncovered,
+    }, uncovered[0]?.code || 'AIH_UI_REPAIR_PACKET_FAILED');
     return 1;
   }
 
-  if (!state) {
-    state = {
-      attempts: [],
-      lastFailures: failures,
-    };
-  } else {
-    state.attempts.push({
-      attempt: state.attempts.length + 1,
-      failures: state.lastFailures,
-    });
-    state.lastFailures = failures;
+  if (requestedSession) {
+    const terminal = { ...state, status: 'BLOCKED', completedAt: new Date().toISOString() };
+    await writeFile(statePath, JSON.stringify(terminal, null, 2) + '\n', 'utf8');
+    if (failures.length > 0 && uncovered.length === 0) {
+      const packet = {
+        version: '5.0.0',
+        status: 'BLOCKED',
+        workspaceRoot: root,
+        actor,
+        repairSessionId: requestedSession,
+        attempt: 1,
+        maxAttempts: 1,
+        allowedImplementationPaths: model.repairPolicy.allowedImplementationPaths,
+        implementationPolicy: repair.implementationPolicy,
+        failures,
+        attempts: [{ attempt: 1, failures: state.failures }],
+      };
+      await writePacket(packetPath, packet, repair.packetSchema);
+    }
+    emit({
+      status: 'BLOCKED',
+      message: 'Canonical UI 单次 Agent 实现修复后仍未通过统一门禁。',
+      repairSessionId: requestedSession,
+      ...(failures.length > 0 && uncovered.length === 0 ? { repairPacket: packetPath } : {}),
+      blockers: blockersFrom(gates),
+    }, 'AIH_UI_REPAIR_EXHAUSTED');
+    return 1;
   }
 
-  const exhausted = state.attempts.length >= model.repairPolicy.maxAttempts;
-  const nextAttempt = exhausted
-    ? model.repairPolicy.maxAttempts
-    : state.attempts.length + 1;
-  const packet = {
-    version: '4.0.0',
-    status: exhausted ? 'BLOCKED' : 'REPAIR_REQUIRED',
-    workspaceRoot: root,
-    attempt: nextAttempt,
-    maxAttempts: model.repairPolicy.maxAttempts,
-    repairableBlockerCodes: model.repairPolicy.repairableBlockerCodes,
-    allowedImplementationPaths: model.repairPolicy.allowedImplementationPaths,
-    implementationPolicy,
+  const repairSessionId = randomUUID();
+  const nextState = {
+    version: '1.0.0',
+    status: 'REPAIR_REQUIRED',
+    actor,
+    repairSessionId,
     failures,
-    attempts: state.attempts,
+    createdAt: new Date().toISOString(),
   };
-  await writeFile(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
-  await writePacket(packetPath, packet);
-
-  if (exhausted) {
-    emit({
-      status: 'BLOCKED',
-      message: 'Canonical UI Prototype 单次手动实现修复后仍未通过机器诊断。',
-      repairPacket: packetPath,
-      attempts: state.attempts,
-    }, 'AIH_VISUAL_REPAIR_EXHAUSTED');
-    return 1;
-  }
+  const packet = {
+    version: '5.0.0',
+    status: 'REPAIR_REQUIRED',
+    workspaceRoot: root,
+    actor,
+    repairSessionId,
+    attempt: 1,
+    maxAttempts: 1,
+    allowedImplementationPaths: model.repairPolicy.allowedImplementationPaths,
+    implementationPolicy: repair.implementationPolicy,
+    failures,
+    attempts: [],
+  };
+  await writeFile(statePath, JSON.stringify(nextState, null, 2) + '\n', 'utf8');
+  await writePacket(packetPath, packet, repair.packetSchema);
   emit({
     status: 'REPAIR_REQUIRED',
-    message: '读取 Repair Packet，修复实现后重新运行 canonical-ui-repair；代码修改不需要 hash 或 Action Report 前置许可。',
-    attempt: nextAttempt,
+    message: '读取 Repair Packet，执行一次实现修复后使用 --session 重新运行 canonical-ui-repair。',
+    attempt: 1,
+    repairSessionId,
     repairPacket: packetPath,
     failures,
-  }, 'AIH_VISUAL_REPAIR_REQUIRED');
+  }, 'AIH_UI_REPAIR_REQUIRED');
   return 1;
 }
 

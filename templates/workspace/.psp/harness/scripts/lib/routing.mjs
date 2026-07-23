@@ -211,7 +211,12 @@ export function resolveHarness(manifest, project, inputPaths, intent, root, opti
   const visitedDependencies = new Set();
   function visitDependencies(scope) {
     const downstreamStage = scopeStage(scope);
-    for (const dependencyId of dependencyIds(manifest, scope.id)) {
+    const dependencyTargets = new Set([scope.id]);
+    if (scope.kind === 'artifact' && manifest.projectDag?.nodes?.some((node) => (
+      node.kind === 'stage' && node.stage === downstreamStage
+    ))) dependencyTargets.add(downstreamStage);
+    const scopedDependencies = [...new Set([...dependencyTargets].flatMap((target) => dependencyIds(manifest, target)))];
+    for (const dependencyId of scopedDependencies) {
       const edge = dependencyId + '->' + scope.id;
       if (visitedDependencies.has(edge)) continue;
       visitedDependencies.add(edge);
