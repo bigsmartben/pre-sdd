@@ -1,7 +1,7 @@
 {
   "$schema": ".psp/harness/schemas/harness-manifest.schema.json",
   "name": "pre-sdd-scaffold-harness",
-  "version": "14.0.0",
+  "version": "14.2.0",
   "standardProjectionRegistry": {
     "authority": ".psp/harness/HARNESS-BOUNDARY.md",
     "enforcementOwners": [
@@ -246,6 +246,60 @@
             "role": "instruction",
             "requiredText": ["Harness 只拥有与产品语义和内容效果无关的硬治理"],
             "forbiddenText": []
+          },
+          {
+            "path": "templates/workspace/.agents/skills/product-design/SKILL.md",
+            "role": "skill",
+            "requiredText": ["正式 Review、Feedback Packet（反馈包）路由、Publish 与 Reopen 生命周期由本 Skill 拥有", "Component Contract 同时拥有复用边界", "临时预览入口，不是正式 Review Evidence", "Review 通过后只报告“可发布”并停止"],
+            "forbiddenText": ["$repair-canonical-ui-visual"]
+          },
+          {
+            "path": "templates/workspace/.agents/skills/repair-canonical-ui/SKILL.md",
+            "role": "skill",
+            "requiredText": ["本技能只拥有一次有边界的 Canonical UI 实现修复", "正式 Review、反馈路由、Publish 与 Reopen 生命周期由 `$product-design` 拥有", "Review Feedback Packet（评审反馈包）只表达用户反馈，不是 Repair Packet，也不授权修复", "`AIH_VISUAL_PIXEL_DIAGNOSTIC` 是非阻塞诊断，不得作为修复授权或 Repair Packet 输入"],
+            "forbiddenText": ["Agent 自动修复", "$repair-canonical-ui-visual"]
+          },
+          {
+            "path": "templates/workspace/.agents/skills/implement-canonical-ui/SKILL.md",
+            "role": "skill",
+            "requiredText": ["本技能拥有 Canonical UI Prototype 的正常实现", "`autonomous`", "`screenshot`、`export`、`other`", "Reuse Plan（复用计划）", "`implementationRole`", "已有 Contract 组件 → 已有 App Shell（应用外壳）", "不得自行启动 Repair", "不产生正式 Review Evidence", "地址交付后停止在实现职责边界", "$repair-canonical-ui"],
+            "forbiddenText": ["$repair-canonical-ui-visual"]
+          },
+          {
+            "path": "templates/workspace/.agents/skills/implement-canonical-ui/agents/openai.yaml",
+            "role": "skill",
+            "requiredText": ["build a complete Reuse Plan", "existing Contract components, App/Feature Shells, layout/style primitives", "run canonical-ui-dev for the actual temporary preview", "stop before Feedback Packet routing, formal Review, Repair, or Publish"],
+            "forbiddenText": ["$repair-canonical-ui-visual"]
+          },
+          {
+            "path": "templates/workspace/.agents/skills/product-design/agents/openai.yaml",
+            "role": "skill",
+            "requiredText": ["$repair-canonical-ui", "temporary preview", "formal Review Evidence only through canonical-ui-review"],
+            "forbiddenText": ["$repair-canonical-ui-visual"]
+          },
+          {
+            "path": "templates/workspace/.agents/skills/repair-canonical-ui/agents/openai.yaml",
+            "role": "skill",
+            "requiredText": ["explicit user repair request", "never treat a Review Feedback Packet as repair authorization", "without starting Preview, Review, Publish, or another attempt"],
+            "forbiddenText": ["自动修复"]
+          },
+          {
+            "path": "templates/workspace/.agents/skills/product-design/canonical-ui-prototype/contract.yaml",
+            "role": "runtime-contract",
+            "requiredText": ["implementationReuse:", "componentContracts.implementationRole", "component-reuse-decision-explicit", "token-runtime-consumption-complete", "一次授权、一次修改、一次复验", "review-feedback-packet.schema.json"],
+            "forbiddenText": ["三次尝试上限"]
+          },
+          {
+            "path": "templates/workspace/README.md",
+            "role": "documentation",
+            "requiredText": ["Canonical UI 用户运行闭环", "Feedback Packet 只表达反馈", "Review 后停止；只有用户另行明确要求才 Publish"],
+            "forbiddenText": ["一次自动修复", "继续标记并修复"]
+          },
+          {
+            "path": "templates/workspace/.psp/harness/harness.manifest.json",
+            "role": "runtime-contract",
+            "requiredText": ["\"version\": \"18.1.0\"", "\"id\": \"canonical-ui-dev\"", "\"kind\": \"preview\"", "\"sessionMode\": \"long-running\"", "\"outputRole\": \"temporary-preview\"", "\"evidenceVersion\": \"2.0.0\"", "review-feedback-packet.schema.json"],
+            "forbiddenText": []
           }
         ],
         "enforcementOwnerIds": ["projection-schema", "projection-validator", "projection-tests"]
@@ -399,10 +453,8 @@
         "project-consistency",
         "product-design",
         "architecture-design",
-        "capture-figma-design-source",
-        "organize-figma-assets",
-        "figma-component-from-design",
-        "implement-figma-lit-page",
+        "figma-workflow",
+        "implement-canonical-ui",
         "repair-canonical-ui",
         "mockcase"
       ]
@@ -487,7 +539,11 @@
           "01-product-design",
           "02-architecture-design",
           "架构设计拥有独立生命周期",
-          "本轮只完成"
+          "本轮只完成",
+          "Scope Confirmation 必须逐项列出",
+          "Component Handshake",
+          "全部已定义 Variant",
+          "实际使用的 Instance"
         ],
         "forbiddenText": [
           "pre-sdd harness",
@@ -506,10 +562,18 @@
           "文件已经存在不等于",
           "只有使用者显式请求时才运行 preflight",
           "本地 Manifest 声明的路径加载",
-          "本工作区不提供更新、升级、迁移或同步操作"
+          "本工作区不提供更新、升级、迁移或同步操作",
+          "Canonical UI 用户运行闭环",
+          "Feedback Packet 只表达反馈",
+          "Review 后停止；只有用户另行明确要求才 Publish",
+          "Component Set 全量定义目录",
+          "Variant Definition Coverage（定义覆盖）",
+          "Usage Coverage（使用覆盖）"
         ],
         "forbiddenText": [
-          "npm install --global"
+          "npm install --global",
+          "一次自动修复",
+          "继续标记并修复"
         ]
       },
       {
@@ -525,6 +589,120 @@
         ],
         "forbiddenText": [
           "脚手架固化要求"
+        ]
+      },
+      {
+        "id": "canonical-ui-runtime-contract",
+        "path": "templates/workspace/.psp/harness/harness.manifest.json",
+        "requiredText": [
+          "\"version\": \"18.1.0\"",
+          "\"id\": \"canonical-ui-dev\"",
+          "\"kind\": \"preview\"",
+          "\"sessionMode\": \"long-running\"",
+          "\"outputRole\": \"temporary-preview\"",
+          "\"evidenceVersion\": \"2.0.0\"",
+          "review-feedback-packet.schema.json"
+        ],
+        "forbiddenText": []
+      },
+      {
+        "id": "product-design-review-responsibility",
+        "path": "templates/workspace/.agents/skills/product-design/SKILL.md",
+        "requiredText": [
+          "正式 Review、Feedback Packet（反馈包）路由、Publish 与 Reopen 生命周期由本 Skill 拥有",
+          "临时预览入口，不是正式 Review Evidence",
+          "Review 通过后只报告“可发布”并停止",
+          "$repair-canonical-ui"
+        ],
+        "forbiddenText": [
+          "$repair-canonical-ui-visual"
+        ]
+      },
+      {
+        "id": "canonical-ui-repair-responsibility",
+        "path": "templates/workspace/.agents/skills/repair-canonical-ui/SKILL.md",
+        "requiredText": [
+          "本技能只拥有一次有边界的 Canonical UI 实现修复",
+          "正式 Review、反馈路由、Publish 与 Reopen 生命周期由 `$product-design` 拥有",
+          "Review Feedback Packet（评审反馈包）只表达用户反馈，不是 Repair Packet，也不授权修复",
+          "`AIH_VISUAL_PIXEL_DIAGNOSTIC` 是非阻塞诊断，不得作为修复授权或 Repair Packet 输入"
+        ],
+        "forbiddenText": [
+          "Agent 自动修复",
+          "$repair-canonical-ui-visual"
+        ]
+      },
+      {
+        "id": "canonical-ui-implementation-responsibility",
+        "path": "templates/workspace/.agents/skills/implement-canonical-ui/SKILL.md",
+        "requiredText": [
+          "本技能拥有 Canonical UI Prototype 的正常实现",
+          "`autonomous`",
+          "`guided`",
+          "`exact`",
+          "`screenshot`、`export`、`other`",
+          "Reuse Plan（复用计划）",
+          "`implementationRole`",
+          "已有 Contract 组件 → 已有 App Shell（应用外壳）",
+          "不得自行启动 Repair",
+          "不产生正式 Review Evidence",
+          "地址交付后停止在实现职责边界",
+          "$repair-canonical-ui"
+        ],
+        "forbiddenText": [
+          "$repair-canonical-ui-visual"
+        ]
+      },
+      {
+        "id": "canonical-ui-implementation-skill-interface",
+        "path": "templates/workspace/.agents/skills/implement-canonical-ui/agents/openai.yaml",
+        "requiredText": [
+          "build a complete Reuse Plan",
+          "existing Contract components, App/Feature Shells, layout/style primitives",
+          "run canonical-ui-dev for the actual temporary preview",
+          "stop before Feedback Packet routing, formal Review, Repair, or Publish"
+        ],
+        "forbiddenText": [
+          "$repair-canonical-ui-visual"
+        ]
+      },
+      {
+        "id": "product-design-skill-interface",
+        "path": "templates/workspace/.agents/skills/product-design/agents/openai.yaml",
+        "requiredText": [
+          "$repair-canonical-ui",
+          "temporary preview",
+          "formal Review Evidence only through canonical-ui-review"
+        ],
+        "forbiddenText": [
+          "$repair-canonical-ui-visual"
+        ]
+      },
+      {
+        "id": "canonical-ui-repair-skill-interface",
+        "path": "templates/workspace/.agents/skills/repair-canonical-ui/agents/openai.yaml",
+        "requiredText": [
+          "explicit user repair request",
+          "never treat a Review Feedback Packet as repair authorization",
+          "without starting Preview, Review, Publish, or another attempt"
+        ],
+        "forbiddenText": [
+          "自动修复"
+        ]
+      },
+      {
+        "id": "canonical-ui-contract-responsibility",
+        "path": "templates/workspace/.agents/skills/product-design/canonical-ui-prototype/contract.yaml",
+        "requiredText": [
+          "implementationReuse:",
+          "componentContracts.implementationRole",
+          "component-reuse-decision-explicit",
+          "token-runtime-consumption-complete",
+          "一次授权、一次修改、一次复验",
+          "review-feedback-packet.schema.json"
+        ],
+        "forbiddenText": [
+          "三次尝试上限"
         ]
       }
     ],
@@ -1266,10 +1444,8 @@
         "type": "static",
         "paths": [
           "templates/workspace/.agents/skills/product-design/**",
-          "templates/workspace/.agents/skills/capture-figma-design-source/**",
-          "templates/workspace/.agents/skills/organize-figma-assets/**",
-          "templates/workspace/.agents/skills/figma-component-from-design/**",
-          "templates/workspace/.agents/skills/implement-figma-lit-page/**",
+          "templates/workspace/.agents/skills/figma-workflow/**",
+          "templates/workspace/.agents/skills/implement-canonical-ui/**",
           "templates/workspace/.agents/skills/repair-canonical-ui/**"
         ]
       },

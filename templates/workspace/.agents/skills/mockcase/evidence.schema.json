@@ -5,11 +5,11 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "actor", "lifecycle", "suiteDigest", "runtimeDigest", "hostApiVersion", "facts", "blockers"],
   "properties": {
-    "schemaVersion": {"const": "1.0.0"},
+    "schemaVersion": {"const": "2.0.0"},
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "lifecycle": {"enum": ["READY", "VERIFIED", "STALE"]},
-    "suiteDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
-    "runtimeDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "suiteDigest": {"$ref": "#/$defs/digest"},
+    "runtimeDigest": {"$ref": "#/$defs/digest"},
     "hostApiVersion": {"const": "psp.review-extension/v1"},
     "facts": {
       "type": "array",
@@ -27,10 +27,12 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "caseId", "status"],
+            "required": ["kind", "caseId", "routeId", "projectionDigest", "status"],
             "properties": {
               "kind": {"const": "case"},
               "caseId": {"$ref": "#/$defs/id"},
+              "routeId": {"$ref": "#/$defs/id"},
+              "projectionDigest": {"$ref": "#/$defs/digest"},
               "status": {"const": "PASS"}
             }
           },
@@ -47,19 +49,27 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "decision", "status"],
+            "required": ["kind", "decision", "routeId", "caseProjections", "status"],
             "properties": {
               "kind": {"const": "review-decision"},
               "decision": {"const": "complete"},
+              "routeId": {"$ref": "#/$defs/id"},
+              "caseProjections": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"$ref": "#/$defs/caseProjection"}
+              },
               "status": {"const": "PASS"}
             }
           },
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "status"],
+            "required": ["kind", "routeId", "status"],
             "properties": {
               "kind": {"const": "dispose"},
+              "routeId": {"$ref": "#/$defs/id"},
               "status": {"const": "PASS"}
             }
           }
@@ -71,6 +81,15 @@
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
     "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "caseProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "projectionDigest"],
+      "properties": {
+        "caseId": {"$ref": "#/$defs/id"},
+        "projectionDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
     "descriptor": {
       "type": "object",
       "additionalProperties": false,

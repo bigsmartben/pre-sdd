@@ -675,6 +675,7 @@ try {
       const componentIds = ids(canonical.components, 'canonical.components');
       const componentInventoryIds = ids(canonical.componentInventory, 'canonical.componentInventory');
       const componentMappingIds = ids(canonical.componentMappings, 'canonical.componentMappings');
+      const componentVariantDefinitionIds = ids(canonical.componentVariantDefinitions, 'canonical.componentVariantDefinitions');
       ids(canonical.componentVariantCoverage, 'canonical.componentVariantCoverage');
       const controlIds = ids(canonical.controls, 'canonical.controls');
       const stateIds = ids(canonical.states, 'canonical.states');
@@ -769,12 +770,21 @@ try {
           block('AIH_COMPONENT_MAPPING_INVALID', '组件 Slot 映射重复：' + mapping.id, 'canonical.componentMappings.' + mapping.id);
         }
       }
+      for (const definition of canonical.componentVariantDefinitions) {
+        requireReferences(
+          [definition.mappingId],
+          componentMappingIds,
+          'canonical.componentVariantDefinitions.' + definition.id,
+          'mappingId',
+        );
+      }
       const coveredInstances = new Set();
       for (const coverage of canonical.componentVariantCoverage) {
         requireReferences([coverage.mappingId], componentMappingIds, 'canonical.componentVariantCoverage.' + coverage.id, 'mappingId');
-        requireReferences(coverage.screenIds, screenIds, 'canonical.componentVariantCoverage.' + coverage.id, 'screenIds');
-        for (const nodeId of coverage.instanceNodeIds) {
-          const key = coverage.mappingId + '/' + nodeId;
+        requireReferences([coverage.definitionId], componentVariantDefinitionIds, 'canonical.componentVariantCoverage.' + coverage.id, 'definitionId');
+        for (const usage of coverage.usages) {
+          requireReferences([usage.screenId], screenIds, 'canonical.componentVariantCoverage.' + coverage.id, 'usages.screenId');
+          const key = coverage.mappingId + '/' + usage.instanceNodeId;
           if (coveredInstances.has(key)) {
             block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Figma Instance 被多个 Variant 覆盖行重复登记：' + key, 'canonical.componentVariantCoverage.' + coverage.id);
           }

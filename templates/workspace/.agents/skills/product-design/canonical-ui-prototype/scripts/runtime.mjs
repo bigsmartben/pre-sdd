@@ -120,7 +120,13 @@ async function buildPrototype() {
   for (const member of await selectedPrototypeRoots()) {
     const checked = await typecheckArea(member.root, member.actor);
     if (checked !== 0) return checked;
-    await build({ root: member.root, configFile: false, resolve: { alias: dependencyAliases() }, build: { emptyOutDir: true } });
+    const previousDirectory = process.cwd();
+    try {
+      process.chdir(member.root);
+      await build({ root: '.', configFile: false, resolve: { alias: dependencyAliases() }, build: { emptyOutDir: true } });
+    } finally {
+      process.chdir(previousDirectory);
+    }
     console.log('[PASS] ' + (member.actor || 'Canonical UI Prototype') + ' 独立应用构建通过。');
   }
   return 0;
@@ -137,7 +143,9 @@ async function dev() {
     await server.close();
     throw Object.assign(new Error('开发服务器已启动，但没有返回可访问的本地地址。'), { code: 'AIH_CANONICAL_UI_SERVER_FAILED' });
   }
-  console.log('[READY] ' + (member.actor || 'Canonical UI Prototype') + ' 独立应用评审地址：' + new URL(localUrl).href);
+  const previewUrl = new URL(localUrl);
+  previewUrl.searchParams.set('review', '0');
+  console.log('[READY] ' + (member.actor || 'Canonical UI Prototype') + ' 独立应用正式预览地址：' + previewUrl.href);
   return await new Promise((resolveExit) => {
     const close = async () => { await server.close(); resolveExit(0); };
     process.once('SIGINT', close);

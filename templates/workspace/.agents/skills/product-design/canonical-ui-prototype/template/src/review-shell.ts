@@ -1,3 +1,5 @@
+import { canonicalUi } from './spec/canonical-ui';
+
 async function enableMocking(): Promise<void> {
   if (!import.meta.env.DEV) return;
   const { worker } = await import('./mocks/browser');
@@ -80,17 +82,41 @@ async function activateExtensions(): Promise<void> {
   }, { once: true });
 }
 
+function reviewEnabled(query: URLSearchParams): boolean {
+  const policy = canonicalUi.reviewTools.activation;
+  return query.get(policy.queryParameter) === policy.enabledValue;
+}
+
+async function activateBuiltInTools(): Promise<void> {
+  await Promise.all([
+    import('./inconsistency-annotator'),
+    import('./interaction-branch-driver'),
+  ]);
+}
+
 export async function bootstrapReviewShell(): Promise<void> {
   try {
     await enableMocking();
   } catch (error: unknown) {
     console.error('MSW 启动失败，原型仍将继续渲染。', error);
   }
-  if (window.location.pathname === '/__review/components') {
+  const query = new URLSearchParams(window.location.search);
+  const enabled = reviewEnabled(query);
+  if (query.has('__pspComponentContract') || query.has('__pspStateMatrix')) {
+    if (!query.has('__pspComponentContract') || !query.has('__pspStateMatrix')) {
+      document.querySelector('psp-product-router')?.replaceWith(
+        Object.assign(document.createElement('main'), { textContent: 'Component Preview 参数不完整。' }),
+      );
+    } else {
+      await import('./matrix-mount');
+      document.querySelector('psp-product-router')?.replaceWith(document.createElement('psp-matrix-mount'));
+    }
+  } else if (enabled && window.location.pathname === '/__review/components') {
     await import('./state-gallery');
     document.querySelector('psp-product-router')?.replaceWith(document.createElement('psp-state-gallery'));
-    return;
   }
+  if (!enabled) return;
+  await activateBuiltInTools();
   try {
     await activateExtensions();
   } catch (error: unknown) {

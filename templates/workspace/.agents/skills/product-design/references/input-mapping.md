@@ -37,7 +37,8 @@
 
 - `componentInventory` 必须逐一归类 Figma `design-context.components` 中的节点，不能用 Screen 级视觉覆盖代替组件抽象决定。
 - `componentMappings` 只登记确认后的共享组件，要求 Figma 属性与 Lit Property / Attribute / Slot 有显式对应。
-- `componentVariantCoverage` 逐行登记使用中的 Figma Variant、Lit Attribute、Instance 与 Screen；每个共享组件 Instance 必须且只能出现一次。
+- `componentVariantDefinitions` 完整登记 Component Set 的全部 Main Component Definition 与 Lit Attribute，即使某个 Variant 尚未被页面使用也不得遗漏。
+- `componentVariantCoverage` 以 `definitionId` 绑定实际 `usages=[{instanceNodeId,screenId}]`；未使用 Definition 保留空 `usages`，每个使用中的共享组件 Instance 必须且只能出现一次。
 - `componentContracts` 把每个组件收敛为唯一 Lit 接口；存在 Figma 来源时必须把共享组件映射与 Figma Instance 双向绑定到页面实例，`autonomous` 组件则保持无 Figma 身份的提供方中立契约。页面不得复制内部结构绕过该接口。
 - `stateAxes` 为四类状态分别枚举有限值；`stateMatrix` 必须完整分类全部组合。Mock Case 与组件契约测试只能消费这份矩阵，不得维护平行状态清单。
 - `primitive-only` 与 `local-structure` 不得创建 Lit 共享组件映射，避免仅凭视觉相似进行过度抽象。

@@ -2,12 +2,12 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: mockcase-suite
-  version: 1.0.0
+  version: 2.0.0
 spec:
   stage: mockcase
   internalModelFormat: json
   outputRole: user-artifact
-  purpose: 按 Actor 管理独立的 MockData 网络事实、MockCase 场景编排、输入锁和确定性浏览器运行投影。
+  purpose: 按 Actor 管理独立的 MockData 事实、MockCase 场景编排、输入锁和基于 Component Contract 公开 Lit Property 的确定性浏览器运行投影。
   references:
     - stage: product-design
       artifact: capabilities
@@ -23,22 +23,26 @@ spec:
       lifecycleControl: none
   owns:
     - suite.json 输入锁与组合文件摘要
-    - mockdata.json Fixture 与请求响应行为
-    - mockcases.json Case、Activation、Effect 与预期状态引用
+    - mockdata.json Fixture 与可追溯的请求响应行为事实
+    - mockcases.json Case、Data Binding、Effect 与 State Matrix 引用
     - 确定性 Runtime Bundle、Review Extension 与验证证据
   excludes:
     - Use Cases、Visual Spec、Canonical UI 与 UI HTML 写入
     - Product Design readiness、review、publish 或 reopen
     - Handoff 自动初始化、自动 Apply 或业务就绪声明
     - 浏览器 Plugin 文件系统写入
+    - 正式控件点击、输入值写入、正式事件派发、Fetch 拦截或私有 DOM 修改
   domainRules:
-    - mockdata-network-only
+    - mockdata-model-source-only
     - mockcase-orchestration-only
     - actor-partition-isolated
     - candidate-deterministic
     - candidate-latest-upstream-incremental-diff
+    - state-matrix-selection-recovery-first-and-never-guessed
     - suite-atomic-write
-    - request-matcher-selects-one-complete-behavior
+    - component-contract-public-property-projection-only
+    - network-behavior-projects-through-fixture-binding
+    - partial-coverage-never-ready
     - headed-review-requires-user-decision
     - mapped-ready-verified-separated
   projections:

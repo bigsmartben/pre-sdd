@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 import { createRepairDiagnostic } from './lib/repair-diagnostics.mjs';
+import { verifyMatrixMount } from './lib/verify-matrix-mount.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const json = process.argv.includes('--json');
@@ -27,7 +28,13 @@ if (!requestedActor) {
   const evidenceRoots = [];
   const metrics = [];
   for (const member of members) {
-    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json', ...[...componentFilter].flatMap((value) => ['--component', value])], { cwd: root, encoding: 'utf8', env: process.env, windowsHide: true });
+    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json', ...[...componentFilter].flatMap((value) => ['--component', value])], {
+      cwd: root,
+      encoding: 'utf8',
+      env: process.env,
+      windowsHide: true,
+      maxBuffer: 128 * 1024 * 1024,
+    });
     try {
       const parsed = JSON.parse(child.stdout || '{}');
       blockers.push(...(parsed.blockers || []).map((item) => ({ actor: member.actor, ...item })));
@@ -83,7 +90,7 @@ function matrixUrl(base, entry) {
   const url = new URL('/', base);
   url.searchParams.set('__pspComponentContract', entry.componentContractId);
   url.searchParams.set('__pspStateMatrix', entry.id);
-  url.searchParams.set('annotate', '0');
+  url.searchParams.set('review', '0');
   return url.href;
 }
 
@@ -116,6 +123,22 @@ async function stopTrace(page) {
     trace?.observers.forEach((observer) => observer.disconnect());
     return trace?.values || [];
   });
+}
+
+async function waitForContractTrace(page, expectedStateIds) {
+  try {
+    await page.waitForFunction((expected) => {
+      const observed = globalThis.__pspComponentContractTrace?.values || [];
+      let expectedIndex = 0;
+      for (const stateId of observed) {
+        if (stateId === expected[expectedIndex]) expectedIndex += 1;
+        if (expectedIndex === expected.length) return true;
+      }
+      return false;
+    }, expectedStateIds, { timeout: 3000 });
+  } catch {
+    // The caller reports the observed sequence after stopping the trace.
+  }
 }
 
 try {
@@ -156,44 +179,40 @@ try {
     };
     const mapping = model.componentMappings.find((item) => item.id === contract.mappingId);
     const defaultEntry = model.stateMatrix.find((item) => item.id === contract.defaultStateMatrixEntryId);
-    if (!mapping || !defaultEntry) continue;
+    if (!defaultEntry || (contract.mappingId && !mapping)) continue;
     await page.goto(matrixUrl(base, defaultEntry), { waitUntil: 'networkidle' });
     const registered = await page.evaluate((tagName) => Boolean(customElements.get(tagName)), contract.litTagName);
     if (!registered) block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Lit Tag 未注册：' + contract.litTagName, contract.id, true);
-    for (const instance of contract.pageInstances) {
-      const selector = instance.figmaInstanceNodeId
-        ? '[data-figma-instance-id="' + instance.figmaInstanceNodeId + '"]'
-        : '[data-component-instance-id="' + instance.id + '"]';
-      const element = page.locator(selector);
-      if (await element.count() !== 1) {
-        block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Component Contract 页面实例未唯一挂载：' + instance.id, contract.id, true);
-        continue;
-      }
-      if (!instance.figmaInstanceNodeId) {
-        if (await element.getAttribute('data-component-owner-id') !== contract.componentId) {
-          block('AIH_COMPONENT_CONTRACT_TEST_FAILED', '本地页面实例未声明所属 Component：' + instance.id, contract.id, true);
-        }
-        continue;
-      }
-      if (await element.evaluate((node) => node.tagName.toLowerCase()) !== contract.litTagName) {
-        block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Figma 页面实例未使用 Contract Lit Tag：' + instance.id, contract.id, true);
-      }
+    const defaultHost = await verifyMatrixMount({
+      surface: page,
+      model,
+      contract,
+      entry: defaultEntry,
+      mapping,
+      block: (code, message, location) => block(code, message, location, true),
+      code: 'AIH_COMPONENT_CONTRACT_TEST_FAILED',
+      location: contract.id,
+    });
+    if (defaultHost) {
+      const contentBindings = new Set(
+        model.stateAxes
+          .filter((axis) => axis.componentContractId === contract.id && axis.kind === 'content-override')
+          .map((axis) => axis.renderBinding.name)
+          .filter(Boolean),
+      );
       for (const property of contract.properties) {
-        if (!Object.hasOwn(property, 'defaultValue')) continue;
-        const actual = await element.evaluate((node, name) => node[name], property.name);
+        if (!Object.hasOwn(property, 'defaultValue') || contentBindings.has(property.name)) continue;
+        const actual = await defaultHost.evaluate((node, name) => node[name], property.name);
         if (JSON.stringify(actual) !== JSON.stringify(property.defaultValue)) {
           block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Property 默认值不匹配：' + contract.id + ' / ' + property.name, contract.id, true);
         }
       }
       for (const attribute of contract.attributes) {
+        if (contentBindings.has(attribute.name)) continue;
         const property = contract.properties.find((item) => item.name === attribute.propertyName);
         if (!property || !Object.hasOwn(property, 'defaultValue')) continue;
-        const actual = await element.getAttribute(attribute.name);
+        const actual = await defaultHost.getAttribute(attribute.name);
         if (actual !== String(property.defaultValue)) block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Attribute 默认值不匹配：' + contract.id + ' / ' + attribute.name, contract.id, true);
-      }
-      for (const slot of contract.slots) {
-        const assigned = await element.evaluate((node, name) => [...node.children].some((child) => child.getAttribute('slot') === name), slot);
-        if (!assigned) block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Contract Slot 未在实例中使用：' + contract.id + ' / ' + slot, contract.id, true);
       }
     }
 
@@ -204,27 +223,17 @@ try {
       const axes = model.stateAxes.filter((axis) => axis.componentContractId === contract.id);
       const runtimeAxis = axes.find((axis) => axis.kind === 'runtime-state');
       const runtimeState = runtimeAxis?.values.find((value) => value.id === entry.values[runtimeAxis.id])?.stateId;
-      if (runtimeState) {
-        coveredStates.add(runtimeState);
-        const state = page.locator('[data-component-state="' + runtimeState + '"]').first();
-        if (await state.count() === 0 || !await state.isVisible()) block('AIH_COMPONENT_CONTRACT_TEST_FAILED', '独立挂载未呈现 Runtime State：' + entry.id + ' / ' + runtimeState, contract.id, true);
-      }
-      for (const axis of axes.filter((item) => item.kind === 'variant')) {
-        const selected = axis.values.find((value) => value.id === entry.values[axis.id]);
-        const property = mapping.propertyMappings.find((item) => item.kind === 'variant' && item.figmaProperty === axis.name);
-        const expected = property?.values.find((item) => item.figmaValue === selected?.value)?.litValue;
-        const instance = page.locator('[data-component-id="' + contract.componentId + '"]').first();
-        if (!property?.litAttribute || await instance.getAttribute(property.litAttribute) !== expected) {
-          block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Variant 未通过声明的 Lit Attribute 实际渲染：' + entry.id + ' / ' + axis.name, contract.id, true);
-        }
-      }
-      await page.goto(matrixUrl(base, entry), { waitUntil: 'networkidle' });
-      const visibleStates = [];
-      for (const stateId of model.components.find((item) => item.id === contract.componentId)?.stateIds || []) {
-        const target = page.locator('[data-component-state="' + stateId + '"]').first();
-        if (await target.count() > 0 && await target.isVisible()) visibleStates.push(stateId);
-      }
-      if (visibleStates.length !== 1) block('AIH_COMPONENT_CONTRACT_TEST_FAILED', '独立挂载违反组件状态互斥：' + entry.id + ' / ' + visibleStates.join(', '), contract.id, true);
+      if (runtimeState) coveredStates.add(runtimeState);
+      await verifyMatrixMount({
+        surface: page,
+        model,
+        contract,
+        entry,
+        mapping,
+        block: (code, message, location) => block(code, message, location, true),
+        code: 'AIH_COMPONENT_CONTRACT_TEST_FAILED',
+        location: contract.id,
+      });
     }
     for (const stateId of model.components.find((item) => item.id === contract.componentId)?.stateIds || []) {
       if (!coveredStates.has(stateId)) block('AIH_COMPONENT_CONTRACT_COVERAGE_FAILED', '组件 State 缺少独立 Contract Test：' + contract.id + ' / ' + stateId, contract.id);
@@ -239,9 +248,20 @@ try {
       const precedingEventIds = scenario ? scenario.eventIds.slice(0, scenario.eventIds.indexOf(eventId)) : [];
       for (const precedingEventId of precedingEventIds) {
         const preceding = model.events.find((item) => item.id === precedingEventId);
+        const precedingAction = model.actions.find((item) => item.eventId === precedingEventId);
         if (!preceding) continue;
         await page.locator('[data-control-id="' + preceding.controlId + '"][data-event-id="' + preceding.id + '"]').click();
-        await page.waitForTimeout(700);
+        const finalStateId = precedingAction?.resultingStateIds.at(-1);
+        if (finalStateId) {
+          try {
+            await page.locator('[data-component-state="' + finalStateId + '"]').first().waitFor({
+              state: 'visible',
+              timeout: 3000,
+            });
+          } catch {
+            // The target Event assertion below remains authoritative.
+          }
+        }
       }
       const control = page.locator('[data-control-id="' + event.controlId + '"][data-event-id="' + event.id + '"]');
       if (await control.count() !== 1 || await control.getAttribute('data-action-id') !== action.id) {
@@ -250,7 +270,7 @@ try {
       }
       await stateTrace(page);
       await control.click();
-      await page.waitForTimeout(700);
+      await waitForContractTrace(page, action.resultingStateIds);
       const observed = await stopTrace(page);
       let expectedIndex = 0;
       for (const stateId of observed) if (stateId === action.resultingStateIds[expectedIndex]) expectedIndex += 1;
@@ -281,7 +301,9 @@ try {
       }
     }
 
-    await page.screenshot({ path: currentRepairContext.screenshot, fullPage: true, animations: 'disabled' });
+    const preview = page.locator('[data-component-preview]').first();
+    if (await preview.count() === 1) await preview.screenshot({ path: currentRepairContext.screenshot, animations: 'disabled' });
+    else await page.screenshot({ path: currentRepairContext.screenshot, fullPage: true, animations: 'disabled' });
   }
   await context.close();
 } catch (error) {

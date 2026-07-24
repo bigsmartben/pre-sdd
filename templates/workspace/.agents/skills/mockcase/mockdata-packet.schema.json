@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mockdata-packet.schema.json",
+  "title": "MockData Input Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "fixtures": {"type": "array", "items": {"$ref": "mockdata.schema.json#/$defs/fixture"}},
+    "behaviors": {"type": "array", "items": {"$ref": "mockdata.schema.json#/$defs/behavior"}},
+    "bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenarioId", "dataBindings"],
+        "properties": {
+          "scenarioId": {"$ref": "mockcases.schema.json#/$defs/id"},
+          "stateMatrixEntryId": {"$ref": "mockcases.schema.json#/$defs/id"},
+          "dataBindings": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "mockcases.schema.json#/$defs/dataBinding"}
+          }
+        }
+      }
+    }
+  }
+}

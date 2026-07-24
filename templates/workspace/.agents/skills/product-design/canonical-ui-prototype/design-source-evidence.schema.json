@@ -27,10 +27,11 @@
           "items": {
             "type": "array",
             "allOf": [
-              {"contains": {"type": "object", "properties": {"role": {"const": "design-context"}}, "required": ["role"]}},
+              {"contains": {"type": "object", "properties": {"role": {"const": "raw-design-context"}}, "required": ["role"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"type": "object", "properties": {"role": {"const": "design-context"}}, "required": ["role"]}, "minContains": 1, "maxContains": 1},
               {"contains": {"type": "object", "properties": {"role": {"const": "screenshot"}}, "required": ["role"]}},
-              {"contains": {"type": "object", "properties": {"role": {"const": "capture-plan"}}, "required": ["role"]}},
-              {"contains": {"type": "object", "properties": {"role": {"const": "ingest-receipt"}}, "required": ["role"]}}
+              {"contains": {"type": "object", "properties": {"role": {"const": "capture-plan"}}, "required": ["role"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"type": "object", "properties": {"role": {"const": "ingest-receipt"}}, "required": ["role"]}, "minContains": 1, "maxContains": 1}
             ]
           }
         }
@@ -84,7 +85,7 @@
       "required": ["id", "role", "path", "sha256"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "role": {"enum": ["design-context", "screenshot", "variable-definitions", "capture-plan", "ingest-receipt", "asset", "code-connect-map"]},
+        "role": {"enum": ["raw-design-context", "design-context", "screenshot", "variable-definitions", "capture-plan", "ingest-receipt", "asset", "code-connect-map"]},
         "path": {"$ref": "#/$defs/path"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "schema": {"type": "string", "minLength": 1},

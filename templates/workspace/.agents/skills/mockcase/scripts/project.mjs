@@ -1,7 +1,9 @@
 import { commitManagedWrites } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
 import {
   HOST_API_VERSION,
+  MODEL_VERSION,
   actorArgument,
+  compileProjectionEffect,
   compileSchemas,
   failure,
   jsonText,
@@ -10,13 +12,6 @@ import {
   workspaceContext,
 } from './lib.mjs';
 
-function statesFor(model, matrix) {
-  return model.stateAxes.filter((axis) => axis.componentContractId === matrix.componentContractId).flatMap((axis) => {
-    const selected = axis.values.find((item) => item.id === matrix.values[axis.id]);
-    return selected?.stateId ? [selected.stateId] : [];
-  });
-}
-
 const dryRun = process.argv.includes('--dry-run');
 let result;
 try {
@@ -24,9 +19,17 @@ try {
   const context = await workspaceContext(actor, { allowMissingSuite: false });
   if (context.stage.status === 'published') throw Object.assign(new Error('mockcase Stage 已锁定。'), { code: 'AIH_STAGE_LOCKED' });
   if (context.stage.status !== 'active') throw Object.assign(new Error('mockcase Stage 尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
-  await validateSuiteData(context);
+  await validateSuiteData(context, { requireCoverage: true });
+  const runtimeCases = context.mockcases.cases.map((item) => {
+    const effects = item.effects.map((effect) => compileProjectionEffect(context, effect));
+    return {
+      ...item,
+      effects,
+      projectionDigest: sha256(jsonText(effects)),
+    };
+  });
   const runtime = {
-    schemaVersion: '1.0.0',
+    schemaVersion: MODEL_VERSION,
     hostApiVersion: HOST_API_VERSION,
     actor,
     sourceDigests: {
@@ -37,15 +40,7 @@ try {
       canonicalUi: context.upstream.canonicalUiDigest,
     },
     routes: context.canonicalUi.routes.map(({ id, path }) => ({ id, path })),
-    fixtures: context.mockdata.fixtures,
-    behaviors: context.mockdata.behaviors,
-    cases: context.mockcases.cases.map((item) => ({
-      ...item,
-      effects: item.effects.map((effect) => {
-        const matrix = context.canonicalUi.stateMatrix.find((entry) => entry.id === effect.expectedStateMatrixEntryId);
-        return { ...effect, expectedStateIds: statesFor(context.canonicalUi, matrix) };
-      }),
-    })),
+    cases: runtimeCases,
   };
   const schemas = await compileSchemas(context.root);
   if (!schemas.runtime(runtime)) throw Object.assign(new Error('Runtime Bundle Schema 校验失败。'), { code: 'AIH_ARTIFACT_SCHEMA_FAILED' });

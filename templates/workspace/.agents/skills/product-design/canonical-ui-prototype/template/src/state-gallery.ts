@@ -33,14 +33,24 @@ function previewUrl(entry: MatrixEntry): string {
   const query = new URLSearchParams({
     __pspComponentContract: entry.componentContractId,
     __pspStateMatrix: entry.id,
-    annotate: '0',
+    review: '0',
   });
   return `/?${query.toString()}`;
 }
 
 export class PspStateGallery extends LitElement {
   protected render() {
-    const entries = model.stateMatrix.filter((entry) => entry.classification === 'legal' && entry.renderInGallery);
+    const selectedComponentIds = new Set(new URLSearchParams(window.location.search).getAll('__pspComponentFilter'));
+    const selectedContractIds = new Set(
+      model.componentContracts
+        .filter((contract) => selectedComponentIds.size === 0 || selectedComponentIds.has(contract.componentId))
+        .map((contract) => contract.id),
+    );
+    const entries = model.stateMatrix.filter(
+      (entry) => entry.classification === 'legal'
+        && entry.renderInGallery
+        && selectedContractIds.has(entry.componentContractId),
+    );
     return html`
       <header>
         <p>PSP · COMPONENT REVIEW</p>
@@ -65,7 +75,7 @@ export class PspStateGallery extends LitElement {
                     <dl>
                       ${axes.map((axis) => {
                         const selected = axis.values.find((value) => value.id === entry.values[axis.id]);
-                        return html`<div data-state-axis-kind=${axis.kind}><dt>${axis.kind}</dt><dd>${axis.name} = ${selected?.value ?? 'unresolved'}</dd></div>`;
+                        return html`<div data-state-axis-id=${axis.id} data-state-axis-kind=${axis.kind}><dt>${axis.kind}</dt><dd>${axis.name} = ${selected?.value ?? 'unresolved'}</dd></div>`;
                       })}
                     </dl>
                   </div>

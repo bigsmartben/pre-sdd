@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "status", "actor", "scope", "inputLock", "mockDataChanges", "mockCaseChanges", "coverageBefore", "coverageAfter", "gaps", "candidateHash"],
   "properties": {
-    "schemaVersion": {"const": "1.0.0"},
+    "schemaVersion": {"const": "2.0.0"},
     "status": {"enum": ["PASS", "BLOCKED"]},
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "scope": {
@@ -23,15 +23,15 @@
       "additionalProperties": false,
       "required": ["generatorVersion", "schemaVersions", "capabilitiesDigest", "canonicalUiDigest", "suiteDigest"],
       "properties": {
-        "generatorVersion": {"const": "1.0.0"},
+        "generatorVersion": {"const": "2.0.0"},
         "schemaVersions": {
           "type": "object",
           "additionalProperties": false,
           "required": ["suite", "mockdata", "mockcases"],
           "properties": {
-            "suite": {"const": "1.0.0"},
-            "mockdata": {"const": "1.0.0"},
-            "mockcases": {"const": "1.0.0"}
+            "suite": {"const": "2.0.0"},
+            "mockdata": {"const": "2.0.0"},
+            "mockcases": {"const": "2.0.0"}
           }
         },
         "capabilitiesDigest": {"$ref": "#/$defs/digest"},
@@ -68,13 +68,23 @@
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
     "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
     "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "coverageSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredScenarioIds", "coveredScenarioIds", "missingScenarioIds"],
+      "properties": {
+        "requiredScenarioIds": {"$ref": "#/$defs/ids"},
+        "coveredScenarioIds": {"$ref": "#/$defs/ids"},
+        "missingScenarioIds": {"$ref": "#/$defs/ids"}
+      }
+    },
     "coverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["requiredScenarios", "coveredScenarios"],
+      "required": ["scope", "project"],
       "properties": {
-        "requiredScenarios": {"type": "integer", "minimum": 0},
-        "coveredScenarios": {"type": "integer", "minimum": 0}
+        "scope": {"$ref": "#/$defs/coverageSet"},
+        "project": {"$ref": "#/$defs/coverageSet"}
       }
     }
   }

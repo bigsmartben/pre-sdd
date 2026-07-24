@@ -150,53 +150,52 @@ flowchart LR
 
 ## Figma 辅助技能
 
-工作区提供五个独立辅助 Skill（技能），用于整理、采集、实现和修复 Figma 驱动的 Lit + Vite Canonical UI Prototype。它们可由 Codex 直接发现，但不属于 Product Design 的领域生命周期，不登记 Artifact（产物）或 Handoff（移交）边，也不得反向修改产品事实。
+工作区提供三个职责分离的辅助 Skill（技能）：一个统一 Figma 写回与来源采集工作流、一个 Lit 实现技能和一个实现修复技能。它们可由 Codex 直接发现，但不属于 Product Design 的领域生命周期，不登记 Artifact（产物）或 Handoff（移交）边，也不得反向修改产品事实。
 
-### Figma Quickstart（快速开始）闭环
+### Canonical UI 用户运行闭环
 
-当工作区已有 Figma 设计时，按以下顺序建立可复查的实现闭环。前 3 步生成实现依据；第 4、5 步持续迭代，直到使用者确认差异已处理。Figma 副本、图层重组和组件创建都属于远端写入，必须先确认目标文件、页面范围和允许的改动。
+首次实现、反馈处理、正式 Review（评审）和 Publish（发布）是四个分开的阶段。`$product-design` 拥有反馈路由和生命周期；实现与 Repair Skill（修复技能）只完成各自的一次实现工作。
 
 ```mermaid
 flowchart LR
-    A["1. 建立 Figma 工作区副本"] --> B["2. 按页面重组、规范化 Figma"]
-    B --> C["3. 实现 Figma 页面"]
-    C --> U["立即提供可访问的 UI HTML 地址"]
-    U --> D["4. Review HTML：标记不一致"]
-    D --> E["5. 修复 HTML"]
-    E --> U
+    A["首次实现"] --> B["临时预览<br/>canonical-ui-dev"]
+    B --> C["用户反馈<br/>Feedback Packet"]
+    C --> D["按职责路由"]
+    D -->|"实现缺陷 + 用户授权 + Repair Packet"| E["单次 Repair"]
+    E --> B
+    D -->|"用户确认结束反馈"| F["正式 Review Evidence"]
+    F -->|"exact 模式"| G["Human Visual Acceptance"]
+    F -->|"autonomous / guided"| H["等待发布请求"]
+    G --> H
+    H -->|"用户明确要求发布"| I["Publish"]
 ```
 
-| 步骤 | 执行要点 | 完成标志 |
+| 阶段 | 用户看到什么 | 系统行为 | 停止点 |
+|---|---|---|---|
+| 1. 首次实现 | 可操作的 Lit 页面 | `$implement-canonical-ui` 根据已登记事实实现页面；Figma 来源先由 `$figma-workflow` 完成确认、冻结、采集和登记 | 页面可运行后停止实现 |
+| 2. 临时预览与反馈 | `canonical-ui-dev` 输出的 `?review=0` 真实 HTTP 地址 | `$product-design` 将它解释为正式产品 UI 的临时预览地址；需要不一致标记、MockCase 切换器或交互分支驱动器时统一使用 `?review=1`。三个工具都只是 Review Tool，不是产品需求、功能、页面、控件或下游实现 | 提供地址后暂停，等待用户反馈或明确要求结束反馈 |
+| 3. 反馈路由与单次修复 | 可追溯的反馈处理结果 | Feedback Packet 只表达反馈。实现类反馈必须先形成机器诊断；用户明确授权后，`$repair-canonical-ui` 才能消费 operation 生成的 Repair Packet，执行一次修改和一次复验 | Repair 后回到临时预览；失败以 `AIH_UI_REPAIR_EXHAUSTED` 停止 |
+| 4. 正式 Review 与发布 | Review Evidence（评审证据），通过后显示“可发布” | 只有用户明确表示“结束反馈并生成正式 Review”时才运行 `canonical-ui-review`；`exact` 模式仍要求用户本人完成 Human Visual Acceptance（人工视觉接受），`autonomous` / `guided` 不新增接受记录 | Review 后停止；只有用户另行明确要求才 Publish |
+
+浏览器工具导出的 JSON 是 Feedback Packet，不是 Repair Packet，也不自动授权修复。PNG 只作为可选的人类附件，不嵌入 JSON，也不能替代正式机器截图。固定路由如下：
+
+| Marker 类型 | Category（分类） | 路由目标 |
 |---|---|---|
-| 1. 建立 Figma 工作区副本 | 从原始设计复制到本工作区使用的独立副本；保留原始文件作为对照，不在原稿上整理 | 副本、页面范围和责任人已确认 |
-| 2. 按页面重组、规范化 Figma | 以待实现页面为单位整理图层与命名，复用已有组件，按需创建规范组件，并标记 `Export/` 资源 | 所有 Figma 写入完成，页面节点已冻结 |
-| 3. 实现 Figma | 采集冻结节点的上下文、截图、变量、字体和资源证据，登记组件清单、Figma ↔ Lit 映射与 Variant 覆盖后再实现页面；实现达到可运行状态后立即启动服务 | 可运行的 Canonical UI Prototype、完整来源证据与组件抽象契约，以及已经请求验证并提供给使用者的 UI HTML 地址 |
-| 4. Review HTML（审查 HTML） | 在浏览器中对照 Figma 操作页面，使用默认固定在每个页面右上方的不一致标记工具框选差异、选择类别并复制标记截图；剪贴板被拒绝时下载 PNG | 差异形成可执行的修复说明，不改变正式规格 |
-| 5. 修复 HTML | 仅按 Repair Packet（修复包）允许的范围修正实现，重新验证并提供当前评审地址；服务重启时提供新的实际地址 | Repair Action Report（修复动作报告）与新一轮可审查页面 |
+| `interaction` | `behavior` | `use-cases` |
+| `visual` | `visual-input` | `visual-spec` |
+| `position-size` / `text` | `implementation` | `canonical-ui-prototype` |
 
-第 3 步的实现达到可运行状态后必须立即提供 UI HTML 地址，不等待视觉修复、严格检查或正式就绪全部通过。未通过的 safety-structure（安全结构）门禁阻止 Handoff Receipt（移交凭证）；domain-diagnostic（领域诊断）必须作为 residual（剩余问题）展示，只有用户在显式 preflight（预检）后逐项接受，才允许确认 Handoff。第 4、5 步的循环示例：审查时发现“标题距顶部比 Figma 多 12px”，框选标题区域并复制标记截图；修复后重新打开评审地址复查。若仍有差异，继续标记并修复；若无差异，由使用者结束循环。
+正式 Review 可重复接收多个页面包，例如 `npm run review:canonical-ui -- --feedback page-a.json --feedback page-b.json`。无反馈时允许空包；Packet 顺序不会改变 Review ID。旧的 `--markers` 入口不再属于新模板。
 
-```text
-Product Design 确认 sourceId、业务范围与视觉策略
-  → Figma 整理或组件创建（完成全部远端写入）
-  → 冻结最终节点并采集设计上下文、截图和变量
-  → 导出标记资源并封存 evidence.json 与全部哈希
-  → Product Design 绑定来源、业务语义与组件抽象契约
-  → Lit + Vite Canonical UI 实现
-  → 立即启动服务并提供可访问的 UI HTML 地址
-  → Harness 与来源一致性验证（未通过项只阻止正式就绪或移交）
-  → Repair Packet 驱动的实现修复
-```
+以“标题距顶部多 12px”为例：用户框选标题、选择 `position-size`、填写说明并导出 JSON。Product Design 校验 Actor、Draft Version 和路由后，先运行登记门禁；只有门禁生成有效 Repair Packet 且用户明确同意本次修复，Repair Skill 才改一次实现并复验一次。若无法得到确定性诊断，则该条反馈保持未解析，用户需要补充 Visual Spec（视觉规格）或明确预期。
 
 | Skill（技能） | 用途 | 边界 |
 |---|---|---|
-| `capture-figma-design-source` | 在全部 Figma 写入完成后采集节点上下文、截图、变量和字体，导出并校验 `Export/` 资源，再封存资源与哈希证据 | 后续 Figma 写入会使旧证据失效；不决定产品语义、视觉策略或就绪状态 |
-| `organize-figma-assets` | 使用 `figma-use` 确认范围后整理图层、复用已有组件并标记 `Export/` 资源 | 不创建新组件；写入后必须重新采集 |
-| `figma-component-from-design` | 使用 `figma-use` 与 `figma-generate-library` 确认抽象决定、属性、有限 Variant（变体）和变量后创建 Figma 组件 | 不修改产品事实或阶段状态；写入后必须重新采集 |
-| `implement-figma-lit-page` | 使用冻结节点的最终证据与已校验组件映射逐个实现 Lit 组件并组装页面 | 映射缺失或证据过期时停止；不得在页面中重新决定组件边界 |
-| `repair-canonical-ui` | 根据统一 Repair Packet 对 HTML、CSS、Lit 与组件渲染执行一次自动修复 | 不修改基线、容差、视觉策略、Mock 数据或业务语义 |
+| `figma-workflow` | 在两次人工确认下完成 Figma 范围扫描、图层整理、组件建模、一次合并写回、最终冻结、来源采集、资源导入和证据封存 | 止于向 Product Design 返回组件抽象提案与登记包；不修改产品事实、视觉策略、Lit 实现或就绪状态 |
+| `implement-canonical-ui` | 根据已登记的产品与视觉事实执行首次或规格驱动的 HTML、CSS 与 Lit 实现；覆盖 autonomous、guided、exact 以及无来源、Figma、截图、导出和其他来源 | 只有 Figma 分支要求冻结证据与组件映射；不得自行进入 Repair 或修改产品语义 |
+| `repair-canonical-ui` | 在用户明确授权后，根据统一 Repair Packet 对 HTML、CSS、Lit 与组件渲染执行一次有边界的实现修复 | 不拥有临时预览、Review、反馈路由、发布；不修改基线、容差、视觉策略、Mock 数据或业务语义 |
 
-例如，用户要求精准还原一个完整 Figma Frame 时，Agent 先使用 Product Design 确认运行环境、`sourceId` 和 `exact`（完全实现）视觉策略，再完成图层整理或组件创建等全部 Figma 写入。节点冻结后才采集设计上下文和截图、导出静态资源、把每个资源登记为 `role: asset` 并重新计算 `evidence.json` 哈希；Product Design 随后绑定最终来源与业务语义，把每个组件相关节点归类为共享组件、Primitive 或局部结构，并登记 Figma ↔ Lit 映射及使用中 Variant 覆盖，门禁通过后才开始实现。若采集后再次修改 Figma，旧证据立即失效，必须重新采集。出现来源差异时只由 Repair Packet 驱动独立修复技能修改代码，并用 Repair Action Report 对来源依据和实际修改路径进行交叉校验。像素容差和固定修复原则继续由 Canonical UI Artifact Contract（产物契约）拥有。
+例如，用户要求精准还原一个完整 Figma Frame 时，Agent 先使用 Product Design 确认运行环境、`sourceId` 和 `exact`（完全实现）视觉策略。`$figma-workflow` 的第一次确认逐项冻结范围内视觉节点、组件相关节点和当时的 `sourceVersion`；第二次确认逐项冻结组件的语义职责、结构签名、复用依据、反例、有限状态轴和写回清单。全部 Figma 写入完成后才允许唯一一次正式采集，并同时保存原始设计上下文、Component Set 全量定义目录、截图和静态资源。Registration Packet 通过 Component Handshake 把确认提案与最终节点、结构签名、全部已定义 Variant 和实际使用的 Instance 闭合后，Product Design 才登记 Figma ↔ Lit 映射、Variant Definition Coverage（定义覆盖）与 Usage Coverage（使用覆盖）。若确认后来源版本变化，或冻结后再次修改 Figma，旧确认、证据和登记立即失效，必须从只读扫描重新开始。出现来源差异时只由 Repair Packet 驱动独立修复技能修改代码，并用 Repair Action Report 对来源依据和实际修改路径进行交叉校验。像素容差和固定修复原则继续由 Canonical UI Artifact Contract（产物契约）拥有。
 
 ## Agent 内部执行流程
 

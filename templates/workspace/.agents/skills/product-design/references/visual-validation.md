@@ -28,13 +28,13 @@
 ## 最终检查
 
 1. 运行生成检查，确认 README 与隐藏 JSON 投影和 `canonical-ui.ts` 无 drift。
-2. 实现达到可运行状态后，立即启动 Manifest 登记的 Canonical UI 开发服务器，读取其实际输出的 `[READY]` 评审地址，请求一次确认可访问并提供给用户。普通评审地址默认开启固定在每个页面右上方的不一致标记工具；只有干净预览才使用 `?annotate=0`。服务器进程必须在当前评审期间保持运行，且不等待后续视觉修复或严格门禁通过。
+2. 实现达到可运行状态后，立即启动 Manifest 登记的 Canonical UI 开发服务器，读取其实际输出的 `[READY]` 正式预览地址，请求一次确认可访问并提供给用户。URL 只允许一个 Review 开关：正式预览与产品截图固定使用 `?review=0`；正式 Review、MockCase 和场景门禁固定使用 `?review=1`。未设置 `review` 与 `review=0` 等价，不加载任何 Review Tool。服务器进程必须在当前评审期间保持运行，且不等待后续视觉修复或严格门禁通过。
 3. 地址交付后运行 typecheck、build 及 resolver 返回的全部测试和结构校验。首次使用或收到 `AIH_BROWSER_UNAVAILABLE` 时运行 `npm run install:browser`；构建后运行 `npm run validate:canonical-ui-runtime`，按 `scenarios` 实际操作每个主路径和分支，观察 Screen、State 与反馈。
 4. 只在用户确认并已声明的视口执行路由与场景，先运行 `renderAssertions[].checks`，再按模式运行 `sourceParityAssertions[].checks`：`autonomous` 不要求来源比较；`guided` 只比较声明的视觉方面与局部；`exact` 可对所有路由、场景和视口执行整页 `screenshot-match` 诊断。
 5. `exact` 的运行截图必须在相同视口、设备像素比、字体、资源和 Mock 数据下与证据截图比较；通道容差与最大差异像素比例只读取 Contract，Agent 不得自行放宽。偏差超过阈值时记录 `AIH_VISUAL_PIXEL_DIAGNOSTIC`，输出 Figma/截图基线、实际截图、差异图、路由、视口、场景、差异比例和区域，但不把像素阈值当作最终接受或阻断。
 6. 核对 `assets` 的本地文件、加载结果与实际使用目标，校验 `designSources` 的证据内容哈希和覆盖范围。
-7. 核对 `componentInventory` 已唯一覆盖全部 Figma 组件相关节点，`componentVariantCoverage` 已覆盖全部共享组件 Instance，`componentContracts` 已唯一声明 Lit 接口；浏览器逐项验证 Lit Tag、`data-figma-instance-id`、Variant Attribute、Slot，并验证 `/__review/components` 只呈现 `stateMatrix` 中的全部合法组合。
-8. Review 截图和像素比较排除全部 `[data-review-tool]`；可选 Review Extension 不得改变 Product 自身的发布结论。
+7. 核对 `componentInventory` 已唯一覆盖全部 Figma 组件相关节点，`componentVariantDefinitions` 已覆盖全部 Definition，`componentVariantCoverage.usages` 已覆盖全部使用中 Instance ↔ Screen，`componentContracts` 已唯一声明 Lit 接口；浏览器逐项验证 Lit Tag、`data-figma-instance-id`、Variant Attribute、Property、Attribute、Slot，并验证 `/__review/components` 只呈现 `stateMatrix` 中的全部合法组合。
+8. 不一致标记、MockCase 切换器与交互分支驱动器统一属于 Review Tool（评审工具），不属于真实产品需求、功能、页面、控件或下游实现范围，也不得修改 Use Case、Interaction Flow 或 Visual Spec 的产品事实。产品截图和像素比较排除全部 `[data-review-tool]`；可选 Review Extension 不得改变 Product 自身的发布结论。
 9. 捕获控制台错误、页面异常和资源请求失败；只允许本地服务器、`data:` 与 `blob:` 请求。
 10. 仅当用户明确选择额外的键盘操作、读屏、焦点、触控尺寸或减少动画检查时，运行 `accessibility.checks` 中对应的检查；Component Contract 的关键可访问断言始终由契约 Runner 执行。
 11. `screenshot-match` 只记录差异比例、区域、实际图和差异图，不产生最终视觉阻断。`exact` 的最终视觉结论必须来自当前 Review 范围上的 Human Visual Acceptance；机器样式和来源绑定失败仍可在用户显式启用后进行一次手动修复。

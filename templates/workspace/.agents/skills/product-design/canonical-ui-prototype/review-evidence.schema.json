@@ -4,19 +4,40 @@
   "title": "Canonical UI HTML Review Evidence",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "status", "reviewId", "createdAt", "stage", "actors", "validation", "markers"],
+  "required": ["version", "status", "reviewId", "createdAt", "stage", "actors", "validation", "feedbackPackets", "markers"],
   "properties": {
-    "version": {"const": "1.0.0"},
+    "version": {"const": "2.0.0"},
     "status": {"const": "PASS"},
     "reviewId": {"type": "string", "pattern": "^review-[a-f0-9]{64}$"},
     "createdAt": {"type": "string", "format": "date-time"},
     "stage": {"const": "product-design"},
     "actors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/actor"}},
     "validation": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/validation"}},
+    "feedbackPackets": {"type": "array", "items": {"$ref": "#/$defs/feedbackPacket"}},
     "markers": {"type": "array", "items": {"$ref": "#/$defs/marker"}}
   },
   "$defs": {
     "hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "number", "minimum": 0},
+        "y": {"type": "number", "minimum": 0},
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
     "actor": {
       "type": "object",
       "additionalProperties": false,
@@ -34,18 +55,44 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "status"],
-      "properties": {"id": {"type": "string", "minLength": 1}, "status": {"enum": ["PASS", "FAIL", "NOT_RUN"]}, "blockers": {"type": "array", "items": {"type": "string"}}}
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["PASS", "FAIL", "NOT_RUN"]},
+        "blockers": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "feedbackPacket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contentHash", "actor", "draftVersion", "createdAt", "pageUrl", "pageKey", "viewport", "markerCount"],
+      "properties": {
+        "contentHash": {"$ref": "#/$defs/hash"},
+        "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+        "draftVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "createdAt": {"type": "string", "format": "date-time"},
+        "pageUrl": {"type": "string", "pattern": "^http://(?:127\\.0\\.0\\.1|localhost):[0-9]+/"},
+        "pageKey": {"type": "string", "minLength": 1},
+        "viewport": {"$ref": "#/$defs/viewport"},
+        "markerCount": {"type": "integer", "minimum": 1}
+      }
     },
     "marker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["actor", "pageKey", "category", "routedTo", "description"],
+      "required": ["packetHash", "markerId", "actor", "pageUrl", "pageKey", "viewport", "issueType", "category", "routedTo", "description", "target", "rect"],
       "properties": {
+        "packetHash": {"$ref": "#/$defs/hash"},
+        "markerId": {"type": "integer", "minimum": 1},
         "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
+        "pageUrl": {"type": "string", "pattern": "^http://(?:127\\.0\\.0\\.1|localhost):[0-9]+/"},
         "pageKey": {"type": "string", "minLength": 1},
+        "viewport": {"$ref": "#/$defs/viewport"},
+        "issueType": {"enum": ["position-size", "text", "interaction", "visual"]},
         "category": {"enum": ["behavior", "visual-input", "implementation"]},
         "routedTo": {"enum": ["use-cases", "visual-spec", "canonical-ui-prototype"]},
-        "description": {"type": "string", "minLength": 1}
+        "description": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "rect": {"$ref": "#/$defs/rect"}
       }
     }
   }

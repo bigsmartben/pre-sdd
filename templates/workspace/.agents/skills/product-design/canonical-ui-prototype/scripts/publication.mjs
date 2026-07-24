@@ -23,7 +23,7 @@ async function exists(path) {
 
 async function readLedger(path) {
   try { return JSON.parse(await readFile(path, 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return { version: '2.0.0', stage: 'product-design', current: null, history: [] }; throw error; }
+  catch (error) { if (error.code === 'ENOENT') return { version: '3.0.0', stage: 'product-design', current: null, history: [] }; throw error; }
 }
 
 function publicationCore(inputLocksValue, actors, reviewVersion, visualAcceptance) {
@@ -151,8 +151,8 @@ async function publish(root, project, manifest, operation) {
     if (!reviewed || reviewed.draftVersion !== actor.draftVersion || reviewed.implementationHash !== actor.implementationHash || reviewed.buildInputHash !== actor.buildInputs.contentHash) {
       throw Object.assign(new Error('Review 证据与当前冻结 UI HTML 版本不一致：' + actor.actor), { code: 'AIH_CANONICAL_UI_REVIEW_STALE' });
     }
-    if (new URL(reviewed.reviewAddress).searchParams.get('review') !== actor.implementationHash.slice('sha256:'.length)) {
-      throw Object.assign(new Error('Review 地址未绑定当前冻结 UI HTML 版本：' + actor.actor), { code: 'AIH_CANONICAL_UI_REVIEW_STALE' });
+    if (new URL(reviewed.reviewAddress).searchParams.get('review') !== '1') {
+      throw Object.assign(new Error('Review 地址未使用统一 review=1 开关：' + actor.actor), { code: 'AIH_CANONICAL_UI_REVIEW_STALE' });
     }
     if (actor.inputs.useCases.version !== inputs.useCases.version || actor.inputs.useCases.contentHash !== inputs.useCases.contentHash || actor.inputs.visualSpec.version !== inputs.visualSpec.version || actor.inputs.visualSpec.contentHash !== inputs.visualSpec.contentHash) {
       throw Object.assign(new Error('UI HTML Draft 上游输入绑定已经漂移：' + actor.actor), { code: 'AIH_CANONICAL_UI_INPUT_DRIFT' });

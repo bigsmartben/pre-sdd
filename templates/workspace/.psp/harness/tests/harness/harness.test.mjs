@@ -104,12 +104,45 @@ test('cache keys bind standard, profile, executor, source, dependency, and runti
   assert.notEqual(resolve(manifest, { ...options, executorDigests: { ...digests, harness: '2'.repeat(64) } }).cache.key, baseline.cache.key);
 });
 
-test('Harness registers one dedicated Figma Asset Ingest operation and rejects executor drift', async () => {
+test('Harness registers the Figma intake closure without changing its Operation or validation profiles', async () => {
+  assert.equal(manifest.version, '18.1.0');
   const operation = manifest.operations.find((item) => item.id === 'ingest-figma-assets');
   assert.equal(operation.kind, 'ingest');
   assert.equal(operation.artifact, 'canonical-ui-prototype');
-  assert.equal(operation.executor.path, '.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs');
+  assert.equal(operation.executor.path, '.agents/skills/figma-workflow/scripts/ingest-assets.mjs');
   assert.deepEqual(Object.keys(operation.packetSchemas).sort(), ['acquisition', 'capturePlan', 'receipt', 'registration']);
+  assert.equal(Object.hasOwn(operation, 'profile'), false);
+  assert.deepEqual(
+    manifest.validationProfiles.find((item) => item.id === 'canonical-ui-quick').commands,
+    ['harness', 'product-structure', 'canonical-ui-input'],
+  );
+  assert.deepEqual(
+    manifest.validationProfiles.find((item) => item.id === 'canonical-ui-prototype').commands,
+    [
+      'harness',
+      'product-structure',
+      'canonical-ui-input',
+      'canonical-ui-typecheck',
+      'canonical-ui-build',
+      'canonical-ui-contract-tests',
+      'canonical-ui-runtime',
+      'product-strict',
+    ],
+  );
+
+  const blockerMeanings = new Map(manifest.blockers.map((item) => [item.code, item.meaning]));
+  for (const [code, expected] of [
+    ['AIH_SOURCE_CAPTURE_BLOCKED', /范围确认、高影响确认、写回边界与冻结来源版本/],
+    ['AIH_COMPONENT_VARIANT_COVERAGE_FAILED', /已定义 Variant.*使用中的 Instance/],
+    ['AIH_COMPONENT_CONTRACT_INVALID', /Component Contract/],
+    ['AIH_COMPONENT_CONTRACT_COVERAGE_FAILED', /Component Contract 覆盖/],
+    ['AIH_COMPONENT_CONTRACT_TEST_INVALID', /测试断言/],
+    ['AIH_COMPONENT_CONTRACT_TEST_FAILED', /契约测试/],
+    ['AIH_STATE_MATRIX_INVALID', /State Matrix 笛卡尔组合/],
+    ['AIH_STATE_GALLERY_FAILED', /State Gallery/],
+  ]) {
+    assert.match(blockerMeanings.get(code) || '', expected, code);
+  }
 
   const root = await temporaryRepository();
   await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
@@ -117,6 +150,36 @@ test('Harness registers one dedicated Figma Asset Ingest operation and rejects e
   });
   const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
   assert.ok(codes(invalid).has('AIH_COMMAND_INVALID'), JSON.stringify(invalid.output, null, 2));
+});
+
+test('Harness registers Canonical UI dev as a long-running temporary Preview operation', async () => {
+  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-dev');
+  assert.equal(operation.kind, 'preview');
+  assert.equal(operation.npmScript, 'dev');
+  assert.equal(operation.artifact, 'canonical-ui-prototype');
+  assert.equal(operation.sessionMode, 'long-running');
+  assert.equal(operation.outputRole, 'temporary-preview');
+  assert.equal(manifest.commands.some((item) => item.id === 'canonical-ui-dev'), false);
+  assert.equal(manifest.validationProfiles.some((profile) => profile.commands.includes('canonical-ui-dev')), false);
+
+  const root = await temporaryRepository();
+  await mutateJson(resolve(root, '.psp/harness/harness.manifest.json'), (value) => {
+    value.operations.find((item) => item.id === 'canonical-ui-dev').executor.path = '.psp/harness/scripts/init-workspace.mjs';
+  });
+  const invalid = runScript('.psp/harness/scripts/validate-harness.mjs', root, ['--json']);
+  assert.ok(codes(invalid).has('AIH_COMMAND_INVALID'), JSON.stringify(invalid.output, null, 2));
+});
+
+test('Canonical UI Review registers Feedback Packet input and Review Evidence 2.0.0', () => {
+  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-review');
+  assert.equal(operation.kind, 'review');
+  assert.equal(operation.evidenceVersion, '2.0.0');
+  assert.equal(
+    operation.feedbackPacketSchema,
+    '.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json',
+  );
+  assert.ok(manifest.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_FEEDBACK_PACKET_INVALID'));
+  assert.ok(manifest.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_FEEDBACK_STALE'));
 });
 
 test('Harness registers MockCase as an isolated vertical domain', () => {

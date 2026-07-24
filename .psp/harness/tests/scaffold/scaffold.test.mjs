@@ -214,6 +214,95 @@ test('scaffold consistency blocks missing and contradictory downstream projectio
   assert.ok(result.diagnostics.some((item) => item.message.includes('同时要求并禁止相同文本')));
 });
 
+test('quick validator blocks Canonical UI implementation and Repair responsibility drift', async () => {
+  for (const mutation of [
+    {
+      path: 'templates/workspace/.agents/skills/implement-canonical-ui/SKILL.md',
+      from: '不得自行启动 Repair',
+      to: '可以自行启动 Repair',
+    },
+    {
+      path: 'templates/workspace/.agents/skills/product-design/agents/openai.yaml',
+      from: 'route only a validator-generated Repair Packet to $repair-canonical-ui',
+      to: 'route only a validator-generated Repair Packet to $repair-canonical-ui-visual',
+    },
+    {
+      path: 'templates/workspace/.agents/skills/repair-canonical-ui/SKILL.md',
+      from: '一次有边界的 Agent 实现修复',
+      to: 'Agent 自动修复',
+    },
+    {
+      path: 'templates/workspace/.agents/skills/repair-canonical-ui/SKILL.md',
+      from: 'Review Feedback Packet（评审反馈包）只表达用户反馈，不是 Repair Packet，也不授权修复',
+      to: 'Review Feedback Packet 自动授权修复',
+    },
+    {
+      path: 'templates/workspace/.agents/skills/implement-canonical-ui/agents/openai.yaml',
+      from: 'stop before Feedback Packet routing, formal Review, Repair, or Publish',
+      to: 'continue through Feedback Packet routing, formal Review, Repair, and Publish',
+    },
+    {
+      path: 'templates/workspace/.agents/skills/product-design/canonical-ui-prototype/contract.yaml',
+      from: '一次授权、一次修改、一次复验',
+      to: '三次尝试上限',
+    },
+    {
+      path: 'templates/workspace/README.md',
+      from: 'Feedback Packet 只表达反馈',
+      to: 'Feedback Packet 自动授权修复',
+    },
+  ]) {
+    const root = await fixture();
+    const path = resolve(root, mutation.path);
+    const source = await readFile(path, 'utf8');
+    assert.ok(source.includes(mutation.from), mutation.path);
+    await writeFile(path, source.replace(mutation.from, mutation.to), 'utf8');
+    const result = await validateScaffold(root);
+    assert.equal(result.status, 'FAIL');
+    assert.ok(result.issues.some((item) => (
+      item.code === 'AIH_SCAFFOLD_CONTEXT_INVALID'
+      && item.path === mutation.path
+    )));
+  }
+});
+
+test('quick validator blocks Figma intake documentation projection drift', async () => {
+  for (const mutation of [
+    {
+      path: 'QUICKSTART.md',
+      from: 'Scope Confirmation 必须逐项列出',
+      to: 'Scope Confirmation 可以省略节点清单',
+    },
+    {
+      path: 'QUICKSTART.md',
+      from: 'Component Handshake',
+      to: '非结构化组件说明',
+    },
+    {
+      path: 'templates/workspace/README.md',
+      from: 'Variant Definition Coverage（定义覆盖）',
+      to: '仅覆盖页面上已有的 Variant',
+    },
+    {
+      path: 'templates/workspace/README.md',
+      from: 'Usage Coverage（使用覆盖）',
+      to: '未登记使用位置',
+    },
+  ]) {
+    const root = await fixture();
+    const path = resolve(root, mutation.path);
+    const source = await readFile(path, 'utf8');
+    assert.ok(source.includes(mutation.from), mutation.path);
+    await writeFile(path, source.replace(mutation.from, mutation.to), 'utf8');
+    const result = await validateScaffold(root);
+    assert.equal(result.status, 'FAIL');
+    assert.ok(result.issues.some((item) => (
+      item.code === 'AIH_SCAFFOLD_CONTEXT_INVALID'
+      && item.path === mutation.path
+    )));
+  }
+});
+
 test('scaffold consistency blocks a downstream target that claims normative authority', async () => {
   const root = await fixture();
   const manifestPath = resolve(root, '.psp/harness/harness.manifest.json');
@@ -290,6 +379,43 @@ test('resolver separates local-edit, pull-request, and release gates for Product
     'npm run test:workspace:architecture',
     'npm run test:package',
     'npm run pack:check',
+  ]);
+});
+
+test('resolver keeps Figma Workflow, User Harness, and package projections on existing profiles', () => {
+  const figmaPath = 'templates/workspace/.agents/skills/figma-workflow/capture-plan.schema.json';
+  const localFigma = resolvePaths([figmaPath]);
+  assert.equal(localFigma.status, 0, localFigma.stderr);
+  assert.deepEqual(JSON.parse(localFigma.stdout).scopes, ['workspace-product']);
+  assert.deepEqual(JSON.parse(localFigma.stdout).profiles, ['scaffold-structure']);
+  assert.deepEqual(JSON.parse(localFigma.stdout).commands, ['npm run validate:harness']);
+
+  const pullRequestFigma = resolvePaths([figmaPath], 'pull-request');
+  assert.equal(pullRequestFigma.status, 0, pullRequestFigma.stderr);
+  assert.deepEqual(JSON.parse(pullRequestFigma.stdout).profiles, ['template-product']);
+  assert.deepEqual(JSON.parse(pullRequestFigma.stdout).commands, [
+    'npm run validate:harness',
+    'npm run test:template:product',
+  ]);
+
+  const pullRequestHarness = resolvePaths(
+    ['templates/workspace/.psp/harness/harness.manifest.json'],
+    'pull-request',
+  );
+  assert.equal(pullRequestHarness.status, 0, pullRequestHarness.stderr);
+  assert.deepEqual(JSON.parse(pullRequestHarness.stdout).profiles, ['template-harness']);
+  assert.deepEqual(JSON.parse(pullRequestHarness.stdout).commands, [
+    'npm run validate:harness',
+    'npm run test:template:harness',
+  ]);
+
+  const pullRequestPackage = resolvePaths(['tests/package/init.test.mjs'], 'pull-request');
+  assert.equal(pullRequestPackage.status, 0, pullRequestPackage.stderr);
+  assert.deepEqual(JSON.parse(pullRequestPackage.stdout).profiles, ['scaffold-runtime-checkpoint']);
+  assert.deepEqual(JSON.parse(pullRequestPackage.stdout).commands, [
+    'npm run validate:harness',
+    'npm run test:harness',
+    'npm run test:package:fast',
   ]);
 });
 

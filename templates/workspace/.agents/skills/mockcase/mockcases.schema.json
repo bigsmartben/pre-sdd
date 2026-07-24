@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mockcases.schema.json",
   "title": "MockCases",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "actor", "cases"],
   "properties": {
-    "schemaVersion": {"const": "1.0.0"},
+    "schemaVersion": {"const": "2.0.0"},
     "actor": {"$ref": "#/$defs/actor"},
     "cases": {"type": "array", "items": {"$ref": "#/$defs/case"}}
   },
@@ -13,44 +14,34 @@
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
     "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-    "activation": {
+    "dataBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": ["behaviorId", "sourcePointer", "propertyName"],
       "properties": {
-        "kind": {"enum": ["request", "control-event", "input"]},
-        "controlId": {"$ref": "#/$defs/id"},
-        "value": {"type": "string"}
-      },
-      "allOf": [
-        {
-          "if": {"properties": {"kind": {"const": "control-event"}}, "required": ["kind"]},
-          "then": {
-            "required": ["controlId"],
-            "properties": {"controlId": {"$ref": "#/$defs/id"}}
-          }
+        "behaviorId": {"$ref": "#/$defs/id"},
+        "sourcePointer": {
+          "type": "string",
+          "pattern": "^(?:|/(?:[^~/]|~[01])*(?:/(?:[^~/]|~[01])*)*)$"
         },
-        {
-          "if": {"properties": {"kind": {"const": "input"}}, "required": ["kind"]},
-          "then": {
-            "required": ["controlId", "value"],
-            "properties": {
-              "controlId": {"$ref": "#/$defs/id"},
-              "value": {"type": "string"}
-            }
-          }
+        "propertyName": {
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"
         }
-      ]
+      }
     },
     "effect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetInstanceId", "behaviorIds", "activation", "expectedStateMatrixEntryId"],
+      "required": ["targetInstanceId", "stateMatrixEntryId", "dataBindings"],
       "properties": {
         "targetInstanceId": {"$ref": "#/$defs/id"},
-        "behaviorIds": {"$ref": "#/$defs/ids"},
-        "activation": {"$ref": "#/$defs/activation"},
-        "expectedStateMatrixEntryId": {"$ref": "#/$defs/id"}
+        "stateMatrixEntryId": {"$ref": "#/$defs/id"},
+        "dataBindings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/dataBinding"}
+        }
       }
     },
     "case": {

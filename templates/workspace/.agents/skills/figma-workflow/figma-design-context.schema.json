@@ -10,6 +10,7 @@
     "nodeId",
     "capturedAt",
     "sourceVersion",
+    "rawCapture",
     "parameterCoverage",
     "frame",
     "layout",
@@ -17,6 +18,7 @@
     "paints",
     "effects",
     "components",
+    "componentSetCatalog",
     "assets"
   ],
   "properties": {
@@ -25,6 +27,21 @@
     "nodeId": {"$ref": "#/$defs/nodeId"},
     "capturedAt": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
     "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+    "rawCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "operation", "requestedNodeId", "capturedAt", "sourceVersion", "capturePlanSha256", "path", "sha256"],
+      "properties": {
+        "provider": {"const": "figma"},
+        "operation": {"const": "get_design_context"},
+        "requestedNodeId": {"$ref": "#/$defs/nodeId"},
+        "capturedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+        "capturePlanSha256": {"$ref": "#/$defs/sha256"},
+        "path": {"$ref": "#/$defs/path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
     "parameterCoverage": {
       "const": ["geometry", "typography", "paint", "effects", "components", "assets"]
     },
@@ -136,6 +153,12 @@
               {"type": "null"}
             ]
           },
+          "screenRootNodeId": {
+            "oneOf": [
+              {"$ref": "#/$defs/nodeId"},
+              {"type": "null"}
+            ]
+          },
           "structureSignature": {"$ref": "#/$defs/sha256"},
           "variantProperties": {"type": "object", "additionalProperties": {"type": "string"}}
         },
@@ -144,7 +167,15 @@
             "if": {"properties": {"kind": {"const": "instance"}}, "required": ["kind"]},
             "then": {
               "properties": {
-                "mainComponentNodeId": {"$ref": "#/$defs/nodeId"}
+                "componentKey": {"type": "string", "minLength": 1},
+                "mainComponentNodeId": {"$ref": "#/$defs/nodeId"},
+                "screenRootNodeId": {"$ref": "#/$defs/nodeId"}
+              },
+              "required": ["screenRootNodeId"]
+            },
+            "else": {
+              "properties": {
+                "screenRootNodeId": {"type": "null"}
               }
             }
           },
@@ -152,8 +183,19 @@
             "if": {"properties": {"kind": {"const": "component-set"}}, "required": ["kind"]},
             "then": {
               "properties": {
+                "componentKey": {"type": "string", "minLength": 1},
                 "componentSetNodeId": {"$ref": "#/$defs/nodeId"},
-                "mainComponentNodeId": {"type": "null"}
+                "mainComponentNodeId": {"type": "null"},
+                "variantProperties": {"type": "object", "maxProperties": 0}
+              }
+            }
+          },
+          {
+            "if": {"properties": {"kind": {"const": "component"}}, "required": ["kind"]},
+            "then": {
+              "properties": {
+                "componentKey": {"type": "string", "minLength": 1},
+                "mainComponentNodeId": {"$ref": "#/$defs/nodeId"}
               }
             }
           },
@@ -171,6 +213,10 @@
         ]
       }
     },
+    "componentSetCatalog": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/componentSetCatalogItem"}
+    },
     "assets": {
       "type": "array",
       "items": {
@@ -185,12 +231,13 @@
           "recommendedFormat": {"enum": ["svg", "png"]}
         }
       }
-    },
-    "rawContext": {"type": "object"}
+    }
   },
   "$defs": {
     "nodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
     "sourceVersion": {
       "oneOf": [
         {
@@ -221,6 +268,39 @@
           }
         }
       ]
+    },
+    "componentSetCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["componentSetNodeId", "axes", "definitionNodeIds"],
+      "properties": {
+        "componentSetNodeId": {"$ref": "#/$defs/nodeId"},
+        "axes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/componentSetAxis"}
+        },
+        "definitionNodeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/nodeId"}
+        }
+      }
+    },
+    "componentSetAxis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "values"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
     },
     "edges": {
       "type": "object",

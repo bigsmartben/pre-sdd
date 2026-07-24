@@ -4,13 +4,16 @@ import { tmpdir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import playwright from '@playwright/test';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { createServer } from 'vite';
 import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 import { createRepairDiagnostic } from './lib/repair-diagnostics.mjs';
+import { verifyMatrixMount } from './lib/verify-matrix-mount.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const { chromium } = playwright;
+const PRODUCT_SCREENSHOT_STYLE = '[data-review-tool]{display:none!important}';
 const require = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || process.env.PRE_SDD_RUNTIME_ENTRY || import.meta.url);
 const json = process.argv.includes('--json');
 const actorIndex = process.argv.indexOf('--actor');
@@ -42,7 +45,13 @@ if (!requestedActor) {
   const reviewAddresses = [];
   const metrics = [];
   for (const member of members) {
-    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json', ...forwardedFilters], { cwd: root, encoding: 'utf8', env: process.env, windowsHide: true });
+    const child = spawnSync(process.execPath, [process.argv[1], '--actor', member.actor, '--json', ...forwardedFilters], {
+      cwd: root,
+      encoding: 'utf8',
+      env: process.env,
+      windowsHide: true,
+      maxBuffer: 128 * 1024 * 1024,
+    });
     try {
       const result = JSON.parse(child.stdout || '{}');
       aggregateBlockers.push(...(result.blockers || []));
@@ -66,6 +75,9 @@ const blockerKeys = new Set();
 const evidence = [];
 const loadedAssets = new Set();
 const usedAssetTargets = new Map();
+const usedTokenTargets = new Map();
+const tokenFailureKeys = new Set();
+const implementationSourceCache = new Map();
 let server;
 let browser;
 let evidenceRoot;
@@ -109,6 +121,26 @@ function repairBlock(code, message, location, diagnostic) {
   block(code, message, location, item.diagnosticId);
 }
 
+function componentContractBlock(message, location, contract, instance, check) {
+  if (currentRepairContext) {
+    evidence.push(createRepairDiagnostic('canonical-ui-runtime', {
+      blockerCode: 'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
+      defectClass: 'component-contract',
+      message,
+      location,
+      scope: {
+        ...currentRepairContext.scope,
+        componentId: contract.componentId,
+        componentContractId: contract.id,
+        pageInstanceId: instance.id,
+      },
+      check,
+      evidence: [{ kind: 'actual-screenshot', path: currentRepairContext.screenshot }],
+    }));
+  }
+  block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', message, location);
+}
+
 function routeScreenshotPath(routeId, viewportId, scenarioId = null) {
   const kind = scenarioId ? 'scenario' : 'route';
   return join(evidenceRoot, [kind, viewportId, routeId, scenarioId].filter(Boolean).join('-') + '.png');
@@ -118,14 +150,107 @@ function selectorForId(id) {
   return [
     'data-screen-id',
     'data-component-id',
+    'data-component-instance-id',
     'data-control-id',
     'data-state-id',
     'data-component-state',
   ].map((attribute) => '[' + attribute + '="' + id + '"]').join(',');
 }
 
+function componentParityTarget(host, contract, assertion, targetId) {
+  if (targetId === contract.componentId || targetId === assertion.pageInstanceId) return host;
+  return host.locator(selectorForId(targetId));
+}
+
 function locatorForId(page, id) {
   return page.locator(selectorForId(id));
+}
+
+function tokenOwnerContracts(model, targetId) {
+  const component = model.components.find((item) => item.id === targetId);
+  const control = model.controls.find((item) => item.id === targetId);
+  const state = model.states.find((item) => item.id === targetId);
+  const screenId = model.screens.some((item) => item.id === targetId)
+    ? targetId
+    : state?.scope === 'workflow'
+      ? state.ownerId
+      : null;
+  const componentIds = component
+    ? [component.id]
+    : control
+      ? [control.componentId]
+      : state?.scope === 'component'
+        ? [state.ownerId]
+        : screenId
+          ? model.componentContracts
+            .filter((contract) => (
+              contract.implementationRole === 'app-shell'
+              && contract.pageInstances.some((instance) => instance.screenId === screenId)
+            ))
+            .map((contract) => contract.componentId)
+          : [];
+  return model.componentContracts.filter((contract) => componentIds.includes(contract.componentId));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function implementationUsesToken(areaPath, contracts, cssProperty) {
+  const pattern = new RegExp('var\\(\\s*' + escapeRegExp(cssProperty) + '(?:\\s*,|\\s*\\))');
+  for (const implementationPath of new Set(contracts.flatMap((contract) => contract.implementationPaths))) {
+    if (!implementationSourceCache.has(implementationPath)) {
+      try {
+        implementationSourceCache.set(implementationPath, await readFile(resolve(areaPath, implementationPath), 'utf8'));
+      } catch {
+        implementationSourceCache.set(implementationPath, '');
+      }
+    }
+    if (pattern.test(implementationSourceCache.get(implementationPath))) return true;
+  }
+  return false;
+}
+
+async function observeTokens(page, model, tokens, tokenTargets, areaPath, location, scope, screenshot) {
+  for (const token of tokens) {
+    if (!usedTokenTargets.has(token.id)) usedTokenTargets.set(token.id, new Set());
+    for (const targetId of tokenTargets.get(token.id) || []) {
+      const contracts = tokenOwnerContracts(model, targetId);
+      const sourceUsesToken = contracts.length === 1
+        && await implementationUsesToken(areaPath, contracts, token.cssProperty);
+      const target = locatorForId(page, targetId);
+      const observedValues = await target.evaluateAll(
+        (nodes, cssProperty) => nodes.map((node) => getComputedStyle(node).getPropertyValue(cssProperty).trim()),
+        token.cssProperty,
+      );
+      const expected = String(token.value);
+      const computedBindingMatches = observedValues.length > 0
+        && observedValues.every((value) => value === expected);
+      if (sourceUsesToken && computedBindingMatches) {
+        usedTokenTargets.get(token.id).add(targetId);
+        continue;
+      }
+      const failureKey = token.id + '/' + targetId;
+      if (tokenFailureKeys.has(failureKey)) continue;
+      tokenFailureKeys.add(failureKey);
+      repairBlock(
+        'AIH_VISUAL_STYLE_BINDING_FAILED',
+        'Token 必须在目标所属 Component Contract 实现中通过 CSS var() 消费，且目标必须解析到登记值：'
+          + token.id + ' / ' + targetId + ' / ' + token.cssProperty,
+        location,
+        {
+          defectClass: 'css-rendering',
+          scope: { ...scope, targetIds: [targetId] },
+          check: {
+            kind: 'token-consumed',
+            expected: true,
+            actual: sourceUsesToken && computedBindingMatches,
+          },
+          evidence: [{ kind: 'actual-screenshot', path: screenshot }],
+        },
+      );
+    }
+  }
 }
 
 function stateSelector(model, id) {
@@ -188,7 +313,10 @@ async function loadParityEvidence(areaDirectory, model) {
       const path = areaFile(areaDirectory, firstScreenshot.path);
       sourceScreenshots.set(source.id, { path, dataUrl: imageDataUrl(path, await readFile(path)) });
     }
-    for (const assertion of model.sourceParityAssertions || []) {
+    for (const assertion of [
+      ...(model.sourceParityAssertions || []),
+      ...(model.componentSourceParityAssertions || []),
+    ]) {
       if (assertion.sourceId !== source.id || !assertion.baselineEvidenceItemId) continue;
       const item = items.get(assertion.baselineEvidenceItemId);
       if (!item || item.role !== 'screenshot') continue;
@@ -203,8 +331,10 @@ async function loadParityEvidence(areaDirectory, model) {
   return { baselines, sourceScreenshots, sources };
 }
 
-async function imageDifference(page, expectedDataUrl, channelTolerance) {
-  const actual = await page.screenshot({ fullPage: true, animations: 'disabled' });
+async function imageDifference(page, expectedDataUrl, channelTolerance, target = null) {
+  const actual = target
+    ? await target.screenshot({ animations: 'disabled' })
+    : await page.screenshot({ fullPage: true, animations: 'disabled', style: PRODUCT_SCREENSHOT_STYLE });
   const actualDataUrl = 'data:image/png;base64,' + actual.toString('base64');
   const difference = await page.evaluate(async ({ actualUrl, expectedUrl, tolerance }) => {
     const load = (url) => new Promise((resolveImage, rejectImage) => {
@@ -304,7 +434,7 @@ async function captureStyleDifference(page, target, path) {
     return value;
   });
   try {
-    await page.screenshot({ path, fullPage: true, animations: 'disabled' });
+    await page.screenshot({ path, fullPage: true, animations: 'disabled', style: PRODUCT_SCREENSHOT_STYLE });
   } finally {
     await target.evaluate((element, value) => {
       element.style.outline = value;
@@ -319,107 +449,219 @@ async function ensureAxe(page, axePath) {
 }
 
 async function verifyExclusiveComponentStates(page, model, location) {
-  for (const component of model.components) {
-    const visibleStateIds = [];
-    for (const stateId of component.stateIds) {
-      const states = page.locator('[data-component-state="' + stateId + '"]');
-      for (let index = 0; index < await states.count(); index += 1) {
-        if (await states.nth(index).isVisible()) {
-          visibleStateIds.push(stateId);
-          break;
-        }
+  for (const contract of model.componentContracts) {
+    const component = model.components.find((item) => item.id === contract.componentId);
+    if (!component) continue;
+    const hosts = page.locator(contract.litTagName + '[data-component-id="' + contract.componentId + '"]');
+    for (let hostIndex = 0; hostIndex < await hosts.count(); hostIndex += 1) {
+      const host = hosts.nth(hostIndex);
+      const visibleStateIds = [];
+      for (const stateId of component.stateIds) {
+        const visible = await host.locator('[data-component-state="' + stateId + '"]').evaluateAll((nodes) => nodes.some((node) => {
+          const style = getComputedStyle(node);
+          return style.display !== 'none' && style.visibility !== 'hidden' && node.getClientRects().length > 0;
+        }));
+        if (visible || (await host.getAttribute('data-component-state')) === stateId) visibleStateIds.push(stateId);
       }
-    }
-    if (visibleStateIds.length > 1) {
-      block(
-        'AIH_CANONICAL_UI_RUNTIME_FAILED',
-        '组件同时暴露多个互斥状态：' + component.id + ' → ' + visibleStateIds.join(', '),
-        location,
-      );
+      if (visibleStateIds.length > 1) {
+        block(
+          'AIH_CANONICAL_UI_RUNTIME_FAILED',
+          '同一组件实例同时暴露多个互斥状态：' + (await host.getAttribute('data-component-instance-id') || contract.id) + ' → ' + visibleStateIds.join(', '),
+          location,
+        );
+      }
     }
   }
 }
 
 async function verifyComponentMappings(page, model, screen, location) {
-  const coverageByMapping = new Map();
-  for (const coverage of model.componentVariantCoverage) {
-    if (!coverage.screenIds.includes(screen.id)) continue;
-    if (!coverageByMapping.has(coverage.mappingId)) coverageByMapping.set(coverage.mappingId, []);
-    coverageByMapping.get(coverage.mappingId).push(coverage);
+  const contracts = model.componentContracts.filter((contract) => (
+    contract.pageInstances.some((instance) => instance.screenId === screen.id)
+  ));
+  const expectedInstanceIds = new Set();
+  const expectedFigmaNodeIds = new Set();
+  const shellInstances = contracts.flatMap((contract) => (
+    contract.implementationRole === 'app-shell'
+      ? contract.pageInstances
+        .filter((instance) => instance.screenId === screen.id)
+        .map((instance) => ({ contract, instance }))
+      : []
+  ));
+  if (shellInstances.length !== 1) {
+    block(
+      'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
+      '运行页面必须且只能解析一个 app-shell Page Instance：' + screen.id,
+      location,
+    );
   }
-  const allowedByComponent = new Map();
-  for (const mapping of model.componentMappings) {
-    const coverageRows = coverageByMapping.get(mapping.id) || [];
-    if (coverageRows.length === 0) continue;
-    const registered = await page.evaluate((tagName) => Boolean(customElements.get(tagName)), mapping.litTagName);
-    if (!registered) {
-      block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Lit 自定义元素未注册：' + mapping.litTagName, location);
+
+  for (const contract of contracts) {
+    const expectedInstances = contract.pageInstances.filter((instance) => instance.screenId === screen.id);
+    const registered = await page.evaluate((tagName) => Boolean(customElements.get(tagName)), contract.litTagName);
+    if (!registered) block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Lit 自定义元素未注册：' + contract.litTagName, location);
+    const renderedHosts = page.locator(contract.litTagName + '[data-component-id="' + contract.componentId + '"]');
+    if (await renderedHosts.count() !== expectedInstances.length) {
+      block(
+        'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
+        'Screen 上的 Contract Lit Host 数量与 Page Instance 不一致：' + contract.id,
+        location,
+      );
     }
-    if (!allowedByComponent.has(mapping.componentId)) {
-      allowedByComponent.set(mapping.componentId, { tags: new Set(), instances: new Set() });
+
+    const mapping = contract.mappingId
+      ? model.componentMappings.find((item) => item.id === contract.mappingId)
+      : null;
+    for (const instance of expectedInstances) {
+      expectedInstanceIds.add(instance.id);
+      const host = page.locator('[data-component-instance-id="' + instance.id + '"]');
+      if (await host.count() !== 1) {
+        block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Page Instance 必须且只能挂载一次：' + instance.id, location);
+        continue;
+      }
+      const identity = await host.evaluate((node) => ({
+        tagName: node.tagName.toLowerCase(),
+        componentId: node.getAttribute('data-component-id'),
+        figmaNodeId: node.getAttribute('data-figma-instance-id'),
+      }));
+      if (identity.tagName !== contract.litTagName || identity.componentId !== contract.componentId) {
+        block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Page Instance 未使用声明的 Contract Lit Tag：' + instance.id, location);
+      }
+      if (instance.origin === 'figma') {
+        expectedFigmaNodeIds.add(instance.figmaInstanceNodeId);
+        if (identity.figmaNodeId !== instance.figmaInstanceNodeId) {
+          block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Figma Page Instance 身份不匹配：' + instance.id, location);
+        }
+        const coverage = model.componentVariantCoverage.find((item) => (
+          item.mappingId === contract.mappingId
+          && item.usages.some((usage) => usage.instanceNodeId === instance.figmaInstanceNodeId && usage.screenId === screen.id)
+        ));
+        const definition = coverage && model.componentVariantDefinitions.find((item) => item.id === coverage.definitionId);
+        if (!mapping || !coverage || !definition) {
+          block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Figma Page Instance 无法解析 Definition 与 Usage Coverage：' + instance.id, location);
+        } else {
+          for (const [attribute, expected] of Object.entries(definition.litVariantAttributes)) {
+            const observed = await host.getAttribute(attribute);
+            if (observed !== expected) {
+              componentContractBlock(
+                'Lit Variant Attribute 不匹配：' + instance.figmaInstanceNodeId + ' / ' + attribute + '，期望 ' + expected + '。',
+                location,
+                contract,
+                instance,
+                { kind: 'variant-attribute', property: attribute, expected, actual: observed },
+              );
+            }
+          }
+          for (const slotName of coverage.litSlotNames) {
+            const assigned = await host.evaluate((node, name) => (
+              [...node.children].some((child) => child.getAttribute('slot') === name)
+            ), slotName);
+            if (!assigned) block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Lit Instance 缺少声明 Slot：' + instance.id + ' / ' + slotName, location);
+          }
+        }
+      } else if (identity.figmaNodeId !== null) {
+        block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Local Page Instance 不得伪造 Figma 身份：' + instance.id, location);
+      }
     }
-    const allowed = allowedByComponent.get(mapping.componentId);
-    allowed.tags.add(mapping.litTagName);
-    for (const coverage of coverageRows) {
-      for (const instanceNodeId of coverage.instanceNodeIds) {
-        allowed.instances.add(instanceNodeId);
-        const locator = page.locator('[data-figma-instance-id="' + instanceNodeId + '"]');
-        const count = await locator.count();
-        if (count !== 1) {
-          block(
-            'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
-            'Figma Instance 必须且只能渲染一次：' + instanceNodeId + '，实际为 ' + count + ' 次。',
-            location,
-          );
-          continue;
-        }
-        const element = locator.first();
-        const actual = await element.evaluate((node) => ({
-          tagName: node.tagName.toLowerCase(),
-          componentId: node.getAttribute('data-component-id'),
-        }));
-        if (actual.tagName !== mapping.litTagName || actual.componentId !== mapping.componentId) {
-          block(
-            'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
-            'Figma Instance 未使用声明的 Lit 组件：' + instanceNodeId + '，期望 <' + mapping.litTagName + '> / ' + mapping.componentId + '。',
-            location,
-          );
-        }
-        for (const [attribute, expected] of Object.entries(coverage.litVariantAttributes)) {
-          const observed = await element.getAttribute(attribute);
-          if (observed !== expected) {
+
+    const component = model.components.find((item) => item.id === contract.componentId);
+    const semanticIds = [
+      ...(component?.controlIds || []),
+      ...(component?.stateIds || []),
+    ];
+    for (const semanticId of semanticIds) {
+      const selector = component?.controlIds.includes(semanticId)
+        ? '[data-control-id="' + semanticId + '"]'
+        : '[data-component-state="' + semanticId + '"]';
+      const globalCount = await page.locator(selector).count();
+      let ownedCount = 0;
+      for (let hostIndex = 0; hostIndex < await renderedHosts.count(); hostIndex += 1) {
+        const renderedHost = renderedHosts.nth(hostIndex);
+        ownedCount += await renderedHost.locator(selector).count();
+        if (
+          !component?.controlIds.includes(semanticId)
+          && await renderedHost.getAttribute('data-component-state') === semanticId
+        ) ownedCount += 1;
+      }
+      if (ownedCount !== globalCount) {
+        block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Component Control/State 必须位于对应 Contract Host 内：' + semanticId, location);
+      }
+    }
+  }
+
+  if (shellInstances.length === 1) {
+    const [{ contract: shellContract, instance: shellInstance }] = shellInstances;
+    const renderedShellHosts = page.locator(
+      shellContract.litTagName + '[data-component-id="' + shellContract.componentId + '"]',
+    );
+    if (await renderedShellHosts.count() !== 1) {
+      block(
+        'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
+        '运行页面必须且只能挂载一个 app-shell Lit Host：' + screen.id,
+        location,
+      );
+    }
+    const shell = page.locator('[data-component-instance-id="' + shellInstance.id + '"]');
+    if (await shell.count() === 1) {
+      for (const contract of contracts.filter((item) => item.implementationRole !== 'app-shell')) {
+        for (const instance of contract.pageInstances.filter((item) => item.screenId === screen.id)) {
+          const host = page.locator('[data-component-instance-id="' + instance.id + '"]');
+          if (await host.count() !== 1) continue;
+          const nested = await host.evaluate((node, shellInstanceId) => {
+            let current = node;
+            while (current) {
+              if (
+                current instanceof Element
+                && current.getAttribute('data-component-instance-id') === shellInstanceId
+              ) return true;
+              if (current.parentElement) {
+                current = current.parentElement;
+                continue;
+              }
+              const root = current.getRootNode();
+              current = root instanceof ShadowRoot ? root.host : null;
+            }
+            return false;
+          }, shellInstance.id);
+          if (!nested) {
             block(
               'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
-              'Lit Variant Attribute 不匹配：' + instanceNodeId + ' / ' + attribute + '，期望 ' + expected + '，实际 ' + (observed ?? '未声明') + '。',
+              '非 app-shell Component Instance 必须位于统一 Shell 内：' + instance.id,
               location,
             );
           }
         }
-        for (const slotName of coverage.litSlotNames) {
-          const assigned = await element.evaluate((node, name) => (
-            [...node.children].some((child) => child.getAttribute('slot') === name)
-          ), slotName);
-          if (!assigned) {
-            block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Lit Instance 缺少声明 Slot：' + instanceNodeId + ' / ' + slotName, location);
-          }
-        }
       }
     }
   }
-  for (const [componentId, allowed] of allowedByComponent) {
-    const implementations = page.locator('[data-component-id="' + componentId + '"]');
-    for (let index = 0; index < await implementations.count(); index += 1) {
-      const observed = await implementations.nth(index).evaluate((node) => ({
-        tagName: node.tagName.toLowerCase(),
-        instanceNodeId: node.getAttribute('data-figma-instance-id'),
-      }));
-      if (!allowed.tags.has(observed.tagName) || !allowed.instances.has(observed.instanceNodeId)) {
-        block(
-          'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
-          '页面绕过声明的 Lit 组件实现了 Component：' + componentId,
-          location,
-        );
-      }
+
+  const instanceMarkers = await page.locator('[data-component-instance-id]').evaluateAll((nodes) => nodes.map((node) => ({
+    id: node.getAttribute('data-component-instance-id'),
+    tagName: node.tagName.toLowerCase(),
+    componentId: node.getAttribute('data-component-id'),
+  })));
+  for (const marker of instanceMarkers) {
+    const contract = contracts.find((item) => item.litTagName === marker.tagName && item.componentId === marker.componentId);
+    if (!marker.id || !contract || !expectedInstanceIds.has(marker.id)) {
+      block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', '页面存在孤立或未登记的 Component Instance Marker。', location);
+    }
+  }
+  for (const expectedId of expectedInstanceIds) {
+    if (!instanceMarkers.some((marker) => marker.id === expectedId)) {
+      block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', '页面缺少登记的 Component Instance Marker：' + expectedId, location);
+    }
+  }
+
+  const figmaMarkers = await page.locator('[data-figma-instance-id]').evaluateAll(
+    (nodes) => nodes.map((node) => node.getAttribute('data-figma-instance-id')),
+  );
+  for (const nodeId of figmaMarkers) {
+    if (!nodeId || !expectedFigmaNodeIds.has(nodeId)) {
+      block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', '页面存在孤立或落错 Screen 的 Figma Instance Marker：' + (nodeId || 'empty'), location);
+    }
+  }
+  for (const nodeId of expectedFigmaNodeIds) {
+    if (figmaMarkers.filter((item) => item === nodeId).length !== 1) {
+      block('AIH_COMPONENT_IMPLEMENTATION_MISMATCH', 'Figma Instance Marker 必须且只能出现一次：' + nodeId, location);
     }
   }
 }
@@ -726,8 +968,8 @@ async function runSourceParityAssertions(page, model, routeId, viewport, parityE
           const prefix = safeEvidenceName('style-missing', viewport.id, routeId, scenarioId, assertion.id, checkIndex);
           const actualScreenshot = join(evidenceRoot, prefix + '-actual.png');
           const differenceScreenshot = join(evidenceRoot, prefix + '-difference.png');
-          await page.screenshot({ path: actualScreenshot, fullPage: true, animations: 'disabled' });
-          await page.screenshot({ path: differenceScreenshot, fullPage: true, animations: 'disabled' });
+          await page.screenshot({ path: actualScreenshot, fullPage: true, animations: 'disabled', style: PRODUCT_SCREENSHOT_STYLE });
+          await page.screenshot({ path: differenceScreenshot, fullPage: true, animations: 'disabled', style: PRODUCT_SCREENSHOT_STYLE });
           repairBlock('AIH_VISUAL_STYLE_BINDING_FAILED', message, assertion.id, {
             defectClass: 'source-parity',
             scope: {
@@ -758,7 +1000,7 @@ async function runSourceParityAssertions(page, model, routeId, viewport, parityE
           const prefix = safeEvidenceName('style', viewport.id, routeId, scenarioId, assertion.id, checkIndex);
           const actualScreenshot = join(evidenceRoot, prefix + '-actual.png');
           const differenceScreenshot = join(evidenceRoot, prefix + '-difference.png');
-          await page.screenshot({ path: actualScreenshot, fullPage: true, animations: 'disabled' });
+          await page.screenshot({ path: actualScreenshot, fullPage: true, animations: 'disabled', style: PRODUCT_SCREENSHOT_STYLE });
           await captureStyleDifference(page, target.first(), differenceScreenshot);
           repairBlock('AIH_VISUAL_STYLE_BINDING_FAILED', message, assertion.id, {
             defectClass: 'source-parity',
@@ -834,6 +1076,123 @@ async function runSourceParityAssertions(page, model, routeId, viewport, parityE
           }
         }
       }
+    }
+  }
+}
+
+async function runComponentSourceParityAssertions(base, model, parityEvidence, thresholds) {
+  if (model.visualPolicy.mode === 'autonomous' || model.visualPolicy.mode === 'unresolved') return;
+  const assertions = (model.componentSourceParityAssertions || []).filter((assertion) => (
+    (componentFilter.size === 0
+      || componentFilter.has(model.componentContracts.find((item) => item.id === assertion.componentContractId)?.componentId))
+    && (viewportFilter.size === 0 || viewportFilter.has(assertion.viewportId))
+  ));
+  for (const assertion of assertions) {
+    const contract = model.componentContracts.find((item) => item.id === assertion.componentContractId);
+    const entry = model.stateMatrix.find((item) => item.id === assertion.stateMatrixEntryId);
+    const viewport = model.viewports.find((item) => item.id === assertion.viewportId);
+    const mapping = contract?.mappingId
+      ? model.componentMappings.find((item) => item.id === contract.mappingId)
+      : null;
+    const baseline = parityEvidence.baselines.get(assertion.id);
+    if (!contract || !entry || !viewport || !baseline) {
+      block('AIH_VISUAL_SOURCE_INCOMPLETE', '组件来源一致性断言无法解析 Contract、Matrix、Viewport 或基线：' + assertion.id, assertion.id);
+      continue;
+    }
+    const { context, page } = await guardedPage(viewport, base);
+    try {
+      const url = new URL('/', base);
+      url.searchParams.set('__pspComponentContract', contract.id);
+      url.searchParams.set('__pspStateMatrix', entry.id);
+      url.searchParams.set('review', '0');
+      await page.goto(url.href, { waitUntil: 'networkidle' });
+      const host = await verifyMatrixMount({
+        surface: page,
+        model,
+        contract,
+        entry,
+        mapping,
+        block,
+        code: 'AIH_COMPONENT_CONTRACT_TEST_FAILED',
+        location: assertion.id,
+      });
+      if (!host) continue;
+      for (let checkIndex = 0; checkIndex < assertion.checks.length; checkIndex += 1) {
+        const check = assertion.checks[checkIndex];
+        if (check.kind === 'computed-style') {
+          const target = componentParityTarget(host, contract, assertion, check.targetId);
+          if (await target.count() === 0) {
+            block('AIH_VISUAL_STYLE_BINDING_FAILED', '组件来源样式断言目标不存在：' + check.targetId, assertion.id);
+            continue;
+          }
+          const actual = await target.first().evaluate(
+            (element, property) => getComputedStyle(element).getPropertyValue(property).trim(),
+            check.property,
+          );
+          if (actual !== check.expected) {
+            repairBlock('AIH_VISUAL_STYLE_BINDING_FAILED', '组件来源样式不匹配：' + check.targetId + ' / ' + check.property, assertion.id, {
+              defectClass: 'source-parity',
+              scope: {
+                componentContractId: contract.id,
+                pageInstanceId: assertion.pageInstanceId,
+                stateMatrixEntryId: entry.id,
+                viewportId: viewport.id,
+                assertionId: assertion.id,
+                targetIds: [check.targetId],
+              },
+              check: { kind: check.kind, property: check.property, expected: check.expected, actual },
+              evidence: [{ kind: 'source-baseline', id: assertion.baselineEvidenceItemId, path: baseline.path }],
+              source: { sourceId: assertion.sourceId, sourceKind: 'figma', evidenceItemIds: [assertion.baselineEvidenceItemId] },
+            });
+          }
+          continue;
+        }
+        if (skipVisualDiagnostics) continue;
+        const diagnosticStartedAt = performance.now();
+        const difference = await imageDifference(page, baseline.dataUrl, thresholds.channelTolerance, host);
+        visualDiagnosticDurationMs += performance.now() - diagnosticStartedAt;
+        if (difference.ratio <= thresholds.maxDifferentPixelRatio) continue;
+        const prefix = safeEvidenceName('component-parity', contract.id, entry.id, viewport.id, assertion.id, checkIndex);
+        const actualScreenshot = join(evidenceRoot, prefix + '-actual.png');
+        const differenceScreenshot = join(evidenceRoot, prefix + '-difference.png');
+        await writeFile(actualScreenshot, difference.actualScreenshot);
+        await writeDataUrl(differenceScreenshot, difference.differenceDataUrl);
+        const message = '隔离 Lit Host 与组件来源截图差异超限：' + (difference.ratio * 100).toFixed(3) + '%。';
+        const diagnostic = {
+          defectClass: 'source-parity',
+          scope: {
+            componentContractId: contract.id,
+            pageInstanceId: assertion.pageInstanceId,
+            stateMatrixEntryId: entry.id,
+            viewportId: viewport.id,
+            assertionId: assertion.id,
+          },
+          check: { kind: check.kind, expected: thresholds.maxDifferentPixelRatio, actual: difference.ratio },
+          evidence: [
+            { kind: 'source-baseline', id: assertion.baselineEvidenceItemId, path: baseline.path },
+            { kind: 'actual-screenshot', path: actualScreenshot },
+            { kind: 'difference-screenshot', path: differenceScreenshot },
+          ],
+          source: {
+            sourceId: assertion.sourceId,
+            sourceKind: 'figma',
+            evidenceItemIds: [assertion.baselineEvidenceItemId],
+          },
+          difference: { ratio: difference.ratio, regions: difference.differenceRegions },
+        };
+        if (model.visualPolicy.mode === 'exact') {
+          repairBlock('AIH_VISUAL_SOURCE_PARITY_FAILED', message, assertion.id, diagnostic);
+        } else {
+          evidence.push(createRepairDiagnostic('canonical-ui-runtime', {
+            blockerCode: 'AIH_VISUAL_PIXEL_DIAGNOSTIC',
+            message,
+            location: assertion.id,
+            ...diagnostic,
+          }));
+        }
+      }
+    } finally {
+      await context.close();
     }
   }
 }
@@ -962,21 +1321,40 @@ async function verifyReducedMotion(page, model, routePath) {
   }
 }
 
-function cleanReviewUrl(base, routePath) {
+function productUrl(base, routePath) {
   const url = new URL(routePath, base);
-  url.searchParams.set('annotate', '0');
+  url.searchParams.set('review', '0');
   return url.href;
 }
 
-async function verifyDefaultReviewTool(page, routePath) {
+function reviewUrl(base, routePath) {
+  const url = new URL(routePath, base);
+  url.searchParams.set('review', '1');
+  return url.href;
+}
+
+async function verifyNoReviewTools(page, routePath) {
+  if (await page.locator('[data-review-tool]').count() !== 0) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'review=0 仍加载了 Review Tool。', routePath);
+  }
+  const loadedBuiltIns = await page.evaluate(() => performance.getEntriesByType('resource')
+    .map((entry) => entry.name)
+    .filter((name) => name.includes('inconsistency-annotator') || name.includes('interaction-branch-driver')));
+  if (loadedBuiltIns.length > 0) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'review=0 仍请求了内置 Review Tool 模块。', routePath);
+  }
+}
+
+async function verifyBuiltInReviewTools(page, model, route) {
+  const routePath = route.path;
   const tool = page.locator('inconsistency-annotator[data-review-tool="inconsistency-annotator"]');
   if (await tool.count() !== 1) {
-    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '页面默认未显示不一致标记工具。', routePath);
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'review=1 未显示唯一的不一致标记工具。', routePath);
     return;
   }
   const toolbar = tool.locator('.ia-toolbar');
   if (await toolbar.count() !== 1 || !await toolbar.isVisible()) {
-    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '页面默认未显示不一致标记工具栏。', routePath);
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'review=1 未显示不一致标记工具栏。', routePath);
     return;
   }
   const placement = await toolbar.evaluate((element) => {
@@ -985,6 +1363,24 @@ async function verifyDefaultReviewTool(page, routePath) {
   });
   if (placement.position !== 'fixed' || placement.right === 'auto' || placement.top === 'auto') {
     block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具未固定在页面右上方。', routePath);
+  }
+  const driver = page.locator('psp-interaction-branch-driver[data-review-tool="interaction-branch-driver"]');
+  if (await driver.count() !== 1) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'review=1 未显示唯一的交互分支驱动器。', routePath);
+    return;
+  }
+  const scenario = model.scenarios.find((item) => item.routeId === route.id);
+  if (!scenario) return;
+  const action = driver.locator('[data-scenario-id="' + scenario.id + '"]');
+  if (await action.count() !== 1) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '交互分支驱动器缺少当前 Route 的 Scenario：' + scenario.id, routePath);
+    return;
+  }
+  await action.click();
+  try {
+    await driver.locator('[role="status"]').filter({ hasText: '已达到声明的最终状态' }).waitFor({ timeout: 6000 });
+  } catch {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '交互分支驱动器未完成 Scenario：' + scenario.id, routePath);
   }
 }
 
@@ -1057,9 +1453,36 @@ async function verifyReviewToolCopy(page, routePath) {
     block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具下载的文件不是 PNG。', routePath);
   }
   await page.waitForFunction(() => document.querySelector('.ia-status')?.textContent?.includes('已下载'));
+
+  const [feedbackDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('[data-action="feedback"]').click(),
+  ]);
+  if (!feedbackDownload.suggestedFilename().endsWith('.json')) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具导出的 Feedback Packet 不是 JSON。', routePath);
+    return;
+  }
+  const feedbackPath = await feedbackDownload.path();
+  if (!feedbackPath) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '无法读取不一致标记工具导出的 Feedback Packet。', routePath);
+    return;
+  }
+  const packet = JSON.parse(await readFile(feedbackPath, 'utf8'));
+  const packetSchema = JSON.parse(await readFile(
+    repositoryFile(root, '.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json'),
+    'utf8',
+  ));
+  const validatePacket = new Ajv2020({ allErrors: true, strict: false, formats: { 'date-time': true } }).compile(packetSchema);
+  if (!validatePacket(packet)) {
+    block(
+      'AIH_CANONICAL_UI_RUNTIME_FAILED',
+      '不一致标记工具导出的 Feedback Packet 不符合 Schema：' + JSON.stringify(validatePacket.errors),
+      routePath,
+    );
+  }
 }
 
-async function verifyReviewToolWorkflow(viewport, base, routePath) {
+async function verifyReviewToolWorkflow(viewport, base, model, route) {
   const context = await browser.newContext({
     acceptDownloads: true,
     viewport: { width: viewport.width, height: viewport.height },
@@ -1067,20 +1490,30 @@ async function verifyReviewToolWorkflow(viewport, base, routePath) {
   const page = await context.newPage();
   try {
     await installClipboardProbe(page);
-    await page.goto(new URL(routePath, base).href, { waitUntil: 'networkidle' });
-    await verifyDefaultReviewTool(page, routePath);
-    await verifyReviewToolCopy(page, routePath);
+    await page.goto(new URL(route.path, base).href, { waitUntil: 'networkidle' });
+    await verifyNoReviewTools(page, route.path);
+    await page.goto(reviewUrl(base, route.path), { waitUntil: 'networkidle' });
+    await verifyBuiltInReviewTools(page, model, route);
+    await verifyReviewToolCopy(page, route.path);
   } finally {
     await context.close();
   }
 }
 
+async function hideReviewToolsForProductEvidence(page) {
+  await page.locator('[data-review-tool]').evaluateAll((elements) => {
+    for (const element of elements) element.setAttribute('hidden', '');
+  });
+}
+
 async function verifyStateGallery(viewport, base, model) {
-  const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-  const page = await context.newPage();
+  const { context, page } = await guardedPage(viewport, base);
   const location = '/__review/components';
   try {
-    await page.goto(new URL(location, base).href, { waitUntil: 'networkidle' });
+    const galleryUrl = new URL(location, base);
+    galleryUrl.searchParams.set('review', '1');
+    for (const componentId of componentFilter) galleryUrl.searchParams.append('__pspComponentFilter', componentId);
+    await page.goto(galleryUrl.href, { waitUntil: 'networkidle' });
     if (await page.locator('psp-state-gallery').count() !== 1) {
       block('AIH_STATE_GALLERY_FAILED', '缺少唯一的 /__review/components State Gallery。', location);
       return;
@@ -1094,8 +1527,14 @@ async function verifyStateGallery(viewport, base, model) {
     for (const entry of legalEntries) {
       const card = page.locator('[data-state-matrix-id="' + entry.id + '"]');
       const axes = model.stateAxes.filter((axis) => axis.componentContractId === entry.componentContractId);
-      if (await card.count() !== 1 || await card.locator('[data-state-axis-kind]').count() !== axes.length) {
-        block('AIH_STATE_GALLERY_FAILED', 'State Gallery 条目未展示完整四类状态轴元数据：' + entry.id, location);
+      const renderedAxisIds = await card.locator('[data-state-axis-id]').evaluateAll(
+        (nodes) => nodes.map((node) => node.getAttribute('data-state-axis-id')),
+      );
+      if (
+        await card.count() !== 1
+        || JSON.stringify([...renderedAxisIds].sort()) !== JSON.stringify(axes.map((axis) => axis.id).sort())
+      ) {
+        block('AIH_STATE_GALLERY_FAILED', 'State Gallery 条目未展示完整且唯一的状态轴元数据：' + entry.id, location);
       }
       const frame = page.frames().find((item) => {
         try { return new URL(item.url()).searchParams.get('__pspStateMatrix') === entry.id; }
@@ -1105,13 +1544,29 @@ async function verifyStateGallery(viewport, base, model) {
         block('AIH_STATE_GALLERY_FAILED', 'State Gallery 条目缺少可运行预览：' + entry.id, location);
         continue;
       }
-      const runtimeAxis = axes.find((axis) => axis.kind === 'runtime-state');
-      const runtimeValue = runtimeAxis?.values.find((value) => value.id === entry.values[runtimeAxis.id]);
-      if (runtimeValue?.stateId) {
-        const target = frame.locator('[data-component-state="' + runtimeValue.stateId + '"]').first();
-        if (await target.count() === 0 || !await target.isVisible()) {
-          block('AIH_STATE_GALLERY_FAILED', 'State Gallery 预览未呈现 Matrix 声明的 Runtime State：' + entry.id + ' / ' + runtimeValue.stateId, location);
-        }
+      const contract = model.componentContracts.find((item) => item.id === entry.componentContractId);
+      const mapping = contract?.mappingId
+        ? model.componentMappings.find((item) => item.id === contract.mappingId)
+        : null;
+      const host = contract ? await verifyMatrixMount({
+        surface: frame,
+        model,
+        contract,
+        entry,
+        mapping,
+        block,
+        code: 'AIH_STATE_GALLERY_FAILED',
+        location,
+      }) : null;
+      if (host && evidenceRoot) {
+        const screenshot = join(evidenceRoot, safeEvidenceName('component', contract.id, entry.id) + '.png');
+        await host.screenshot({ path: screenshot, animations: 'disabled' });
+        evidence.push({
+          kind: 'component',
+          componentContractId: contract.id,
+          stateMatrixEntryId: entry.id,
+          screenshot,
+        });
       }
     }
   } finally {
@@ -1122,7 +1577,7 @@ async function verifyStateGallery(viewport, base, model) {
 async function capture(page, evidenceRoot, item) {
   const parts = [item.kind, item.viewportId, item.routeId, item.scenarioId].filter(Boolean);
   const screenshot = join(evidenceRoot, parts.join('-') + '.png');
-  await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled' });
+  await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled', style: PRODUCT_SCREENSHOT_STYLE });
   evidence.push({ ...item, screenshot });
 }
 
@@ -1148,6 +1603,11 @@ try {
     ...model.states.filter((item) => selectedScreenIds.has(item.ownerId) || selectedComponentIds.has(item.ownerId)).map((item) => item.id),
   ]);
   const selectedAssets = model.assets.filter((item) => routeFilter.size === 0 || item.consumerTargets.some((targetId) => selectedTargetIds.has(targetId)));
+  const selectedTokens = model.tokens.filter((item) => item.targetIds.some((targetId) => selectedTargetIds.has(targetId)));
+  const selectedTokenTargets = new Map(selectedTokens.map((token) => [
+    token.id,
+    token.targetIds.filter((targetId) => selectedTargetIds.has(targetId)),
+  ]));
   if (routeFilter.size > 0 && selectedRoutes.length !== routeFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Route。', [...routeFilter].join(', '));
   if (viewportFilter.size > 0 && selectedViewports.length !== viewportFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Viewport。', [...viewportFilter].join(', '));
   if (scenarioFilter.size > 0 && selectedScenarios.length !== scenarioFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Scenario 或跨 Route Scenario。', [...scenarioFilter].join(', '));
@@ -1175,7 +1635,7 @@ try {
   await server.listen();
   const address = server.httpServer.address();
   const base = 'http://127.0.0.1:' + address.port;
-  reviewAddress = base + '/';
+  reviewAddress = reviewUrl(base, '/');
   browser = await chromium.launch({ headless: true });
 
   if (selectedViewports[0]) {
@@ -1186,9 +1646,15 @@ try {
     }
   }
 
+  try {
+    await runComponentSourceParityAssertions(base, model, parityEvidence, thresholds);
+  } catch (error) {
+    block(error.code || 'AIH_VISUAL_SOURCE_PARITY_FAILED', '组件来源一致性回归失败：' + error.message, 'componentSourceParityAssertions');
+  }
+
   if (selectedViewports[0] && selectedRoutes[0]) {
     try {
-      await verifyReviewToolWorkflow(selectedViewports[0], base, selectedRoutes[0].path);
+      await verifyReviewToolWorkflow(selectedViewports[0], base, model, selectedRoutes[0]);
     } catch (error) {
       block(error.code || 'AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具复制回归失败：' + error.message, model.routes[0].path);
     }
@@ -1199,18 +1665,24 @@ try {
       const { context, page } = await guardedPage(viewport, base);
       let screen = null;
       try {
-        await page.goto(new URL(route.path, base).href, { waitUntil: 'networkidle' });
-        await verifyDefaultReviewTool(page, route.path);
-        await page.goto(cleanReviewUrl(base, route.path), { waitUntil: 'networkidle' });
-        if (await page.locator('inconsistency-annotator').count() !== 0) {
-          block('AIH_CANONICAL_UI_RUNTIME_FAILED', 'annotate=0 未关闭不一致标记工具。', route.path);
-        }
+        await page.goto(productUrl(base, route.path), { waitUntil: 'networkidle' });
+        await verifyNoReviewTools(page, route.path);
         currentRepairContext = {
           location: route.path,
           scope: { routeId: route.id, viewportId: viewport.id },
           screenshot: routeScreenshotPath(route.id, viewport.id),
         };
         screen = await verifyBaseSemantics(page, model, route, viewport);
+        await observeTokens(
+          page,
+          model,
+          selectedTokens,
+          selectedTokenTargets,
+          areaPath,
+          route.path,
+          { routeId: route.id, viewportId: viewport.id },
+          currentRepairContext.screenshot,
+        );
         await runVisualAssertions(page, model, route.id, viewport);
         await runSourceParityAssertions(page, model, route.id, viewport, parityEvidence, thresholds, evidenceRoot);
         await observeAssets(page, model, base);
@@ -1240,13 +1712,23 @@ try {
       if (!route || !viewport) continue;
       const { context, page } = await guardedPage(viewport, base);
       try {
-        await page.goto(cleanReviewUrl(base, route.path), { waitUntil: 'networkidle' });
+        await page.goto(reviewUrl(base, route.path), { waitUntil: 'networkidle' });
         currentRepairContext = {
           location: scenario.id + ' / ' + viewport.id,
           scope: { routeId: route.id, viewportId: viewport.id, scenarioId: scenario.id },
           screenshot: routeScreenshotPath(route.id, viewport.id, scenario.id),
         };
         const screen = await verifyBaseSemantics(page, model, route, viewport, scenario.id);
+        await observeTokens(
+          page,
+          model,
+          selectedTokens,
+          selectedTokenTargets,
+          areaPath,
+          scenario.id + ' / ' + viewport.id,
+          { routeId: route.id, viewportId: viewport.id, scenarioId: scenario.id },
+          currentRepairContext.screenshot,
+        );
         for (const stateId of scenario.initialStateIds) {
           const initialState = page.locator(stateSelector(model, stateId)).first();
           if (await initialState.count() === 0 || !await initialState.isVisible()) {
@@ -1288,7 +1770,7 @@ try {
                 if (expectedIndex === expectedStateIds.length) return true;
               }
               return false;
-            }, action.resultingStateIds, { timeout: 2500 });
+            }, action.resultingStateIds, { timeout: 5000 });
           } catch {
             // The trace is inspected after the observer is stopped so the blocker contains the actual sequence.
           } finally {
@@ -1317,6 +1799,7 @@ try {
             block('AIH_CANONICAL_UI_RUNTIME_FAILED', '场景未达到声明的最终状态：' + stateId, scenario.id + ' / ' + viewport.id);
           }
         }
+        await hideReviewToolsForProductEvidence(page);
         await runVisualAssertions(page, model, route.id, viewport, scenario.id);
         await runSourceParityAssertions(page, model, route.id, viewport, parityEvidence, thresholds, evidenceRoot, scenario.id);
         await observeAssets(page, model, base);
@@ -1358,6 +1841,17 @@ try {
           check: { kind: 'asset-consumed', expected: true, actual: false },
           evidence: [{ kind: 'asset', id: asset.id, path: asset.path }],
         });
+      }
+    }
+  }
+  for (const token of selectedTokens) {
+    for (const targetId of selectedTokenTargets.get(token.id) || []) {
+      if (!usedTokenTargets.get(token.id)?.has(targetId) && !tokenFailureKeys.has(token.id + '/' + targetId)) {
+        block(
+          'AIH_VISUAL_STYLE_BINDING_FAILED',
+          'Token 声明目标未在已选 Route/Scenario 中观测到实际消费：' + token.id + ' / ' + targetId,
+          token.id,
+        );
       }
     }
   }

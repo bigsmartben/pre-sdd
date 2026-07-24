@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mockdata.schema.json",
   "title": "MockData",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "actor", "fixtures", "behaviors"],
   "properties": {
-    "schemaVersion": {"const": "1.0.0"},
+    "schemaVersion": {"const": "2.0.0"},
     "actor": {"$ref": "#/$defs/actor"},
     "fixtures": {"type": "array", "items": {"$ref": "#/$defs/fixture"}},
     "behaviors": {"type": "array", "items": {"$ref": "#/$defs/behavior"}}
@@ -52,4 +53,3 @@
     }
   }
 }
-

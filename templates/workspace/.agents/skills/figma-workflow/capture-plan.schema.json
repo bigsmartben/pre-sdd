@@ -4,7 +4,7 @@
   "title": "Figma Deterministic Asset Capture Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "sourceId", "rootNodeId", "sourceVersion", "scopeConfirmation", "highImpactConfirmation", "writebackBoundary", "frozenAt", "candidateVisualNodes"],
+  "required": ["version", "sourceId", "rootNodeId", "sourceVersion", "scopeConfirmation", "highImpactConfirmation", "writebackBoundary", "frozenAt", "formalCapture", "candidateVisualNodes"],
   "properties": {
     "version": {"const": "2.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
@@ -13,13 +13,20 @@
     "scopeConfirmation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "rootNodeId", "includedNodes", "excludedNodes", "viewportIds", "scenarioIds", "stateIds", "counts"],
+      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "sourceVersion", "rootNodeId", "scanInventory", "screenBindings", "includedNodes", "excludedNodes", "viewportIds", "scenarioIds", "stateIds", "counts"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
         "confirmedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
         "rootNodeId": {"$ref": "#/$defs/nodeId"},
+        "scanInventory": {"$ref": "#/$defs/scanInventory"},
+        "screenBindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/screenBinding"}
+        },
         "includedNodes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/scopeNode"}},
         "excludedNodes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/excludedScopeNode"}},
         "viewportIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
@@ -43,13 +50,15 @@
     "highImpactConfirmation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "scopeConfirmationId", "componentProposals", "stateAxes", "resourceAmbiguities", "writebackOperations", "detachApprovals"],
+      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "sourceVersion", "scopeConfirmationId", "scopeConfirmationSha256", "componentProposals", "stateAxes", "resourceAmbiguities", "writebackOperations", "detachApprovals"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
         "confirmedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
         "scopeConfirmationId": {"$ref": "#/$defs/id"},
+        "scopeConfirmationSha256": {"$ref": "#/$defs/sha256"},
         "componentProposals": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/componentProposal"}},
         "stateAxes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/stateAxis"}},
         "resourceAmbiguities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/resourceAmbiguity"}},
@@ -60,10 +69,13 @@
     "writebackBoundary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["scopeConfirmationId", "highImpactConfirmationId", "operationIds", "completedAt", "formalCaptureOrdinal", "recaptureTriggers"],
+      "required": ["scopeConfirmationId", "highImpactConfirmationId", "highImpactConfirmationSha256", "sourceVersionBefore", "sourceVersionAfter", "operationIds", "completedAt", "formalCaptureOrdinal", "recaptureTriggers"],
       "properties": {
         "scopeConfirmationId": {"$ref": "#/$defs/id"},
         "highImpactConfirmationId": {"$ref": "#/$defs/id"},
+        "highImpactConfirmationSha256": {"$ref": "#/$defs/sha256"},
+        "sourceVersionBefore": {"$ref": "#/$defs/sourceVersion"},
+        "sourceVersionAfter": {"$ref": "#/$defs/sourceVersion"},
         "operationIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
         "completedAt": {"$ref": "#/$defs/timestamp"},
         "formalCaptureOrdinal": {"const": 1},
@@ -82,6 +94,7 @@
       }
     },
     "frozenAt": {"$ref": "#/$defs/timestamp"},
+    "formalCapture": {"$ref": "#/$defs/formalCapture"},
     "candidateVisualNodes": {
       "type": "array",
       "minItems": 1,
@@ -101,6 +114,61 @@
         {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "remote-last-modified"}, "value": {"$ref": "#/$defs/timestamp"}}},
         {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "node-fingerprint"}, "value": {"$ref": "#/$defs/sha256"}}}
       ]
+    },
+    "scanInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scannedAt", "sourceVersion", "rootNodeId", "nodes"],
+      "properties": {
+        "scannedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+        "rootNodeId": {"$ref": "#/$defs/nodeId"},
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/scannedNode"}
+        }
+      }
+    },
+    "scannedNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nodeId", "name"],
+      "properties": {
+        "kind": {"enum": ["page", "component", "visual"]},
+        "nodeId": {"$ref": "#/$defs/nodeId"},
+        "name": {"type": "string", "minLength": 1},
+        "parentNodeId": {"$ref": "#/$defs/nodeId"}
+      }
+    },
+    "screenBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["screenId", "figmaRootNodeId", "viewportId", "scenarioId", "stateIds"],
+      "properties": {
+        "screenId": {"$ref": "#/$defs/id"},
+        "figmaRootNodeId": {"$ref": "#/$defs/nodeId"},
+        "viewportId": {"$ref": "#/$defs/id"},
+        "scenarioId": {"$ref": "#/$defs/id"},
+        "stateIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        }
+      }
+    },
+    "formalCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "startedAt", "completedAt", "sourceVersionBefore", "sourceVersionAfter"],
+      "properties": {
+        "ordinal": {"const": 1},
+        "startedAt": {"$ref": "#/$defs/timestamp"},
+        "completedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersionBefore": {"$ref": "#/$defs/sourceVersion"},
+        "sourceVersionAfter": {"$ref": "#/$defs/sourceVersion"}
+      }
     },
     "scopeNode": {
       "type": "object",
@@ -126,24 +194,164 @@
     "componentProposal": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nodeId", "decision", "reason"],
+      "required": ["id", "nodeIds", "decision", "semanticRole", "structureSignatures", "reason", "counterexample", "componentBoundary", "sizeBehavior", "interfaceProposal"],
       "properties": {
-        "nodeId": {"$ref": "#/$defs/nodeId"},
+        "id": {"$ref": "#/$defs/id"},
+        "nodeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/nodeId"}
+        },
         "decision": {"enum": ["shared-component", "primitive-only", "local-structure"]},
         "componentName": {"type": "string", "minLength": 1},
-        "reason": {"type": "string", "minLength": 1}
-      }
+        "semanticRole": {"type": "string", "minLength": 1},
+        "structureSignatures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "counterexample": {"type": "string", "minLength": 1},
+        "componentBoundary": {"$ref": "#/$defs/componentBoundary"},
+        "sizeBehavior": {"$ref": "#/$defs/sizeBehavior"},
+        "interfaceProposal": {"$ref": "#/$defs/interfaceProposal"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"decision": {"const": "shared-component"}}, "required": ["decision"]},
+          "then": {"properties": {"componentName": {}}, "required": ["componentName"]},
+          "else": {"not": {"required": ["componentName"]}}
+        }
+      ]
     },
     "stateAxis": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "values"],
+      "required": ["id", "proposalId", "kind", "name", "values"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
+        "proposalId": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["variant", "runtime-state", "interaction-state", "content-override"]},
         "name": {"type": "string", "minLength": 1},
         "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       }
     },
+    "componentBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "rootNodeId", "nestedComponentNodeIds"],
+      "properties": {
+        "kind": {"enum": ["single-component", "component-set", "nested-components"]},
+        "rootNodeId": {"$ref": "#/$defs/nodeId"},
+        "nestedComponentNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/nodeId"}
+        }
+      }
+    },
+    "sizeBehavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "wrap"],
+      "properties": {
+        "width": {"$ref": "#/$defs/sizeDimension"},
+        "height": {"$ref": "#/$defs/sizeDimension"},
+        "wrap": {"enum": ["none", "text", "content", "mixed"]}
+      }
+    },
+    "sizeDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "min", "max"],
+      "properties": {
+        "mode": {"enum": ["fixed", "hug", "fill", "content", "mixed"]},
+        "min": {"type": ["number", "null"], "minimum": 0},
+        "max": {"type": ["number", "null"], "exclusiveMinimum": 0}
+      }
+    },
+    "interfaceProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["properties", "slots", "events"],
+      "properties": {
+        "properties": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/interfaceProperty"}
+        },
+        "slots": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/interfaceSlot"}
+        },
+        "events": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/interfaceEvent"}
+        }
+      }
+    },
+    "interfaceProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "figmaProperty", "litProperty", "litAttribute", "values"],
+      "properties": {
+        "kind": {"enum": ["variant", "text", "boolean", "instance-swap"]},
+        "figmaProperty": {"type": "string", "minLength": 1},
+        "litProperty": {"$ref": "#/$defs/litName"},
+        "litAttribute": {
+          "oneOf": [
+            {"$ref": "#/$defs/litName"},
+            {"type": "null"}
+          ]
+        },
+        "values": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/interfacePropertyValue"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "variant"}}, "required": ["kind"]},
+          "then": {
+            "properties": {
+              "litAttribute": {"$ref": "#/$defs/litName"},
+              "values": {"type": "array", "minItems": 1}
+            }
+          }
+        }
+      ]
+    },
+    "interfacePropertyValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["figmaValue", "litValue"],
+      "properties": {
+        "figmaValue": {"type": "string", "minLength": 1},
+        "litValue": {"type": "string", "minLength": 1}
+      }
+    },
+    "interfaceSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["figmaProperty", "litSlot", "contentRole"],
+      "properties": {
+        "figmaProperty": {"type": "string", "minLength": 1},
+        "litSlot": {"$ref": "#/$defs/litName"},
+        "contentRole": {"type": "string", "minLength": 1}
+      }
+    },
+    "interfaceEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "trigger", "litEvent"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "trigger": {"type": "string", "minLength": 1},
+        "litEvent": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"}
+      }
+    },
+    "litName": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
     "resourceAmbiguity": {
       "type": "object",
       "additionalProperties": false,
@@ -228,6 +436,9 @@
         "nodeId": {"$ref": "#/$defs/nodeId"},
         "name": {"type": "string", "minLength": 1},
         "strategy": {"enum": ["asset", "dom-css", "dynamic", "ignored"]},
+        "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
+        "captureScope": {"enum": ["layer", "artwork-subtree"]},
+        "containsDynamicContent": {"const": false},
         "consumerTargets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
         "assetExport": {"$ref": "#/$defs/assetExport"},
         "reason": {"type": "string", "minLength": 1}
@@ -235,8 +446,27 @@
       "allOf": [
         {
           "if": {"properties": {"strategy": {"const": "asset"}}, "required": ["strategy"]},
-          "then": {"properties": {"consumerTargets": {}, "assetExport": {}}, "required": ["consumerTargets", "assetExport"]},
-          "else": {"not": {"required": ["assetExport"]}}
+          "then": {
+            "properties": {
+              "assetKind": {},
+              "captureScope": {},
+              "containsDynamicContent": {},
+              "consumerTargets": {},
+              "assetExport": {}
+            },
+            "required": ["assetKind", "captureScope", "containsDynamicContent", "consumerTargets", "assetExport"]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {"required": ["assetKind"]},
+                {"required": ["captureScope"]},
+                {"required": ["containsDynamicContent"]},
+                {"required": ["consumerTargets"]},
+                {"required": ["assetExport"]}
+              ]
+            }
+          }
         },
         {
           "if": {"properties": {"strategy": {"const": "ignored"}}, "required": ["strategy"]},

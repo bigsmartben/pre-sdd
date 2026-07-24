@@ -9,8 +9,8 @@ const suites = new Map([
   ['harness', { command: 'test:harness', tests: ['.psp/harness/tests', '.agents/skills/project-consistency/tests'] }],
   ['product', {
     command: 'test:product',
-    tests: ['.agents/skills/product-design/tests'],
-    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Canonical UI projection refresh|visual policy supports|exact visual repair emits|canonical UI repair blocks|repair entry does not depend|browser validator|Component Contract runner|Figma source registration packet|Product Design apply operation|stale candidates)',
+    tests: ['.agents/skills/product-design/tests', '.agents/skills/figma-workflow/tests'],
+    changePattern: '^(uninitialized product|generic initialization|Use Cases validator|Use Cases readiness|atomic UC|non-UI Use Case|legacy Wireflow|Visual Spec|Canonical UI input gate|Canonical UI projection refresh|visual policy supports|exact Human Visual Acceptance|exact visual repair emits|canonical UI repair blocks|repair entry does not depend|browser validator|Component Contract runner|Matrix Mount preserves|Figma source registration packet|tightened Figma schemas|old shapes and Canonical UI identifiers|ingest validator recomputes|registration mode closes|Product Design apply operation|stale candidates)',
   }],
   ['mockcase', {
     command: 'test:mockcase',

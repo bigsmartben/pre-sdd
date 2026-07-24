@@ -40,24 +40,40 @@ function evidenceFactsMatch(mode, evidence, runtime) {
     || evidence.hostApiVersion !== runtime.hostApiVersion
   ) return false;
   if (mode === 'verify') {
-    const expectedCaseIds = runtime.cases.map((item) => item.id);
-    const actualCaseIds = byKind('case').map((item) => item.caseId);
-    const routeCount = new Set(runtime.cases.map((item) => item.routeId)).size;
+    const expectedCases = new Map(runtime.cases.map((item) => [item.id, item]));
+    const actualCases = byKind('case');
+    const expectedRouteIds = [...new Set(runtime.cases.map((item) => item.routeId))].sort();
+    const disposeRouteIds = byKind('dispose').map((item) => item.routeId).sort();
     return evidence.lifecycle === 'VERIFIED'
-      && sameIds(actualCaseIds, expectedCaseIds)
-      && byKind('dispose').length === routeCount
+      && sameIds(actualCases.map((item) => item.caseId), [...expectedCases.keys()])
+      && actualCases.every((item) => {
+        const expected = expectedCases.get(item.caseId);
+        return expected?.routeId === item.routeId
+          && expected?.projectionDigest === item.projectionDigest;
+      })
+      && sameIds(disposeRouteIds, expectedRouteIds)
       && byKind('review-host').length === 0
       && byKind('review-decision').length === 0;
   }
+  const decisions = byKind('review-decision');
+  const requiredRouteIds = [...new Set(runtime.cases.map((item) => item.routeId))].sort();
   return evidence.lifecycle === 'READY'
     && byKind('review-host').length === 1
     && byKind('case').length === 0
     && byKind('dispose').length === 0
-    && byKind('review-decision').length === 1
-    && byKind('review-decision')[0].decision === 'complete';
+    && sameIds(decisions.map((item) => item.routeId), requiredRouteIds)
+    && decisions.every((decision) => {
+      const available = new Map(runtime.cases
+        .filter((item) => item.routeId === decision.routeId)
+        .map((item) => [item.id, item.projectionDigest]));
+      return decision.caseProjections.length > 0
+        && decision.caseProjections.every((item) =>
+          available.get(item.caseId) === item.projectionDigest);
+    });
 }
 
-async function lifecycleFor(context) {
+async function lifecycleFor(context, coverage) {
+  if (coverage.missingScenarioIds.length > 0) return 'PARTIAL';
   const schemas = await compileSchemas(context.root);
   const runtimeFile = await readJsonIfPresent(context.root, context.files.runtime);
   const evidenceFiles = await Promise.all(['verify', 'review'].map(async (mode) => ({
@@ -129,8 +145,8 @@ try {
     const actors = [];
     for (const actor of actorIds) {
       const context = await workspaceContext(actor, { allowMissingSuite: false });
-      await validateSuiteData(context);
-      actors.push({ actor, suiteDigest: context.suiteDigest, lifecycle: await lifecycleFor(context) });
+      const { coverage } = await validateSuiteData(context);
+      actors.push({ actor, suiteDigest: context.suiteDigest, lifecycle: await lifecycleFor(context, coverage) });
     }
     const lifecycles = new Set(actors.map((item) => item.lifecycle));
     const lifecycle = lifecycles.size === 1 ? actors[0].lifecycle : 'STALE';

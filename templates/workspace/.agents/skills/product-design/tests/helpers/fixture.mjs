@@ -53,6 +53,7 @@ export function runScript(script, fixtureRoot, args = [], options = {}) {
   const result = spawnSync(process.execPath, [resolve(repositoryRoot, script), ...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
+    maxBuffer: 128 * 1024 * 1024,
     env: {
       ...process.env,
       ...(options.environment || {}),
@@ -69,7 +70,14 @@ export function runScript(script, fixtureRoot, args = [], options = {}) {
   try {
     output = JSON.parse(result.stdout);
   } catch {
-    output = { status: 'INVALID_OUTPUT', stdout: result.stdout, stderr: result.stderr };
+    output = {
+      status: 'INVALID_OUTPUT',
+      stdoutLength: result.stdout?.length || 0,
+      stdoutTail: result.stdout?.slice(-256) || '',
+      ...((result.stdout?.length || 0) <= 1024 * 1024 ? { stdout: result.stdout } : {}),
+      stderr: result.stderr,
+      spawnError: result.error ? { code: result.error.code, message: result.error.message } : null,
+    };
   }
   return { exitCode: result.status, output, stderr: result.stderr };
 }

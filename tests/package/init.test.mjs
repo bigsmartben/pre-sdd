@@ -10,6 +10,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 const repositoryRoot = resolve(import.meta.dirname, '../..');
 const entrypoint = resolve(repositoryRoot, 'bin/pre-sdd.mjs');
 const temporaryRoots = [];
+const retiredFigmaOnlyImplementationSkill = ['implement', 'figma', 'lit', 'page'].join('-');
 
 test.after(async () => {
   await Promise.all(temporaryRoots.map((path) => rm(path, { recursive: true, force: true })));
@@ -98,11 +99,11 @@ function waitForCanonicalUiReady(child, timeoutMilliseconds = 60_000) {
     let output = '';
     const timeout = setTimeout(() => {
       cleanup();
-      rejectReady(new Error('等待 Canonical UI Prototype 评审地址超时。\n' + output));
+      rejectReady(new Error('等待 Canonical UI Prototype 正式预览地址超时。\n' + output));
     }, timeoutMilliseconds);
     const onData = (chunk) => {
       output += chunk.toString();
-      const match = output.match(/\[READY\] (?:ACTOR-[0-9]{3}|Canonical UI Prototype) (?:独立应用)?评审地址：(https?:\/\/\S+)/);
+      const match = output.match(/\[READY\] (?:ACTOR-[0-9]{3}|Canonical UI Prototype) (?:独立应用)?正式预览地址：(https?:\/\/\S+)/);
       if (!match) return;
       cleanup();
       resolveReady({ url: match[1], output });
@@ -180,6 +181,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   const workspaceLock = JSON.parse(await readFile(resolve(target, 'package-lock.json'), 'utf8'));
   const workspaceManifest = JSON.parse(await readFile(resolve(target, '.psp/harness/harness.manifest.json'), 'utf8'));
   assert.deepEqual(workspaceLock.packages[''].dependencies, workspacePackage.dependencies);
+  assert.equal(workspaceManifest.version, '18.1.0');
   assert.equal(workspaceManifest.runtime.authority, 'generated-workspace-local');
   assert.equal(project.harness.protocol, 'pre-sdd-harness/v3');
   assert.equal(workspaceManifest.standard.protocol, 'pre-sdd-harness/v3');
@@ -202,10 +204,8 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   assert.match(sessionStart.command, /git rev-parse --show-toplevel/);
   assert.match(sessionStart.commandWindows, /git rev-parse --show-toplevel/);
   const auxiliarySkills = [
-    'capture-figma-design-source',
-    'organize-figma-assets',
-    'figma-component-from-design',
-    'implement-figma-lit-page',
+    'figma-workflow',
+    'implement-canonical-ui',
     'repair-canonical-ui',
     'mockcase',
   ];
@@ -217,55 +217,148 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   }
   assert.equal(await exists(resolve(target, '.agents/skills/export-marked-assets/SKILL.md')), false);
   assert.equal(workspaceManifest.codex.repositorySkills.includes('.agents/skills/export-marked-assets/SKILL.md'), false);
-  const litSkill = await readFile(resolve(target, '.agents/skills/implement-figma-lit-page/SKILL.md'), 'utf8');
+  assert.equal(await exists(resolve(target, `.agents/skills/${retiredFigmaOnlyImplementationSkill}/SKILL.md`)), false);
+  const litSkill = await readFile(resolve(target, '.agents/skills/implement-canonical-ui/SKILL.md'), 'utf8');
   assert.match(litSkill, /Lit \+ Vite/);
+  assert.match(litSkill, /Reuse Plan（复用计划）/);
+  assert.match(litSkill, /已有 Contract 组件 → 已有 App Shell（应用外壳）/);
+  assert.match(litSkill, /不得继续创建后一层的平行实现/);
   assert.doesNotMatch(litSkill, /\bReact\b/i);
   for (const forbidden of ['react-router', 'zustand', 'bun run', '.tsx', 'src/pages']) {
     assert.doesNotMatch(litSkill.toLowerCase(), new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), forbidden);
   }
   const productSkill = await readFile(resolve(target, '.agents/skills/product-design/SKILL.md'), 'utf8');
-  const captureSkill = await readFile(resolve(target, '.agents/skills/capture-figma-design-source/SKILL.md'), 'utf8');
-  const organizeSkill = await readFile(resolve(target, '.agents/skills/organize-figma-assets/SKILL.md'), 'utf8');
-  const componentSkill = await readFile(resolve(target, '.agents/skills/figma-component-from-design/SKILL.md'), 'utf8');
+  const figmaSkill = await readFile(resolve(target, '.agents/skills/figma-workflow/SKILL.md'), 'utf8');
+  const figmaWriteback = await readFile(resolve(target, '.agents/skills/figma-workflow/references/figma-writeback.md'), 'utf8');
+  const figmaCapture = await readFile(resolve(target, '.agents/skills/figma-workflow/references/source-capture.md'), 'utf8');
   const repairSkill = await readFile(resolve(target, '.agents/skills/repair-canonical-ui/SKILL.md'), 'utf8');
   const workspaceReadme = await readFile(resolve(target, 'README.md'), 'utf8');
   assert.doesNotMatch(productSkill, /读取节点设计上下文|获取同一节点截图/);
-  assert.match(productSkill, /\$capture-figma-design-source/);
+  assert.match(productSkill, /\$figma-workflow/);
+  assert.match(productSkill, /\$implement-canonical-ui/);
   assert.match(productSkill, /\$repair-canonical-ui/);
-  assert.match(captureSkill, /Frame 尺寸/);
-  assert.match(captureSkill, /不得选择或改变 `visualPolicy\.mode`/);
-  assert.match(captureSkill, /调用 `get_design_context` 读取节点设计上下文前，必须先加载 `\$figma:figma-design-to-code`/);
-  assert.match(captureSkill, /\$figma:figma-use/);
-  assert.match(captureSkill, /先进入 `\$figma:figma-design-to-code` 路由并调用 `get_design_context`，再采集原始参数与证据/);
-  assert.ok(
-    captureSkill.indexOf('`$figma:figma-design-to-code`') < captureSkill.indexOf('`$figma:figma-use`'),
-    'capture skill routes design-context reads through figma-design-to-code before use_figma operations',
-  );
-  assert.match(captureSkill, /任何 Figma 节点、变量、组件或图层修改都会使本轮证据失效/);
-  assert.match(captureSkill, /本次采集会话创建并记录的操作系统临时目录/);
-  assert.match(captureSkill, /source-registration\.schema\.json/);
-  assert.match(captureSkill, /不得直接编辑 `canonical-ui\.ts`/);
-  assert.match(captureSkill, /每个导出资源必须以 `role: asset` 出现在同一来源的 `evidence\.json`/);
-  assert.match(captureSkill, /capture-figma-design-source\/scripts\/validate-png-assets\.mjs/);
-  assert.match(captureSkill, /禁止先登记资源事实、后补来源证据/);
-  assert.match(captureSkill, /AIH_SOURCE_INTEGRITY_FAILED/);
-  assert.match(captureSkill, /componentSetNodeId/);
-  assert.match(captureSkill, /mainComponentNodeId/);
-  assert.match(organizeSkill, /\$figma:figma-use/);
-  assert.match(organizeSkill, /已有的来源证据视为失效/);
-  assert.match(organizeSkill, /角色、Variant、Component Property、Override/);
-  assert.match(litSkill, /只有 Figma 链接或范围不明确时停止实现/);
-  assert.doesNotMatch(litSkill, /对 `Export\/` 标记使用 `\$capture-figma-design-source`/);
-  assert.match(componentSkill, /\$figma:figma-use/);
-  assert.match(componentSkill, /\$figma:figma-generate-library/);
-  assert.match(componentSkill, /已有证据视为失效/);
-  assert.match(componentSkill, /Component Abstraction Proposal/);
-  assert.match(componentSkill, /componentVariantCoverage/);
+  assert.match(figmaSkill, /\$figma:figma-use/);
+  assert.match(figmaSkill, /\$figma:figma-generate-library/);
+  assert.match(figmaSkill, /调用 `get_design_context` 前必须先加载 `\$figma:figma-design-to-code`/);
+  assert.match(figmaSkill, /不得选择或改变视觉策略/);
+  assert.match(figmaSkill, /不得直接编辑 `canonical-ui\.ts`/);
+  assert.match(figmaSkill, /\$implement-canonical-ui.*独立拥有.*Lit 组件与页面正常实现/);
+  assert.match(figmaSkill, /正式采集后发生任何 Figma 节点、图层、变量、组件、Variant 或来源版本变化/);
+  assert.match(figmaWriteback, /角色、Variant、Component Property、Override/);
+  assert.match(figmaWriteback, /Component Abstraction Proposal/);
+  for (const field of ['semanticRole', 'structureSignatures', 'counterexample', 'proposalId']) {
+    assert.match(figmaWriteback, new RegExp(field), field);
+  }
+  assert.match(figmaCapture, /Frame 尺寸/);
+  assert.match(figmaCapture, /本次会话创建并记录的操作系统临时目录/);
+  assert.match(figmaCapture, /source-registration\.schema\.json/);
+  assert.match(figmaCapture, /figma-workflow\/scripts\/validate-png-assets\.mjs/);
+  assert.match(figmaCapture, /禁止先登记资源事实、后补来源证据/);
+  assert.match(figmaCapture, /AIH_SOURCE_INTEGRITY_FAILED/);
+  assert.match(figmaCapture, /componentSetNodeId/);
+  assert.match(figmaCapture, /mainComponentNodeId/);
+  for (const field of [
+    'scopeConfirmationSha256',
+    'highImpactConfirmationSha256',
+    'rawCapture',
+    'componentSetCatalog',
+    'componentHandshake',
+  ]) {
+    assert.match(figmaCapture, new RegExp(field), field);
+  }
+  assert.match(litSkill, /`autonomous`：允许 `designSources`、`sourceParityAssertions`、Figma Mapping 与来源 Asset 为空/);
+  assert.match(litSkill, /`screenshot`、`export`、`other`/);
+  assert.match(litSkill, /非 Figma 组件不要求 `mappingId`、Figma Instance 身份或 Figma Variant/);
+  assert.match(litSkill, /`unresolved` 必须以 `AIH_VISUAL_POLICY_UNRESOLVED` 停止/);
+  assert.match(litSkill, /不得自行启动 Repair/);
+  assert.match(litSkill, /\$figma-workflow/);
+  assert.doesNotMatch(litSkill, /\$(?:capture-figma-design-source|organize-figma-assets|figma-component-from-design)/);
   assert.match(litSkill, /AIH_COMPONENT_IMPLEMENTATION_MISMATCH/);
-  assert.ok(workspaceReadme.indexOf('Figma 整理或组件创建（完成全部远端写入）') < workspaceReadme.indexOf('冻结最终节点并采集设计上下文、截图和变量'));
-  assert.ok(workspaceReadme.indexOf('冻结最终节点并采集设计上下文、截图和变量') < workspaceReadme.indexOf('导出标记资源并封存 evidence.json 与全部哈希'));
-  assert.equal(await exists(resolve(target, '.agents/skills/capture-figma-design-source/figma-design-context.schema.json')), true);
-  assert.equal(await exists(resolve(target, '.agents/skills/capture-figma-design-source/source-registration.schema.json')), true);
+  const documentedFigmaSequence = [
+    '第一次确认逐项冻结',
+    '第二次确认逐项冻结',
+    '全部 Figma 写入完成后才允许唯一一次正式采集',
+    'Registration Packet 通过 Component Handshake',
+  ].map((text) => workspaceReadme.indexOf(text));
+  assert.ok(documentedFigmaSequence.every((position) => position >= 0));
+  assert.deepEqual([...documentedFigmaSequence].sort((left, right) => left - right), documentedFigmaSequence);
+  assert.match(workspaceReadme, /Component Set 全量定义目录/);
+  assert.match(workspaceReadme, /Variant Definition Coverage（定义覆盖）/);
+  assert.match(workspaceReadme, /Usage Coverage（使用覆盖）/);
+  assert.equal(await exists(resolve(target, '.agents/skills/figma-workflow/figma-design-context.schema.json')), true);
+  assert.equal(await exists(resolve(target, '.agents/skills/figma-workflow/source-registration.schema.json')), true);
+  const capturePlanSchema = JSON.parse(await readFile(
+    resolve(target, '.agents/skills/figma-workflow/capture-plan.schema.json'),
+    'utf8',
+  ));
+  const designContextSchema = JSON.parse(await readFile(
+    resolve(target, '.agents/skills/figma-workflow/figma-design-context.schema.json'),
+    'utf8',
+  ));
+  const registrationSchema = JSON.parse(await readFile(
+    resolve(target, '.agents/skills/figma-workflow/source-registration.schema.json'),
+    'utf8',
+  ));
+  const canonicalSchema = JSON.parse(await readFile(
+    resolve(target, '.agents/skills/product-design/canonical-ui-prototype/schema.json'),
+    'utf8',
+  ));
+  const evidenceSchema = JSON.parse(await readFile(
+    resolve(target, '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'),
+    'utf8',
+  ));
+  assert.equal(capturePlanSchema.properties.version.const, '2.0.0');
+  for (const field of ['sourceVersion']) {
+    assert.ok(capturePlanSchema.properties.scopeConfirmation.required.includes(field), 'scopeConfirmation.' + field);
+  }
+  for (const field of ['sourceVersion', 'scopeConfirmationSha256']) {
+    assert.ok(capturePlanSchema.properties.highImpactConfirmation.required.includes(field), 'highImpactConfirmation.' + field);
+  }
+  assert.ok(
+    capturePlanSchema.properties.writebackBoundary.required.includes('highImpactConfirmationSha256'),
+    'writebackBoundary.highImpactConfirmationSha256',
+  );
+  for (const field of ['semanticRole', 'structureSignatures', 'counterexample']) {
+    assert.ok(capturePlanSchema.$defs.componentProposal.required.includes(field), 'componentProposal.' + field);
+  }
+  for (const field of ['proposalId', 'kind']) {
+    assert.ok(capturePlanSchema.$defs.stateAxis.required.includes(field), 'stateAxis.' + field);
+  }
+  assert.equal(designContextSchema.properties.version.const, '3.0.0');
+  for (const field of ['rawCapture', 'componentSetCatalog']) {
+    assert.ok(designContextSchema.required.includes(field), 'design-context.' + field);
+  }
+  assert.equal(registrationSchema.properties.version.const, '2.0.0');
+  for (const field of ['designContext', 'componentHandshake']) {
+    assert.ok(registrationSchema.required.includes(field), 'registration.' + field);
+  }
+  assert.equal(canonicalSchema.properties.version.const, '10.0.0');
+  for (const field of ['reviewTools', 'componentVariantDefinitions', 'componentSourceParityAssertions']) {
+    assert.ok(canonicalSchema.required.includes(field), 'canonical.' + field);
+  }
+  for (const field of ['definitionId', 'usages']) {
+    assert.ok(canonicalSchema.$defs.componentVariantCoverage.required.includes(field), 'componentVariantCoverage.' + field);
+  }
+  assert.ok(canonicalSchema.$defs.componentContract.required.includes('stateAxisCoverage'));
+  assert.ok(canonicalSchema.$defs.componentContract.required.includes('implementationRole'));
+  assert.deepEqual(
+    canonicalSchema.$defs.componentContract.properties.implementationRole.enum,
+    ['app-shell', 'feature-shell', 'shared-component', 'layout-primitive', 'page-local'],
+  );
+  for (const field of ['targetIds', 'cssProperty']) {
+    assert.ok(canonicalSchema.$defs.token.required.includes(field), 'token.' + field);
+  }
+  assert.ok(canonicalSchema.$defs.componentPageInstance.required.includes('origin'));
+  assert.ok(canonicalSchema.$defs.stateAxis.required.includes('renderBinding'));
+  assert.ok(
+    evidenceSchema.$defs.item.properties.role.enum.includes('raw-design-context'),
+    'design-source evidence must preserve the raw Figma design-context',
+  );
+  for (const removed of ['capture-figma-design-source', 'organize-figma-assets', 'figma-component-from-design']) {
+    const removedPath = `.agents/skills/${removed}/SKILL.md`;
+    assert.equal(await exists(resolve(target, removedPath)), false, removedPath);
+    assert.equal(workspaceManifest.codex.repositorySkills.includes(removedPath), false, removed);
+  }
   assert.match(repairSkill, /Evidence before edit/);
   assert.match(repairSkill, /Preserve interactive DOM/);
   assert.match(repairSkill, /source-resolution/);
@@ -309,14 +402,16 @@ test('scaffold source and generated workspace keep separate project contexts', a
   for (const forbidden of [
     'product-design',
     'architecture-design',
-    'capture-figma-design-source',
-    'organize-figma-assets',
-    'figma-component-from-design',
-    'implement-figma-lit-page',
+    'figma-workflow',
+    'implement-canonical-ui',
     'repair-canonical-ui',
   ]) {
     assert.equal(await exists(resolve(repositoryRoot, '.agents/skills', forbidden, 'SKILL.md')), false);
     assert.equal(await exists(resolve(repositoryRoot, 'templates/workspace/.agents/skills', forbidden, 'SKILL.md')), true);
+  }
+  for (const removed of ['capture-figma-design-source', 'organize-figma-assets', 'figma-component-from-design']) {
+    assert.equal(await exists(resolve(repositoryRoot, '.agents/skills', removed, 'SKILL.md')), false);
+    assert.equal(await exists(resolve(repositoryRoot, 'templates/workspace/.agents/skills', removed, 'SKILL.md')), false);
   }
   assert.equal(await exists(resolve(repositoryRoot, 'templates/workspace/.agents/skills/export-marked-assets/SKILL.md')), false);
   assert.equal(await findDirectory(resolve(repositoryRoot, 'templates/workspace'), 'node_modules'), null);
@@ -457,16 +552,19 @@ test('workspace-local runtime typechecks and builds an initialized product witho
   assert.equal(await findDirectory(target, 'node_modules'), null);
 });
 
-test('Canonical UI dev publishes a reachable annotated URL before visual readiness or repair', async () => {
+test('Canonical UI dev publishes a reachable review=0 product preview before visual readiness or repair', async () => {
   const target = await temporaryDirectory('pre-sdd-canonical-ui-dev-');
   assert.equal(runCli(['init', target]).status, 0);
 
   const manifest = JSON.parse(await readFile(resolve(target, '.psp/harness/harness.manifest.json'), 'utf8'));
-  const command = manifest.commands.find((item) => item.id === 'canonical-ui-dev');
-  assert.equal(command?.executor?.kind, 'module');
+  const preview = manifest.operations.find((item) => item.id === 'canonical-ui-dev');
+  assert.equal(preview?.kind, 'preview');
+  assert.equal(preview?.sessionMode, 'long-running');
+  assert.equal(preview?.outputRole, 'temporary-preview');
+  assert.equal(manifest.commands.some((item) => item.id === 'canonical-ui-dev'), false);
   const blocked = spawnSync(
     process.execPath,
-    [resolve(target, ...command.executor.path.split('/')), ...(command.executor.args || [])],
+    [resolve(target, ...preview.executor.path.split('/')), ...(preview.executor.args || [])],
     {
       cwd: target,
       env: workspaceRuntimeEnvironment(target),
@@ -486,7 +584,7 @@ test('Canonical UI dev publishes a reachable annotated URL before visual readine
 
   const child = spawn(
     process.execPath,
-    [resolve(target, ...command.executor.path.split('/')), ...(command.executor.args || []), '--actor', 'ACTOR-001'],
+    [resolve(target, ...preview.executor.path.split('/')), ...(preview.executor.args || []), '--actor', 'ACTOR-001'],
     {
       cwd: target,
       env: workspaceRuntimeEnvironment(target),
@@ -498,7 +596,8 @@ test('Canonical UI dev publishes a reachable annotated URL before visual readine
   try {
     const ready = await waitForCanonicalUiReady(child);
     const reviewUrl = new URL(ready.url);
-    assert.equal(reviewUrl.searchParams.has('annotate'), false);
+    assert.equal(reviewUrl.searchParams.get('review'), '0');
+    assert.equal(reviewUrl.searchParams.size, 1);
     const response = await fetch(reviewUrl);
     assert.equal(response.status, 200, ready.output);
     assert.match(await response.text(), /<script[^>]+src="\/src\/main\.ts"/);
@@ -507,13 +606,49 @@ test('Canonical UI dev publishes a reachable annotated URL before visual readine
   }
 });
 
+test('Canonical UI dev blocks ambiguous multi-Actor preview without --actor', async () => {
+  const target = await temporaryDirectory('pre-sdd-canonical-ui-multi-actor-');
+  assert.equal(runCli(['init', target]).status, 0);
+  const initialized = runWorkspaceScript('init:product', target);
+  assert.equal(initialized.status, 0, initialized.stderr + initialized.stdout);
+  await materializeCanonicalApp(target, 'ACTOR-001');
+  await materializeCanonicalApp(target, 'ACTOR-002');
+  const manifest = JSON.parse(await readFile(resolve(target, '.psp/harness/harness.manifest.json'), 'utf8'));
+  const preview = manifest.operations.find((item) => item.id === 'canonical-ui-dev');
+  const blocked = spawnSync(
+    process.execPath,
+    [resolve(target, ...preview.executor.path.split('/')), ...(preview.executor.args || [])],
+    {
+      cwd: target,
+      env: workspaceRuntimeEnvironment(target),
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr + blocked.stdout, /AIH_COMMAND_INVALID/);
+  assert.match(blocked.stderr + blocked.stdout, /--actor ACTOR-NNN/);
+});
+
 test('Vite and browser execution are registered in the Product Design domain Skill', async () => {
   const manifest = JSON.parse(await readFile(resolve(repositoryRoot, 'templates/workspace/.psp/harness/harness.manifest.json'), 'utf8'));
-  for (const id of ['canonical-ui-typecheck', 'canonical-ui-build', 'canonical-ui-runtime', 'canonical-ui-dev', 'canonical-ui-install-browser']) {
+  for (const id of ['canonical-ui-typecheck', 'canonical-ui-build', 'canonical-ui-runtime', 'canonical-ui-install-browser']) {
     const command = manifest.commands.find((item) => item.id === id);
     assert.equal(command.domain, 'product-design');
     assert.match(command.executor.path, /^\.agents\/skills\/product-design\/canonical-ui-prototype\//);
   }
+  const preview = manifest.operations.find((item) => item.id === 'canonical-ui-dev');
+  assert.equal(preview.kind, 'preview');
+  assert.equal(preview.sessionMode, 'long-running');
+  assert.equal(preview.outputRole, 'temporary-preview');
+  assert.match(preview.executor.path, /^\.agents\/skills\/product-design\/canonical-ui-prototype\//);
+  const review = manifest.operations.find((item) => item.id === 'canonical-ui-review');
+  assert.equal(review.kind, 'review');
+  assert.equal(review.evidenceVersion, '2.0.0');
+  assert.equal(
+    review.feedbackPacketSchema,
+    '.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json',
+  );
   const repair = manifest.operations.find((item) => item.id === 'canonical-ui-repair');
   assert.equal(repair.kind, 'repair');
   assert.equal(repair.npmScript, 'repair:canonical-ui');
@@ -529,8 +664,26 @@ test('Vite and browser execution are registered in the Product Design domain Ski
   assert.equal(assetIngest.kind, 'ingest');
   assert.equal(assetIngest.npmScript, 'ingest:figma-assets');
   assert.equal(assetIngest.artifact, 'canonical-ui-prototype');
-  assert.match(assetIngest.executor.path, /^\.agents\/skills\/capture-figma-design-source\//);
+  assert.match(assetIngest.executor.path, /^\.agents\/skills\/figma-workflow\//);
   assert.deepEqual(Object.keys(assetIngest.packetSchemas).sort(), ['acquisition', 'capturePlan', 'receipt', 'registration']);
+  assert.equal(Object.hasOwn(assetIngest, 'profile'), false);
+  assert.deepEqual(
+    manifest.validationProfiles.find((item) => item.id === 'canonical-ui-quick').commands,
+    ['harness', 'product-structure', 'canonical-ui-input'],
+  );
+  assert.deepEqual(
+    manifest.validationProfiles.find((item) => item.id === 'canonical-ui-prototype').commands,
+    [
+      'harness',
+      'product-structure',
+      'canonical-ui-input',
+      'canonical-ui-typecheck',
+      'canonical-ui-build',
+      'canonical-ui-contract-tests',
+      'canonical-ui-runtime',
+      'product-strict',
+    ],
+  );
   for (const code of [
     'AIH_SOURCE_CAPTURE_BLOCKED',
     'AIH_SOURCE_COVERAGE_FAILED',
@@ -544,6 +697,12 @@ test('Vite and browser execution are registered in the Product Design domain Ski
     'AIH_COMPONENT_MAPPING_INVALID',
     'AIH_COMPONENT_VARIANT_COVERAGE_FAILED',
     'AIH_COMPONENT_IMPLEMENTATION_MISMATCH',
+    'AIH_COMPONENT_CONTRACT_INVALID',
+    'AIH_COMPONENT_CONTRACT_COVERAGE_FAILED',
+    'AIH_COMPONENT_CONTRACT_TEST_INVALID',
+    'AIH_COMPONENT_CONTRACT_TEST_FAILED',
+    'AIH_STATE_MATRIX_INVALID',
+    'AIH_STATE_GALLERY_FAILED',
     'AIH_CANONICAL_UI_NETWORK_FAILED',
     'AIH_CANONICAL_UI_CONSOLE_FAILED',
     'AIH_CANONICAL_UI_VISUAL_FAILED',
@@ -554,6 +713,8 @@ test('Vite and browser execution are registered in the Product Design domain Ski
     'AIH_UI_REPAIR_PACKET_FAILED',
     'AIH_UI_REPAIR_EXHAUSTED',
     'AIH_UI_REPAIR_SESSION_INVALID',
+    'AIH_CANONICAL_UI_FEEDBACK_PACKET_INVALID',
+    'AIH_CANONICAL_UI_FEEDBACK_STALE',
   ]) assert.ok(manifest.blockers.some((item) => item.code === code), code);
 });
 
@@ -600,23 +761,34 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/visual-spec/schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/visual-spec/template.yaml'));
   assert.ok(files.has('templates/workspace/.agents/skills/architecture-design/SKILL.md'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/SKILL.md'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/agents/openai.yaml'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/figma-design-context.schema.json'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/capture-plan.schema.json'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/acquisition-packet.schema.json'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/ingest-receipt.schema.json'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/source-registration.schema.json'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs'));
-  assert.ok(files.has('templates/workspace/.agents/skills/capture-figma-design-source/scripts/validate-png-assets.mjs'));
-  assert.ok(files.has('templates/workspace/.agents/skills/organize-figma-assets/SKILL.md'));
-  assert.ok(files.has('templates/workspace/.agents/skills/figma-component-from-design/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/agents/openai.yaml'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/references/figma-writeback.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/references/source-capture.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/figma-design-context.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/capture-plan.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/acquisition-packet.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/ingest-receipt.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/source-registration.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/scripts/ingest-assets.mjs'));
+  assert.ok(files.has('templates/workspace/.agents/skills/figma-workflow/scripts/validate-png-assets.mjs'));
+  assert.equal(files.has('templates/workspace/.agents/skills/capture-figma-design-source/SKILL.md'), false);
+  assert.equal(files.has('templates/workspace/.agents/skills/organize-figma-assets/SKILL.md'), false);
+  assert.equal(files.has('templates/workspace/.agents/skills/figma-component-from-design/SKILL.md'), false);
   assert.equal(files.has('templates/workspace/.agents/skills/export-marked-assets/SKILL.md'), false);
   assert.equal(files.has('templates/workspace/.agents/skills/export-marked-assets/scripts/validate-png-assets.mjs'), false);
-  assert.ok(files.has('templates/workspace/.agents/skills/implement-figma-lit-page/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/implement-canonical-ui/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/implement-canonical-ui/agents/openai.yaml'));
+  assert.ok(files.has('templates/workspace/.agents/skills/implement-canonical-ui/references/implementation-reuse.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/implement-canonical-ui/references/visual-qa.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/implement-canonical-ui/references/figma-visual-qa.md'));
+  assert.equal(files.has(`templates/workspace/.agents/skills/${retiredFigmaOnlyImplementationSkill}/SKILL.md`), false);
   assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui/agents/openai.yaml'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/review-evidence.schema.json'));
+  assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/publication-receipt.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/repair-packet.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs'));

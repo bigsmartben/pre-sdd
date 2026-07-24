@@ -1,5 +1,5 @@
 export const canonicalUi = {
-  version: '10.0.0',
+  version: '11.0.0',
   actor: 'ACTOR-001',
   draft: {
     version: '0.1.0',
@@ -14,15 +14,30 @@ export const canonicalUi = {
     aspects: [],
     coverage: [],
   },
+  reviewTools: {
+    activation: {
+      queryParameter: 'review',
+      enabledValue: '1',
+    },
+    boundary: {
+      classification: 'review-only',
+      excludedProductScopes: ['requirements', 'features', 'pages', 'controls', 'downstream-implementation'],
+      protectedProductFacts: ['use-cases', 'interaction-flows', 'visual-spec'],
+    },
+    tools: [
+      { id: 'REVIEW-TOOL-INCONSISTENCY-ANNOTATOR', kind: 'inconsistency-annotator', delivery: 'built-in' },
+      { id: 'REVIEW-TOOL-MOCKCASE-SWITCHER', kind: 'mockcase-switcher', delivery: 'review-extension' },
+      { id: 'REVIEW-TOOL-INTERACTION-BRANCH-DRIVER', kind: 'interaction-branch-driver', delivery: 'built-in' },
+    ],
+  },
   repairPolicy: {
     allowedImplementationPaths: [
       'index.html',
       'src/main.ts',
       'src/psp-app.ts',
       'src/product-router.ts',
-      'src/review-shell.ts',
       'src/state-gallery.ts',
-      'src/inconsistency-annotator.ts',
+      'src/matrix-mount.ts',
       'src/components/**/*.ts',
       'src/components/**/*.css',
       'src/pages/**/*.ts',
@@ -56,6 +71,7 @@ export const canonicalUi = {
   ],
   componentInventory: [],
   componentMappings: [],
+  componentVariantDefinitions: [],
   componentVariantCoverage: [],
   componentContracts: [],
   stateAxes: [],
@@ -89,6 +105,7 @@ export const canonicalUi = {
   viewports: [],
   renderAssertions: [],
   sourceParityAssertions: [],
+  componentSourceParityAssertions: [],
   motions: [
     { id: 'MOTION-001', targetId: 'COMPONENT-001', trigger: 'loading', durationMs: 160, reducedMotion: true },
   ],

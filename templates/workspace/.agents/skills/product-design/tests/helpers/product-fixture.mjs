@@ -34,6 +34,21 @@ function sha256(content) {
   return 'sha256:' + createHash('sha256').update(content).digest('hex');
 }
 
+function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map((item) => canonicalJson(item)).join(',') + ']';
+  return '{' + Object.keys(value)
+    .sort()
+    .map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key]))
+    .join(',') + '}';
+}
+
+function confirmationSha256(confirmation) {
+  const payload = { ...confirmation };
+  delete payload.sha256;
+  return sha256(Buffer.from(canonicalJson(payload), 'utf8'));
+}
+
 export async function completeProductFixture(root) {
   const initialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
   assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
@@ -247,9 +262,9 @@ export async function completeProductFixture(root) {
     mkdir(assetRoot, { recursive: true }),
   ]);
   const location = 'https://www.figma.com/design/example/psp-harness?node-id=1-2';
-  const capturedAt = '2026-07-15T10:00:00Z';
+  const capturedAt = '2026-07-15T10:00:01Z';
   const sourceVersion = { kind: 'figma-file-version', value: 'fixture-version-20260715' };
-  const designContext = JSON.stringify({
+  const designContextDocument = {
     version: '3.0.0',
     sourceId,
     nodeId: '1:2',
@@ -303,16 +318,32 @@ export async function completeProductFixture(root) {
         variantProperties: { Mode: 'Default' },
       },
       {
+        nodeId: '2:3',
+        name: 'Mode=Busy',
+        kind: 'component',
+        componentKey: 'fixture-prototype-app-shell-busy',
+        componentSetNodeId: '2:1',
+        mainComponentNodeId: '2:3',
+        structureSignature: 'sha256:3333333333333333333333333333333333333333333333333333333333333333',
+        variantProperties: { Mode: 'Busy' },
+      },
+      {
         nodeId: '1:2',
         name: 'Prototype App Shell Instance',
         kind: 'instance',
         componentKey: 'fixture-prototype-app-shell-default',
         componentSetNodeId: '2:1',
         mainComponentNodeId: '2:2',
+        screenRootNodeId: '1:2',
         structureSignature: 'sha256:2222222222222222222222222222222222222222222222222222222222222222',
         variantProperties: { Mode: 'Default' },
       },
     ],
+    componentSetCatalog: [{
+      componentSetNodeId: '2:1',
+      axes: [{ name: 'Mode', values: ['Default', 'Busy'] }],
+      definitionNodeIds: ['2:2', '2:3'],
+    }],
     assets: [{
       nodeId: '1:3',
       assetKind: 'icon',
@@ -320,13 +351,16 @@ export async function completeProductFixture(root) {
       containsDynamicContent: false,
       recommendedFormat: 'svg',
     }],
-  }, null, 2) + '\n';
+  };
   const variableDefinitions = JSON.stringify({ variables: [{ name: 'color/accent', value: '#c8f36a' }] }, null, 2) + '\n';
   const screenshot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#fffdf7"/><circle cx="5" cy="5" r="3" fill="#c8f36a"/></svg>\n';
   const asset = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="8" fill="#c8f36a"/><path d="M10 21l6 6 14-15" fill="none" stroke="#15210f" stroke-width="4"/></svg>\n';
   const assetFacts = {
     sourceNodeId: '1:3',
     strategy: 'asset',
+    assetKind: 'icon',
+    captureScope: 'layer',
+    containsDynamicContent: false,
     format: 'svg',
     scale: 1,
     cropBounds: { x: 0, y: 0, width: 40, height: 40 },
@@ -344,12 +378,54 @@ export async function completeProductFixture(root) {
     sourceVersion,
     scopeConfirmation: {
       id: 'SCOPE-CONFIRMATION-001',
-      sha256: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      sha256: 'sha256:' + '0'.repeat(64),
       confirmedBy: 'user:fixture-reviewer',
       confirmedAt: '2026-07-15T09:55:00Z',
+      sourceVersion,
       rootNodeId: '1:2',
+      scanInventory: {
+        scannedAt: '2026-07-15T09:54:00Z',
+        sourceVersion,
+        rootNodeId: '1:2',
+        nodes: [
+          { kind: 'page', nodeId: '1:1', name: 'Fixture Page' },
+          { kind: 'component', nodeId: '2:1', name: 'Prototype App Shell' },
+          { kind: 'component', nodeId: '2:2', name: 'Mode=Default', parentNodeId: '2:1' },
+          { kind: 'component', nodeId: '2:3', name: 'Mode=Busy', parentNodeId: '2:1' },
+          { kind: 'component', nodeId: '1:2', name: 'Prototype App Shell Instance', parentNodeId: '1:1' },
+          { kind: 'visual', nodeId: '1:2', name: 'Prototype App Shell Instance', parentNodeId: '1:1' },
+          { kind: 'visual', nodeId: '1:3', name: 'Fixture source icon', parentNodeId: '1:2' },
+          { kind: 'visual', nodeId: '1:4', name: 'Unrelated artwork', parentNodeId: '1:1' },
+        ],
+      },
+      screenBindings: [
+        ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
+          screenId: 'SCREEN-001',
+          figmaRootNodeId: '1:2',
+          viewportId,
+          scenarioId: 'SCENARIO-001',
+          stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS'],
+        })),
+        ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
+          screenId: 'SCREEN-001',
+          figmaRootNodeId: '1:2',
+          viewportId,
+          scenarioId: 'SCENARIO-002',
+          stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'],
+        })),
+        ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
+          screenId: 'SCREEN-001',
+          figmaRootNodeId: '1:2',
+          viewportId,
+          scenarioId: 'SCENARIO-003',
+          stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'],
+        })),
+      ],
       includedNodes: [
         { kind: 'page', nodeId: '1:1', name: 'Fixture Page' },
+        { kind: 'component', nodeId: '2:1', name: 'Prototype App Shell' },
+        { kind: 'component', nodeId: '2:2', name: 'Mode=Default' },
+        { kind: 'component', nodeId: '2:3', name: 'Mode=Busy' },
         { kind: 'component', nodeId: '1:2', name: 'Prototype App Shell Instance' },
         { kind: 'visual', nodeId: '1:2', name: 'Prototype App Shell Instance' },
         { kind: 'visual', nodeId: '1:3', name: 'Fixture source icon' },
@@ -357,17 +433,74 @@ export async function completeProductFixture(root) {
       excludedNodes: [{ kind: 'visual', nodeId: '1:4', name: 'Unrelated artwork', reason: 'Not used by the confirmed scenario.' }],
       viewportIds: ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'],
       scenarioIds: ['SCENARIO-001', 'SCENARIO-002', 'SCENARIO-003'],
-      stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'],
-      counts: { pages: 1, components: 1, visualNodes: 2, viewports: 2, scenarios: 3, states: 4 },
+      stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'],
+      counts: { pages: 1, components: 4, visualNodes: 2, viewports: 2, scenarios: 3, states: 5 },
     },
     highImpactConfirmation: {
       id: 'HIGH-IMPACT-CONFIRMATION-001',
-      sha256: 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      sha256: 'sha256:' + '0'.repeat(64),
       confirmedBy: 'user:fixture-reviewer',
       confirmedAt: '2026-07-15T09:57:00Z',
+      sourceVersion,
       scopeConfirmationId: 'SCOPE-CONFIRMATION-001',
-      componentProposals: [{ nodeId: '1:2', decision: 'shared-component', componentName: 'FixtureStatus', reason: 'Shared semantics and structure.' }],
-      stateAxes: [{ id: 'STATE-AXIS-RUNTIME', name: 'runtime-state', values: ['default', 'loading', 'success', 'error'] }],
+      scopeConfirmationSha256: 'sha256:' + '0'.repeat(64),
+      componentProposals: [{
+        id: 'COMPONENT-PROPOSAL-001',
+        nodeIds: ['2:1', '2:2', '2:3', '1:2'],
+        decision: 'shared-component',
+        componentName: 'FixtureStatus',
+        semanticRole: '展示规格验证状态并承载验证动作',
+        structureSignatures: [
+          'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+          'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+          'sha256:3333333333333333333333333333333333333333333333333333333333333333',
+        ],
+        reason: 'Component Set、Definition 与页面 Instance 共享语义、结构及运行职责。',
+        counterexample: '仅颜色相似、但没有共同状态与接口职责的卡片不应并入此抽象。',
+        componentBoundary: {
+          kind: 'component-set',
+          rootNodeId: '2:1',
+          nestedComponentNodeIds: ['2:2', '2:3', '1:2'],
+        },
+        sizeBehavior: {
+          width: { mode: 'fill', min: 280, max: null },
+          height: { mode: 'hug', min: 0, max: null },
+          wrap: 'content',
+        },
+        interfaceProposal: {
+          properties: [
+            {
+              kind: 'variant',
+              figmaProperty: 'Mode',
+              litProperty: 'mode',
+              litAttribute: 'mode',
+              values: [
+                { figmaValue: 'Default', litValue: 'default' },
+                { figmaValue: 'Busy', litValue: 'busy' },
+              ],
+            },
+            {
+              kind: 'text',
+              figmaProperty: 'Message',
+              litProperty: 'message',
+              litAttribute: null,
+              values: [],
+            },
+          ],
+          slots: [],
+          events: [
+            { name: 'submit-success', trigger: '点击成功动作', litEvent: 'submit-success' },
+            { name: 'submit-error', trigger: '点击错误动作', litEvent: 'submit-error' },
+            { name: 'return-retry', trigger: '点击返回动作', litEvent: 'return-retry' },
+          ],
+        },
+      }],
+      stateAxes: [
+        { id: 'FIGMA-AXIS-VARIANT', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'variant', name: 'Mode', values: ['Default', 'Busy'] },
+        { id: 'FIGMA-AXIS-RUNTIME', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'runtime-state', name: 'status', values: ['default', 'loading', 'success', 'error'] },
+        { id: 'FIGMA-AXIS-INTERACTION', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'interaction-state', name: 'workflow', values: ['ready'] },
+        { id: 'FIGMA-AXIS-CONTENT', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'content-override', name: 'message', values: ['default'] },
+      ],
       resourceAmbiguities: [{ nodeId: '1:3', decision: 'asset', reason: 'Static source icon with no dynamic content.' }],
       writebackOperations: [],
       detachApprovals: [],
@@ -375,18 +508,31 @@ export async function completeProductFixture(root) {
     writebackBoundary: {
       scopeConfirmationId: 'SCOPE-CONFIRMATION-001',
       highImpactConfirmationId: 'HIGH-IMPACT-CONFIRMATION-001',
+      highImpactConfirmationSha256: 'sha256:' + '0'.repeat(64),
+      sourceVersionBefore: sourceVersion,
+      sourceVersionAfter: sourceVersion,
       operationIds: [],
       completedAt: '2026-07-15T09:58:00Z',
       formalCaptureOrdinal: 1,
       recaptureTriggers: ['scope-change', 'source-version-change', 'post-freeze-writeback'],
     },
-    frozenAt: capturedAt,
+    frozenAt: '2026-07-15T09:59:00Z',
+    formalCapture: {
+      ordinal: 1,
+      startedAt: '2026-07-15T10:00:00Z',
+      completedAt: '2026-07-15T10:00:04Z',
+      sourceVersionBefore: sourceVersion,
+      sourceVersionAfter: sourceVersion,
+    },
     candidateVisualNodes: [
       { nodeId: '1:2', name: 'Prototype App Shell Instance', strategy: 'dom-css' },
       {
         nodeId: '1:3',
         name: 'Fixture source icon',
         strategy: 'asset',
+        assetKind: assetFacts.assetKind,
+        captureScope: assetFacts.captureScope,
+        containsDynamicContent: assetFacts.containsDynamicContent,
         consumerTargets: assetFacts.consumerTargets,
         assetExport: {
           format: assetFacts.format,
@@ -400,7 +546,32 @@ export async function completeProductFixture(root) {
       },
     ],
   };
+  capturePlan.scopeConfirmation.sha256 = confirmationSha256(capturePlan.scopeConfirmation);
+  capturePlan.highImpactConfirmation.scopeConfirmationSha256 = capturePlan.scopeConfirmation.sha256;
+  capturePlan.highImpactConfirmation.sha256 = confirmationSha256(capturePlan.highImpactConfirmation);
+  capturePlan.writebackBoundary.highImpactConfirmationSha256 = capturePlan.highImpactConfirmation.sha256;
   const capturePlanText = JSON.stringify(capturePlan, null, 2) + '\n';
+  const rawDesignContext = JSON.stringify({
+    provider: 'figma',
+    operation: 'get_design_context',
+    requestedNodeId: '1:2',
+    sourceVersion,
+    capturedAt,
+    payload: { fixture: true, rootNodeId: '1:2' },
+  }, null, 2) + '\n';
+  const designContext = JSON.stringify({
+    ...designContextDocument,
+    rawCapture: {
+      provider: 'figma',
+      operation: 'get_design_context',
+      requestedNodeId: '1:2',
+      capturedAt,
+      sourceVersion,
+      capturePlanSha256: sha256(capturePlanText),
+      path: 'design-sources/DESIGN-SOURCE-001/raw-design-context.json',
+      sha256: sha256(rawDesignContext),
+    },
+  }, null, 2) + '\n';
   const ingestReceipt = {
     version: '1.0.0',
     sourceId,
@@ -410,10 +581,13 @@ export async function completeProductFixture(root) {
       sha256: sha256(capturePlanText),
     },
     downloadOperation: assetFacts.downloadOperation,
-    ingestedAt: capturedAt,
+    ingestedAt: '2026-07-15T10:00:03Z',
     assets: [{
       sourceNodeId: assetFacts.sourceNodeId,
       path: 'public/assets/DESIGN-SOURCE-001/source.svg',
+      assetKind: assetFacts.assetKind,
+      captureScope: assetFacts.captureScope,
+      containsDynamicContent: assetFacts.containsDynamicContent,
       format: assetFacts.format,
       scale: assetFacts.scale,
       cropBounds: assetFacts.cropBounds,
@@ -426,11 +600,13 @@ export async function completeProductFixture(root) {
     status: 'PASS',
   };
   const ingestReceiptText = JSON.stringify(ingestReceipt, null, 2) + '\n';
+  const rawContextPath = resolve(sourceRoot, 'raw-design-context.json');
   const contextPath = resolve(sourceRoot, 'design-context.json');
   const variablesPath = resolve(sourceRoot, 'variable-definitions.json');
   const screenshotPath = resolve(sourceRoot, 'node-screenshot.svg');
   const assetPath = resolve(assetRoot, 'source.svg');
   await Promise.all([
+    writeFile(rawContextPath, rawDesignContext),
     writeFile(contextPath, designContext),
     writeFile(variablesPath, variableDefinitions),
     writeFile(screenshotPath, screenshot),
@@ -448,13 +624,25 @@ export async function completeProductFixture(root) {
     sourceVersion,
     items: [
       {
+        id: 'EVIDENCE-RAW-CONTEXT-001',
+        role: 'raw-design-context',
+        path: 'design-sources/DESIGN-SOURCE-001/raw-design-context.json',
+        sha256: sha256(rawDesignContext),
+      },
+      {
         id: 'EVIDENCE-CONTEXT-001',
         role: 'design-context',
         path: 'design-sources/DESIGN-SOURCE-001/design-context.json',
         sha256: sha256(designContext),
         schema: 'https://psp.dev/adapters/figma/design-context.schema.json',
       },
-      { id: 'EVIDENCE-SCREENSHOT-001', role: 'screenshot', path: 'design-sources/DESIGN-SOURCE-001/node-screenshot.svg', sha256: sha256(screenshot) },
+      {
+        id: 'EVIDENCE-SCREENSHOT-001',
+        role: 'screenshot',
+        path: 'design-sources/DESIGN-SOURCE-001/node-screenshot.svg',
+        sha256: sha256(screenshot),
+        sourceNodeId: '1:2',
+      },
       { id: 'EVIDENCE-VARIABLES-001', role: 'variable-definitions', path: 'design-sources/DESIGN-SOURCE-001/variable-definitions.json', sha256: sha256(variableDefinitions) },
       {
         id: 'EVIDENCE-CAPTURE-PLAN-001',
@@ -476,9 +664,9 @@ export async function completeProductFixture(root) {
         path: 'public/assets/DESIGN-SOURCE-001/source.svg',
         sha256: sha256(asset),
         sourceNodeId: '1:3',
-        assetKind: 'icon',
-        captureScope: 'layer',
-        containsDynamicContent: false,
+        assetKind: assetFacts.assetKind,
+        captureScope: assetFacts.captureScope,
+        containsDynamicContent: assetFacts.containsDynamicContent,
         strategy: assetFacts.strategy,
         format: assetFacts.format,
         scale: assetFacts.scale,
@@ -493,10 +681,65 @@ export async function completeProductFixture(root) {
   };
   const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
   await writeFile(resolve(sourceRoot, 'evidence.json'), evidenceText);
+  const approvedProposal = capturePlan.highImpactConfirmation.componentProposals[0];
+  const registration = {
+    version: '2.0.0',
+    sourceId,
+    sourceVersion,
+    evidencePath: 'design-sources/DESIGN-SOURCE-001/evidence.json',
+    evidenceSha256: sha256(evidenceText),
+    capturePlan: {
+      path: 'design-sources/DESIGN-SOURCE-001/capture-plan.json',
+      sha256: sha256(capturePlanText),
+    },
+    designContext: {
+      path: 'design-sources/DESIGN-SOURCE-001/design-context.json',
+      sha256: sha256(designContext),
+    },
+    ingestReceipt: {
+      path: 'design-sources/DESIGN-SOURCE-001/ingest-receipt.json',
+      sha256: sha256(ingestReceiptText),
+    },
+    componentHandshake: [{
+      proposalId: approvedProposal.id,
+      decision: approvedProposal.decision,
+      semanticRole: approvedProposal.semanticRole,
+      reason: approvedProposal.reason,
+      counterexample: approvedProposal.counterexample,
+      finalNodeIds: approvedProposal.nodeIds,
+      structureSignatures: approvedProposal.structureSignatures,
+      interfaceProposal: approvedProposal.interfaceProposal,
+      usageBindings: [{ instanceNodeId: '1:2', screenId: 'SCREEN-001' }],
+      baselineEvidenceItemIds: ['EVIDENCE-SCREENSHOT-001'],
+      figmaComponentNodeId: '2:1',
+      variantDefinitionNodeIds: ['2:2', '2:3'],
+      variantUsageInstanceNodeIds: ['1:2'],
+    }],
+    assets: [{
+      path: 'public/assets/DESIGN-SOURCE-001/source.svg',
+      sourceNodeId: assetFacts.sourceNodeId,
+      assetKind: assetFacts.assetKind,
+      captureScope: assetFacts.captureScope,
+      containsDynamicContent: assetFacts.containsDynamicContent,
+      strategy: assetFacts.strategy,
+      format: assetFacts.format,
+      scale: assetFacts.scale,
+      cropBounds: assetFacts.cropBounds,
+      transparentPadding: assetFacts.transparentPadding,
+      expectedDimensions: assetFacts.expectedDimensions,
+      sha256: assetFacts.sha256,
+      downloadOperation: assetFacts.downloadOperation,
+      consumerTargets: assetFacts.consumerTargets,
+      status: assetFacts.status,
+    }],
+    gaps: [],
+  };
+  const registrationText = JSON.stringify(registration, null, 2) + '\n';
+  await writeFile(resolve(sourceRoot, 'source-registration.json'), registrationText);
   const allStateIds = ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
   const canonical = {
-    version: '10.0.0',
+    version: '11.0.0',
     actor: 'ACTOR-001',
     draft: {
       version: '1.0.0',
@@ -517,15 +760,30 @@ export async function completeProductFixture(root) {
         evidenceItemIds: ['EVIDENCE-SCREENSHOT-001', 'EVIDENCE-VARIABLES-001'],
       }],
     },
+    reviewTools: {
+      activation: {
+        queryParameter: 'review',
+        enabledValue: '1',
+      },
+      boundary: {
+        classification: 'review-only',
+        excludedProductScopes: ['requirements', 'features', 'pages', 'controls', 'downstream-implementation'],
+        protectedProductFacts: ['use-cases', 'interaction-flows', 'visual-spec'],
+      },
+      tools: [
+        { id: 'REVIEW-TOOL-INCONSISTENCY-ANNOTATOR', kind: 'inconsistency-annotator', delivery: 'built-in' },
+        { id: 'REVIEW-TOOL-MOCKCASE-SWITCHER', kind: 'mockcase-switcher', delivery: 'review-extension' },
+        { id: 'REVIEW-TOOL-INTERACTION-BRANCH-DRIVER', kind: 'interaction-branch-driver', delivery: 'built-in' },
+      ],
+    },
     repairPolicy: {
       allowedImplementationPaths: [
         'index.html',
         'src/main.ts',
         'src/psp-app.ts',
         'src/product-router.ts',
-        'src/review-shell.ts',
         'src/state-gallery.ts',
-        'src/inconsistency-annotator.ts',
+        'src/matrix-mount.ts',
         'src/components/**/*.ts',
         'src/components/**/*.css',
         'src/pages/**/*.ts',
@@ -541,6 +799,10 @@ export async function completeProductFixture(root) {
       status: 'available',
       capturedAt,
       evidence: { path: 'design-sources/DESIGN-SOURCE-001/evidence.json', sha256: sha256(evidenceText) },
+      registration: {
+        path: 'design-sources/DESIGN-SOURCE-001/source-registration.json',
+        sha256: sha256(registrationText),
+      },
       coverage: [{
         screenId: 'SCREEN-001',
         stateIds: allStateIds,
@@ -574,14 +836,15 @@ export async function completeProductFixture(root) {
     componentInventory: [{
       id: 'COMPONENT-INVENTORY-001',
       sourceId,
-      nodeIds: ['2:1', '2:2', '1:2'],
-      semanticRole: '可执行规范应用壳',
+      nodeIds: ['2:1', '2:2', '2:3', '1:2'],
+      semanticRole: approvedProposal.semanticRole,
       structureSignatures: [
         'sha256:1111111111111111111111111111111111111111111111111111111111111111',
         'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+        'sha256:3333333333333333333333333333333333333333333333333333333333333333',
       ],
       decision: 'shared-component',
-      rationale: 'Component Set、Main Component 与页面 Instance 共享同一结构和运行职责。',
+      rationale: approvedProposal.reason,
       componentId: 'COMPONENT-001',
     }],
     componentMappings: [{
@@ -591,40 +854,88 @@ export async function completeProductFixture(root) {
       inventoryId: 'COMPONENT-INVENTORY-001',
       figmaComponentNodeId: '2:1',
       litTagName: 'psp-app',
-      propertyMappings: [{
-        kind: 'variant',
-        figmaProperty: 'Mode',
-        litProperty: 'mode',
-        litAttribute: 'mode',
-        values: [{ figmaValue: 'Default', litValue: 'default' }],
-      }],
+      propertyMappings: [
+        {
+          kind: 'variant',
+          figmaProperty: 'Mode',
+          litProperty: 'mode',
+          litAttribute: 'mode',
+          values: [
+            { figmaValue: 'Default', litValue: 'default' },
+            { figmaValue: 'Busy', litValue: 'busy' },
+          ],
+        },
+        {
+          kind: 'text',
+          figmaProperty: 'Message',
+          litProperty: 'message',
+          litAttribute: null,
+          values: [],
+        },
+      ],
       slotMappings: [],
       eventIds: ['EVENT-001', 'EVENT-002', 'EVENT-003'],
     }],
-    componentVariantCoverage: [{
-      id: 'COMPONENT-VARIANT-DEFAULT',
-      mappingId: 'COMPONENT-MAPPING-001',
-      figmaVariantProperties: { Mode: 'Default' },
-      litVariantAttributes: { mode: 'default' },
-      litSlotNames: [],
-      instanceNodeIds: ['1:2'],
-      screenIds: ['SCREEN-001'],
-    }],
+    componentVariantDefinitions: [
+      {
+        id: 'COMPONENT-DEFINITION-DEFAULT',
+        mappingId: 'COMPONENT-MAPPING-001',
+        figmaComponentNodeId: '2:2',
+        figmaVariantProperties: { Mode: 'Default' },
+        litVariantAttributes: { mode: 'default' },
+      },
+      {
+        id: 'COMPONENT-DEFINITION-BUSY',
+        mappingId: 'COMPONENT-MAPPING-001',
+        figmaComponentNodeId: '2:3',
+        figmaVariantProperties: { Mode: 'Busy' },
+        litVariantAttributes: { mode: 'busy' },
+      },
+    ],
+    componentVariantCoverage: [
+      {
+        id: 'COMPONENT-VARIANT-DEFAULT',
+        mappingId: 'COMPONENT-MAPPING-001',
+        definitionId: 'COMPONENT-DEFINITION-DEFAULT',
+        litSlotNames: [],
+        usages: [{ instanceNodeId: '1:2', screenId: 'SCREEN-001' }],
+      },
+      {
+        id: 'COMPONENT-VARIANT-BUSY',
+        mappingId: 'COMPONENT-MAPPING-001',
+        definitionId: 'COMPONENT-DEFINITION-BUSY',
+        litSlotNames: [],
+        usages: [],
+      },
+    ],
     componentContracts: [{
       id: 'COMPONENT-CONTRACT-001',
       componentId: 'COMPONENT-001',
+      implementationRole: 'app-shell',
       mappingId: 'COMPONENT-MAPPING-001',
       figmaInstanceNodeIds: ['1:2'],
       litTagName: 'psp-app',
       slots: [],
-      properties: [{ name: 'mode', type: 'string', required: false, defaultValue: 'default' }],
+      properties: [
+        { name: 'mode', type: 'string', required: false, defaultValue: 'default' },
+        { name: 'message', type: 'string', required: false, defaultValue: '' },
+        { name: 'previewState', type: 'string', required: false, defaultValue: 'COMPONENT-STATE-DEFAULT' },
+      ],
       attributes: [{ name: 'mode', propertyName: 'mode' }],
       eventIds: ['EVENT-001', 'EVENT-002', 'EVENT-003'],
-      defaultStateMatrixEntryId: 'STATE-MATRIX-DEFAULT',
-      pageInstances: [
-        { id: 'REVIEW-PRIMARY-INSTANCE', screenId: 'SCREEN-001', figmaInstanceNodeId: '1:2' },
-        { id: 'REVIEW-DETAIL-INSTANCE', screenId: 'SCREEN-001' },
+      stateAxisCoverage: [
+        { kind: 'variant', status: 'modeled' },
+        { kind: 'runtime-state', status: 'modeled' },
+        { kind: 'interaction-state', status: 'modeled' },
+        { kind: 'content-override', status: 'modeled' },
       ],
+      defaultStateMatrixEntryId: 'STATE-MATRIX-DEFAULT',
+      pageInstances: [{
+        id: 'REVIEW-PRIMARY-INSTANCE',
+        screenId: 'SCREEN-001',
+        origin: 'figma',
+        figmaInstanceNodeId: '1:2',
+      }],
       implementationPaths: ['src/psp-app.ts'],
       testAssertions: [
         { kind: 'accessible-name', targetId: 'CONTROL-001' },
@@ -639,18 +950,23 @@ export async function completeProductFixture(root) {
         componentContractId: 'COMPONENT-CONTRACT-001',
         kind: 'variant',
         name: 'Mode',
-        values: [{ id: 'AXIS-VALUE-MODE-DEFAULT', value: 'Default' }],
+        renderBinding: { kind: 'mapped-variant' },
+        values: [
+          { id: 'AXIS-VALUE-MODE-DEFAULT', value: 'Default' },
+          { id: 'AXIS-VALUE-MODE-BUSY', value: 'Busy' },
+        ],
       },
       {
         id: 'STATE-AXIS-RUNTIME',
         componentContractId: 'COMPONENT-CONTRACT-001',
         kind: 'runtime-state',
         name: 'status',
+        renderBinding: { kind: 'component-state', name: 'previewState' },
         values: [
-          { id: 'AXIS-VALUE-RUNTIME-DEFAULT', value: 'default', stateId: 'COMPONENT-STATE-DEFAULT' },
-          { id: 'AXIS-VALUE-RUNTIME-LOADING', value: 'loading', stateId: 'COMPONENT-STATE-LOADING' },
-          { id: 'AXIS-VALUE-RUNTIME-SUCCESS', value: 'success', stateId: 'COMPONENT-STATE-SUCCESS' },
-          { id: 'AXIS-VALUE-RUNTIME-ERROR', value: 'error', stateId: 'COMPONENT-STATE-ERROR' },
+          { id: 'AXIS-VALUE-RUNTIME-DEFAULT', value: 'default', stateId: 'COMPONENT-STATE-DEFAULT', renderValue: 'COMPONENT-STATE-DEFAULT' },
+          { id: 'AXIS-VALUE-RUNTIME-LOADING', value: 'loading', stateId: 'COMPONENT-STATE-LOADING', renderValue: 'COMPONENT-STATE-LOADING' },
+          { id: 'AXIS-VALUE-RUNTIME-SUCCESS', value: 'success', stateId: 'COMPONENT-STATE-SUCCESS', renderValue: 'COMPONENT-STATE-SUCCESS' },
+          { id: 'AXIS-VALUE-RUNTIME-ERROR', value: 'error', stateId: 'COMPONENT-STATE-ERROR', renderValue: 'COMPONENT-STATE-ERROR' },
         ],
       },
       {
@@ -658,6 +974,7 @@ export async function completeProductFixture(root) {
         componentContractId: 'COMPONENT-CONTRACT-001',
         kind: 'interaction-state',
         name: 'workflow',
+        renderBinding: { kind: 'workflow-state' },
         values: [{ id: 'AXIS-VALUE-INTERACTION-READY', value: 'ready', stateId: 'INT-STATE-001' }],
       },
       {
@@ -665,26 +982,30 @@ export async function completeProductFixture(root) {
         componentContractId: 'COMPONENT-CONTRACT-001',
         kind: 'content-override',
         name: 'message',
-        values: [{ id: 'AXIS-VALUE-CONTENT-DEFAULT', value: 'default' }],
+        renderBinding: { kind: 'lit-property', name: 'message' },
+        values: [{ id: 'AXIS-VALUE-CONTENT-DEFAULT', value: 'default', renderValue: 'Fixture component content' }],
       },
     ],
     stateMatrix: [
-      ['STATE-MATRIX-DEFAULT', 'AXIS-VALUE-RUNTIME-DEFAULT'],
-      ['STATE-MATRIX-LOADING', 'AXIS-VALUE-RUNTIME-LOADING'],
-      ['STATE-MATRIX-SUCCESS', 'AXIS-VALUE-RUNTIME-SUCCESS'],
-      ['STATE-MATRIX-ERROR', 'AXIS-VALUE-RUNTIME-ERROR'],
-    ].map(([id, runtimeValueId]) => ({
-      id,
+      ['DEFAULT', 'AXIS-VALUE-RUNTIME-DEFAULT'],
+      ['LOADING', 'AXIS-VALUE-RUNTIME-LOADING'],
+      ['SUCCESS', 'AXIS-VALUE-RUNTIME-SUCCESS'],
+      ['ERROR', 'AXIS-VALUE-RUNTIME-ERROR'],
+    ].flatMap(([runtimeName, runtimeValueId]) => ([
+      ['DEFAULT', 'AXIS-VALUE-MODE-DEFAULT'],
+      ['BUSY', 'AXIS-VALUE-MODE-BUSY'],
+    ].map(([variantName, variantValueId]) => ({
+      id: 'STATE-MATRIX-' + runtimeName + (variantName === 'DEFAULT' ? '' : '-' + variantName),
       componentContractId: 'COMPONENT-CONTRACT-001',
       values: {
-        'STATE-AXIS-VARIANT': 'AXIS-VALUE-MODE-DEFAULT',
+        'STATE-AXIS-VARIANT': variantValueId,
         'STATE-AXIS-RUNTIME': runtimeValueId,
         'STATE-AXIS-INTERACTION': 'AXIS-VALUE-INTERACTION-READY',
         'STATE-AXIS-CONTENT': 'AXIS-VALUE-CONTENT-DEFAULT',
       },
       classification: 'legal',
       renderInGallery: true,
-    })),
+    })))),
     controls: [{ id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' }, { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' }, { id: 'CONTROL-003', componentId: 'COMPONENT-001', label: '返回重试' }],
     states: [
       { id: 'INT-STATE-001', scope: 'workflow', ownerId: 'SCREEN-001', label: '等待验证' },
@@ -722,6 +1043,21 @@ export async function completeProductFixture(root) {
       { id: 'PARITY-COLOR-MOBILE', sourceId, routeId: 'ROUTE-001', viewportId: 'VIEWPORT-MOBILE', aspects: ['color'], checks: [{ kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' }] },
       { id: 'PARITY-COLOR-DESKTOP', sourceId, routeId: 'ROUTE-001', viewportId: 'VIEWPORT-DESKTOP', aspects: ['color'], checks: [{ kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' }] },
     ],
+    componentSourceParityAssertions: [{
+      id: 'COMPONENT-PARITY-001',
+      sourceId,
+      componentContractId: 'COMPONENT-CONTRACT-001',
+      pageInstanceId: 'REVIEW-PRIMARY-INSTANCE',
+      stateMatrixEntryId: 'STATE-MATRIX-DEFAULT',
+      viewportId: 'VIEWPORT-DESKTOP',
+      baselineEvidenceItemId: 'EVIDENCE-SCREENSHOT-001',
+      aspects: ['color'],
+      checks: [
+        { kind: 'screenshot-match' },
+        { kind: 'computed-style', targetId: 'COMPONENT-001', property: 'display', expected: 'block' },
+        { kind: 'computed-style', targetId: 'REVIEW-PRIMARY-INSTANCE', property: 'display', expected: 'block' },
+      ],
+    }],
     motions: [{ id: 'MOTION-001', targetId: 'COMPONENT-001', trigger: 'loading', durationMs: 160, reducedMotion: true }],
     accessibility: { standard: 'Web Content Accessibility Guidelines 2.2 AA', checks: ['automated-rules', 'keyboard-operation', 'visible-focus', 'accessible-name', 'target-size'] },
     traceability: [{ useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], screenIds: ['SCREEN-001'], controlIds: ['CONTROL-001', 'CONTROL-002', 'CONTROL-003'], stateIds: ['INT-STATE-001', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR', 'COMPONENT-STATE-DEFAULT'] }],
@@ -733,21 +1069,7 @@ export async function completeProductFixture(root) {
   await writeFile(appPath, app
     .replaceAll('UC-NNN', 'UC-001')
     .replaceAll('INT-STATE-NNN', 'INT-STATE-001')
-    .replaceAll('COMPONENT-INSTANCE-STATE', 'REVIEW-DETAIL-INSTANCE')
-    .replace(' class="card state-card" data-component-id="COMPONENT-001"', ' class="card state-card"')
     .replace('<h2>交互状态实验台</h2>', '<h2>交互状态实验台</h2>\n            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />'));
-  const routerPath = resolve(areaPath, 'src/product-router.ts');
-  const router = await readFile(routerPath, 'utf8');
-  await writeFile(routerPath, router.replace(
-    '<psp-app data-route-id=${route.id}></psp-app>',
-    '<psp-app data-route-id=${route.id} mode="default" data-component-id="COMPONENT-001" data-component-instance-id="REVIEW-PRIMARY-INSTANCE" data-figma-instance-id="1:2"></psp-app>',
-  ));
-  const indexPath = resolve(areaPath, 'index.html');
-  const index = await readFile(indexPath, 'utf8');
-  await writeFile(
-    indexPath,
-    index.replace('<psp-app data-component-id="COMPONENT-001" data-component-instance-id="COMPONENT-INSTANCE-001"></psp-app>', '<psp-app mode="default" data-component-id="COMPONENT-001" data-component-instance-id="REVIEW-PRIMARY-INSTANCE" data-figma-instance-id="1:2"></psp-app>'),
-  );
 
   await writeArtifact(capabilities);
   await writeArtifact(visualSpec);

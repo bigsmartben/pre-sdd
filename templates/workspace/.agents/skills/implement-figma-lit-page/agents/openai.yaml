@@ -1,4 +1,0 @@
-interface:
-  display_name: "实现 Figma Lit 页面"
-  short_description: "将 Figma 组件与页面还原为可验证的 Lit 规范界面"
-  default_prompt: "Use $implement-figma-lit-page only after the confirmed scope has one strategy per visual node and every asset is closed across Capture Plan, Ingest Receipt, evidence, Asset Manifest, and consumer targets. Implement only mapped shared components, never replace a classified asset with DOM/CSS approximation, render every declared Figma instance through its registered Lit interface, and run asset-consumption plus source-parity validation."

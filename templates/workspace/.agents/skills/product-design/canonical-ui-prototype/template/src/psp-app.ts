@@ -7,24 +7,23 @@ type PreviewState =
   | 'COMPONENT-STATE-SUCCESS'
   | 'COMPONENT-STATE-ERROR';
 
-type ReviewNetworkResponseDetail = {
-  response: Response;
-};
-
 export class PspApp extends LitElement {
   static properties = {
     mode: { type: String, reflect: true },
-    previewState: { state: true },
+    message: { type: String },
+    previewState: { attribute: false },
     feedback: { state: true },
   };
 
   declare mode: string;
-  declare private previewState: PreviewState;
+  declare message: string;
+  declare previewState: PreviewState;
   declare private feedback: string;
 
   constructor() {
     super();
     this.mode = 'default';
+    this.message = '';
     this.previewState = 'COMPONENT-STATE-DEFAULT';
     this.feedback = '选择一种 Mock 行为，验证 Loading、Success 与 Error 状态。';
     const matrixEntryId = new URLSearchParams(window.location.search).get('__pspStateMatrix');
@@ -44,20 +43,6 @@ export class PspApp extends LitElement {
   protected updated(): void {
     this.setAttribute('data-component-state', this.previewState);
   }
-
-  connectedCallback(): void {
-    super.connectedCallback();
-    this.addEventListener('psp:review-network-response', this.handleReviewNetworkResponse as EventListener);
-  }
-
-  disconnectedCallback(): void {
-    this.removeEventListener('psp:review-network-response', this.handleReviewNetworkResponse as EventListener);
-    super.disconnectedCallback();
-  }
-
-  private readonly handleReviewNetworkResponse = (event: CustomEvent<ReviewNetworkResponseDetail>): void => {
-    void this.consumeMockResponse(event.detail.response);
-  };
 
   private async runMock(mode: 'success' | 'error'): Promise<void> {
     this.previewState = 'COMPONENT-STATE-LOADING';
@@ -135,14 +120,14 @@ export class PspApp extends LitElement {
                 </ul>`}
           </article>
 
-          <article class="card state-card" data-component-owner-id="COMPONENT-001" data-component-instance-id="COMPONENT-INSTANCE-STATE" data-component-state=${this.previewState}>
+          <article class="card state-card" data-component-state=${this.previewState}>
             <p class="card-index">02 / STATE LAB</p>
             <h2>交互状态实验台</h2>
             <div class="status" data-component-state=${this.previewState} role="status" aria-live="polite">
               <span class="status-dot" aria-hidden="true"></span>
               <div>
                 <strong>${this.previewState.toUpperCase()}</strong>
-                <p>${this.feedback}</p>
+                <p>${this.message || this.feedback}</p>
               </div>
             </div>
             <div class="actions">

@@ -1,3 +1,5 @@
+import { canonicalUi } from './spec/canonical-ui';
+
 type IssueType = 'position-size' | 'text' | 'interaction' | 'visual';
 type FeedbackCategory = 'behavior' | 'visual-input' | 'implementation';
 type FeedbackRoute = 'use-cases' | 'visual-spec' | 'canonical-ui-prototype';
@@ -23,6 +25,7 @@ type Marker = {
   height: number;
   target: string;
   type?: IssueType;
+  description?: string;
 };
 
 type Html2Canvas = (
@@ -74,6 +77,7 @@ class InconsistencyAnnotator extends HTMLElement {
   private startButton?: HTMLButtonElement;
   private copyButton?: HTMLButtonElement;
   private downloadButton?: HTMLButtonElement;
+  private feedbackButton?: HTMLButtonElement;
   private statusNode?: HTMLElement;
   private currentPageKey = '';
   private pageObserver?: MutationObserver;
@@ -161,6 +165,8 @@ class InconsistencyAnnotator extends HTMLElement {
     if (!issueType || !marker) return;
 
     marker.type = issueType;
+    const description = this.typePicker?.querySelector<HTMLTextAreaElement>('[data-feedback-description]')?.value.trim();
+    marker.description = description || `${ISSUE_LABELS[issueType]}：${marker.target}`;
     this.activeMarkerId = undefined;
     this.typePicker?.classList.remove('is-active');
     this.renderMarkers();
@@ -267,6 +273,50 @@ class InconsistencyAnnotator extends HTMLElement {
     }
   };
 
+  private readonly downloadFeedbackPacket = (): void => {
+    const markers = this.currentPageMarkers()
+      .filter((marker): marker is Marker & { type: IssueType; description: string } => Boolean(marker.type && marker.description));
+    if (markers.length === 0 || !this.feedbackButton) return;
+
+    const model = canonicalUi as unknown as { actor: string; draft: { version: string } };
+    const pageUrl = new URL(window.location.href);
+    const packet = {
+      version: '1.0.0',
+      kind: 'CanonicalUiReviewFeedbackPacket',
+      createdAt: new Date().toISOString(),
+      actor: model.actor,
+      draftVersion: model.draft.version,
+      pageUrl: pageUrl.href,
+      pageKey: this.currentPageKey,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      markers: markers.map((marker) => ({
+        id: marker.id,
+        issueType: marker.type,
+        category: FEEDBACK_ROUTING[marker.type].category,
+        routedTo: FEEDBACK_ROUTING[marker.type].routedTo,
+        description: marker.description,
+        target: marker.target,
+        rect: {
+          x: marker.pageX,
+          y: marker.pageY,
+          width: marker.width,
+          height: marker.height,
+        },
+      })),
+    };
+    const blob = new Blob([`${JSON.stringify(packet, null, 2)}\n`], { type: 'application/json' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = packet.createdAt.replace(/[:.]/g, '-');
+    link.href = href;
+    link.download = `canonical-ui-feedback-${model.actor}-${timestamp}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+    this.setStatus('已导出当前页面的结构化 Feedback Packet，可直接作为文件发送给 AI。');
+  };
+
   private readonly renderMarkers = (): void => {
     if (!this.markerLayer) return;
     const markers = this.currentPageMarkers();
@@ -353,6 +403,11 @@ class InconsistencyAnnotator extends HTMLElement {
         }
         .ia-type-picker.is-active { display: grid; }
         .ia-type-picker-title { grid-column: 1 / -1; margin: 0 0 2px; color: #555; font-size: 12px; font-weight: 800; }
+        .ia-feedback-description {
+          grid-column: 1 / -1; min-height: 68px; resize: vertical; padding: 9px 10px; border: 1px solid #e3e4e7;
+          border-radius: 10px; color: #25262a; background: #fff; font: inherit; font-size: 12px; line-height: 1.5;
+        }
+        .ia-feedback-description:focus-visible { outline: 3px solid #ffbd2e; outline-offset: 2px; }
         .ia-type-button { min-height: 42px; padding: 0 10px; border: 1px solid #e3e4e7; border-radius: 11px; color: #25262a; background: #f8f8f9; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
         .ia-type-button:hover { border-color: #e5484d; color: #c9343a; background: #fff4f4; }
         @media (max-width: 560px) {
@@ -365,7 +420,8 @@ class InconsistencyAnnotator extends HTMLElement {
         <div class="ia-draft-box"></div>
       </div>
       <div class="ia-type-picker" role="dialog" aria-modal="true" aria-label="选择问题类型">
-        <p class="ia-type-picker-title">选择问题类型</p>
+        <p class="ia-type-picker-title">可补充说明，再选择问题类型</p>
+        <textarea class="ia-feedback-description" data-feedback-description placeholder="例如：标题比设计稿向下偏移约 12px（可选）"></textarea>
         <button class="ia-type-button" type="button" data-issue-type="position-size">位置／尺寸</button>
         <button class="ia-type-button" type="button" data-issue-type="text">文字错误</button>
         <button class="ia-type-button" type="button" data-issue-type="interaction">交互错误</button>
@@ -381,6 +437,7 @@ class InconsistencyAnnotator extends HTMLElement {
           <button class="ia-button" type="button" data-action="copy" disabled>复制</button>
         </div>
         <div class="ia-toolbar-secondary">
+          <button class="ia-link-button" type="button" data-action="feedback" disabled>导出反馈包</button>
           <button class="ia-link-button" type="button" data-action="download" disabled>下载图片</button>
           <button class="ia-link-button" type="button" data-action="undo" disabled>撤销上一个</button>
           <button class="ia-link-button" type="button" data-action="clear" disabled>清空</button>
@@ -396,11 +453,13 @@ class InconsistencyAnnotator extends HTMLElement {
     this.startButton = this.querySelector<HTMLButtonElement>('[data-action="start"]') ?? undefined;
     this.copyButton = this.querySelector<HTMLButtonElement>('[data-action="copy"]') ?? undefined;
     this.downloadButton = this.querySelector<HTMLButtonElement>('[data-action="download"]') ?? undefined;
+    this.feedbackButton = this.querySelector<HTMLButtonElement>('[data-action="feedback"]') ?? undefined;
     this.statusNode = this.querySelector<HTMLElement>('.ia-status') ?? undefined;
 
     this.startButton?.addEventListener('click', this.beginSelection);
     this.copyButton?.addEventListener('click', this.copyAnnotatedScreenshot);
     this.downloadButton?.addEventListener('click', this.downloadAnnotatedScreenshot);
+    this.feedbackButton?.addEventListener('click', this.downloadFeedbackPacket);
     this.querySelector<HTMLButtonElement>('[data-action="undo"]')?.addEventListener('click', this.undoLastMarker);
     this.querySelector<HTMLButtonElement>('[data-action="clear"]')?.addEventListener('click', this.clearMarkers);
     this.typePicker?.addEventListener('click', this.chooseIssueType);
@@ -442,9 +501,6 @@ class InconsistencyAnnotator extends HTMLElement {
 
   private resolvePageKey(): string {
     const url = new URL(window.location.href);
-    url.searchParams.delete('annotate');
-    url.searchParams.delete('psp-case');
-    url.searchParams.delete('psp-cases');
     const screenIds = Array.from(document.querySelectorAll<HTMLElement>('[data-screen-id]'))
       .filter((element) => !this.contains(element) && element.getClientRects().length > 0)
       .filter((element) => element.getAttribute('aria-hidden') !== 'true')
@@ -465,8 +521,10 @@ class InconsistencyAnnotator extends HTMLElement {
     this.typePicker.style.left = `${pickerLeft}px`;
     this.typePicker.style.top = `${pickerTop}px`;
     this.typePicker.classList.add('is-active');
-    this.typePicker.querySelector<HTMLButtonElement>('[data-issue-type]')?.focus();
-    this.setStatus('请选择这个框选区域的问题类型。');
+    const description = this.typePicker.querySelector<HTMLTextAreaElement>('[data-feedback-description]');
+    if (description) description.value = '';
+    description?.focus();
+    this.setStatus('可补充具体说明，然后选择这个框选区域的问题类型。');
   }
 
   private async captureViewport(markers: Array<Marker & { type: IssueType }>): Promise<Blob> {
@@ -587,6 +645,7 @@ class InconsistencyAnnotator extends HTMLElement {
       `#${marker.id} ${ISSUE_LABELS[marker.type]}`,
       `反馈分类：${FEEDBACK_ROUTING[marker.type].category}`,
       `路由到：${FEEDBACK_ROUTING[marker.type].routedTo}`,
+      `说明：${marker.description}`,
       `区域：x=${Math.round(marker.pageX)}, y=${Math.round(marker.pageY)}, w=${Math.round(marker.width)}, h=${Math.round(marker.height)}`,
       `关联元素：${marker.target}`,
     ].join('\n'));
@@ -649,9 +708,10 @@ class InconsistencyAnnotator extends HTMLElement {
 
   private refreshControls(): void {
     const markers = this.currentPageMarkers();
-    const readyToCopy = markers.length > 0 && markers.every((marker) => Boolean(marker.type));
+    const readyToCopy = markers.length > 0 && markers.every((marker) => Boolean(marker.type && marker.description));
     if (this.copyButton) this.copyButton.disabled = !readyToCopy;
     if (this.downloadButton) this.downloadButton.disabled = !readyToCopy;
+    if (this.feedbackButton) this.feedbackButton.disabled = !readyToCopy;
     const empty = markers.length === 0;
     const undo = this.querySelector<HTMLButtonElement>('[data-action="undo"]');
     const clear = this.querySelector<HTMLButtonElement>('[data-action="clear"]');
@@ -712,9 +772,7 @@ class InconsistencyAnnotator extends HTMLElement {
 
 customElements.define('inconsistency-annotator', InconsistencyAnnotator);
 
-if (new URLSearchParams(window.location.search).get('annotate') !== '0') {
-  document.body.append(document.createElement('inconsistency-annotator'));
-}
+document.body.append(document.createElement('inconsistency-annotator'));
 
 declare global {
   interface Window {

@@ -93,6 +93,9 @@
         "scenarioId": {"$ref": "#/$defs/id"},
         "assertionId": {"$ref": "#/$defs/id"},
         "componentId": {"$ref": "#/$defs/id"},
+        "componentContractId": {"$ref": "#/$defs/id"},
+        "pageInstanceId": {"$ref": "#/$defs/id"},
+        "stateMatrixEntryId": {"$ref": "#/$defs/id"},
         "contractId": {"$ref": "#/$defs/id"},
         "assetId": {"$ref": "#/$defs/id"},
         "targetIds": {

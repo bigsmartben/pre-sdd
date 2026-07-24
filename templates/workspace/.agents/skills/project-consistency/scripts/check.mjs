@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse as parseYaml } from 'yaml';
 import { executeRegisteredCommand } from '../../../../.psp/harness/scripts/lib/execute-command.mjs';
@@ -507,4 +508,13 @@ async function main() {
   if (result.status !== 'PASS') process.exitCode = 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await main();
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+  }
+}
+
+if (isMainModule()) await main();

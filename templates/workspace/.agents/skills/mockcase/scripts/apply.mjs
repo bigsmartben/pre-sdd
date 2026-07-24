@@ -59,7 +59,8 @@ try {
   };
   const suite = suiteManifest(actor, context.upstream, mockdata, mockcases);
   const nextContext = { ...context, suite, mockdata, mockcases, suiteDigest: compositeDigest(suite, mockdata, mockcases) };
-  await validateSuiteData(nextContext);
+  const { coverage } = await validateSuiteData(nextContext);
+  const lifecycle = coverage.missingScenarioIds.length > 0 ? 'PARTIAL' : 'MAPPED';
   const writes = [
     { target: context.files.suite, content: jsonText(suite) },
     { target: context.files.mockdata, content: jsonText(mockdata) },
@@ -79,7 +80,7 @@ try {
     transactionId,
     targets: writes.map((item) => item.target),
     suiteDigest: nextContext.suiteDigest,
-    lifecycle: 'MAPPED',
+    lifecycle,
     reviewEvidence: 'STALE',
     blockers: [],
   };

@@ -369,6 +369,30 @@ if (manifest && manifestValid) {
       }
       continue;
     }
+    if (operation.kind === 'preview') {
+      const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+      if (
+        !registered
+        || registered.stage !== operation.stage
+        || registered.domain !== operation.domain
+        || !['area', 'area-set'].includes(registered.authorityKind)
+        || !stage?.artifacts?.[operation.artifact]
+      ) {
+        block('AIH_CONTRACT_INVALID', 'Preview operation 引用无效 Area Artifact：' + operation.artifact, operation.id);
+      }
+      if (
+        operation.id !== 'canonical-ui-dev'
+        || operation.npmScript !== 'dev'
+        || operation.sessionMode !== 'long-running'
+        || operation.outputRole !== 'temporary-preview'
+        || operation.executor?.kind !== 'module'
+        || operation.executor.path !== '.agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs'
+        || JSON.stringify(operation.executor.args || []) !== JSON.stringify(['--capability', 'dev'])
+      ) {
+        block('AIH_COMMAND_INVALID', 'Canonical UI 临时预览必须绑定专用长驻运行入口。', operation.id);
+      }
+      continue;
+    }
     if (operation.kind === 'projection-refresh') {
       const registered = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
       const domain = manifest.domainRegistry.find((item) => item.id === operation.domain);
@@ -443,7 +467,7 @@ if (manifest && manifestValid) {
       }
       if (
         operation.executor?.kind !== 'module'
-        || operation.executor.path !== '.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs'
+        || operation.executor.path !== '.agents/skills/figma-workflow/scripts/ingest-assets.mjs'
       ) {
         block('AIH_COMMAND_INVALID', 'Figma Asset Ingest 必须绑定专用执行器。', operation.id);
       }
@@ -468,6 +492,16 @@ if (manifest && manifestValid) {
       }
       if (operation.receipt && operation.receipt !== stage?.publication?.receipt) {
         block('AIH_PROJECT_BINDING_INVALID', '发布凭证路径与项目绑定不一致：' + operation.id, operation.id);
+      }
+      if (operation.id === 'canonical-ui-review') {
+        if (
+          operation.evidenceVersion !== '2.0.0'
+          || operation.feedbackPacketSchema !== '.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json'
+        ) {
+          block('AIH_CONTRACT_INVALID', 'Canonical UI Review 必须登记 Feedback Packet Schema 与 Review Evidence 2.0.0。', operation.id);
+        } else {
+          await requirePath(operation.feedbackPacketSchema, operation.id + '.feedbackPacketSchema');
+        }
       }
       continue;
     }
@@ -738,7 +772,7 @@ if (manifest && manifestValid) {
       }
     }
   }
-  for (const operation of manifest.operations.filter((item) => ['artifact', 'projection-refresh', 'repair', 'review', 'verification', 'publish', 'reopen'].includes(item.kind))) {
+  for (const operation of manifest.operations.filter((item) => ['artifact', 'preview', 'projection-refresh', 'repair', 'review', 'verification', 'publish', 'reopen'].includes(item.kind))) {
     const domain = domains.get(operation.domain);
     if (!domain || operation.executor.kind !== 'module' || !operation.executor.path.startsWith(domain.root + '/')) {
       block('AIH_DOMAIN_BOUNDARY_INVALID', '领域 Operation 执行器越出已注册 Domain Skill：' + operation.id, operation.id);

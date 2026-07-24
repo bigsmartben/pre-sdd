@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const tierIndex = process.argv.indexOf('--tier');
 const tier = tierIndex >= 0 ? process.argv[tierIndex + 1] : 'all';
-const slow = '(?:browser validator|visual policy supports|exact visual repair|canonical UI repair|Human Visual Acceptance|Component Contract runner|incremental validation)';
+const slow = '(?:browser validator|visual policy supports|exact visual repair|canonical UI repair|Human Visual Acceptance|Component Contract runner|Matrix Mount preserves|incremental validation)';
 const filterArguments = tier === 'slow'
   ? ['--test-name-pattern=' + slow]
   : tier === 'fast'

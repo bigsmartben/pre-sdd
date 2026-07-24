@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "actor", "inputLock", "files"],
   "properties": {
-    "schemaVersion": {"const": "1.0.0"},
+    "schemaVersion": {"const": "2.0.0"},
     "actor": {"$ref": "#/$defs/actor"},
     "inputLock": {
       "type": "object",
@@ -31,4 +31,3 @@
     "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
   }
 }
-

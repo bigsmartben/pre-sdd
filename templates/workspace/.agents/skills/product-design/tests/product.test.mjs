@@ -1,5 +1,6 @@
 ﻿import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -10,12 +11,28 @@ import { cleanupTemporaryRepositories, codes, runScript, temporaryRepository } f
 import { completeProductFixture, fixtureProject, readArtifact, writeArtifact } from './helpers/product-fixture.mjs';
 import { migrateLegacyWireflowDirectory } from '../scripts/lib/migrate-legacy-wireflow.mjs';
 import { canonicalLocks, reviewEvidenceDirectory } from '../canonical-ui-prototype/scripts/integrity.mjs';
+import { loadReviewFeedback, reviewIdentity } from '../canonical-ui-prototype/scripts/review.mjs';
 import { verifyVisualAcceptance, visualAcceptanceRecordPath } from '../canonical-ui-prototype/scripts/visual-acceptance.mjs';
 
 test.after(cleanupTemporaryRepositories);
 
 function sha256(content) {
   return 'sha256:' + createHash('sha256').update(content).digest('hex');
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map((item) => canonicalJson(item)).join(',') + ']';
+  return '{' + Object.keys(value)
+    .sort()
+    .map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key]))
+    .join(',') + '}';
+}
+
+function confirmationSha256(confirmation) {
+  const payload = { ...confirmation };
+  delete payload.sha256;
+  return sha256(Buffer.from(canonicalJson(payload), 'utf8'));
 }
 
 async function canonicalFixture(root) {
@@ -33,9 +50,131 @@ async function writeCanonical(path, model) {
   await writeFile(path, 'export const canonicalUi = ' + JSON.stringify(model, null, 2) + ' as const;\n');
 }
 
+function removeFigmaComponentBindings(model) {
+  model.componentInventory = [];
+  model.componentMappings = [];
+  model.componentVariantDefinitions = [];
+  model.componentVariantCoverage = [];
+  model.componentSourceParityAssertions = [];
+  const removedAxisIds = new Set(model.stateAxes.filter((axis) => axis.kind === 'variant').map((axis) => axis.id));
+  model.stateAxes = model.stateAxes.filter((axis) => !removedAxisIds.has(axis.id));
+  const remainingEntries = new Map();
+  for (const entry of model.stateMatrix) {
+    const migrated = structuredClone(entry);
+    for (const axisId of removedAxisIds) delete migrated.values[axisId];
+    const key = migrated.componentContractId + '/' + JSON.stringify(
+      Object.entries(migrated.values).sort(([left], [right]) => left.localeCompare(right)),
+    );
+    const previous = remainingEntries.get(key);
+    if (!previous || (previous.id.includes('-BUSY') && !migrated.id.includes('-BUSY'))) {
+      remainingEntries.set(key, migrated);
+    }
+  }
+  model.stateMatrix = [...remainingEntries.values()];
+  for (const contract of model.componentContracts) {
+    delete contract.mappingId;
+    contract.figmaInstanceNodeIds = [];
+    const variantCoverage = contract.stateAxisCoverage.find((item) => item.kind === 'variant');
+    Object.assign(variantCoverage, {
+      status: 'not-applicable',
+      reason: 'Provider-neutral fixture has no Figma Variant axis.',
+    });
+    for (const instance of contract.pageInstances) {
+      instance.origin = 'local';
+      delete instance.figmaInstanceNodeId;
+    }
+  }
+}
+
+const exactVisualAspects = ['layout', 'dimensions', 'typography', 'color', 'spacing', 'shape', 'shadow', 'assets', 'visual-hierarchy'];
+
+function configureStaticExactParity(model) {
+  model.visualPolicy = {
+    mode: 'exact',
+    selectedBy: 'user-explicit',
+    aspects: exactVisualAspects,
+    coverage: model.designSources.flatMap((source) => source.coverage.map((coverage) => ({
+      sourceId: source.id,
+      ...structuredClone(coverage),
+    }))),
+  };
+  model.sourceParityAssertions = [
+    ...model.routes.flatMap((route) => model.viewports.map((viewport) => ({
+      id: 'PARITY-EXACT-' + route.id + '-' + viewport.id,
+      sourceId: model.designSources[0].id,
+      routeId: route.id,
+      viewportId: viewport.id,
+      baselineEvidenceItemId: 'EVIDENCE-SCREENSHOT-001',
+      aspects: exactVisualAspects,
+      checks: [{ kind: 'screenshot-match' }],
+    }))),
+    ...model.scenarios.flatMap((scenario) => scenario.viewportIds.map((viewportId) => ({
+      id: 'PARITY-EXACT-' + scenario.id + '-' + viewportId,
+      sourceId: model.designSources[0].id,
+      routeId: scenario.routeId,
+      scenarioId: scenario.id,
+      viewportId,
+      baselineEvidenceItemId: 'EVIDENCE-SCREENSHOT-001',
+      aspects: exactVisualAspects,
+      checks: [{ kind: 'screenshot-match' }],
+    }))),
+  ];
+  model.componentSourceParityAssertions = model.componentContracts.flatMap((contract) => {
+    const mapping = model.componentMappings.find((item) => item.id === contract.mappingId);
+    const source = model.designSources.find((item) => item.id === mapping?.sourceId);
+    const legalEntries = model.stateMatrix.filter((item) => (
+      item.componentContractId === contract.id && item.classification === 'legal'
+    ));
+    return contract.pageInstances.filter((item) => item.origin === 'figma').flatMap((pageInstance) => {
+      const viewportIds = [...new Set(
+        (source?.coverage || [])
+          .filter((item) => item.screenId === pageInstance.screenId)
+          .flatMap((item) => item.viewportIds),
+      )];
+      return viewportIds.flatMap((viewportId) => legalEntries.map((entry) => ({
+        id: 'COMPONENT-PARITY-' + pageInstance.id + '-' + entry.id + '-' + viewportId,
+        sourceId: source.id,
+        componentContractId: contract.id,
+        pageInstanceId: pageInstance.id,
+        stateMatrixEntryId: entry.id,
+        viewportId,
+        baselineEvidenceItemId: 'EVIDENCE-SCREENSHOT-001',
+        aspects: exactVisualAspects,
+        checks: [{ kind: 'screenshot-match' }],
+      })));
+    });
+  });
+  return model;
+}
+
+async function convertFixtureSourceToProviderNeutral(areaPath, model, kind) {
+  const source = model.designSources[0];
+  const evidencePath = resolve(areaPath, source.evidence.path);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+  evidence.kind = kind;
+  evidence.location = `design-sources/${source.id}/${kind}-source`;
+  delete evidence.nodeId;
+  delete evidence.sourceVersion;
+  evidence.items = evidence.items.filter((item) => ['screenshot', 'variable-definitions'].includes(item.role));
+  const evidenceIds = new Set(evidence.items.map((item) => item.id));
+  const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
+  await writeFile(evidencePath, evidenceText);
+
+  source.kind = kind;
+  source.location = evidence.location;
+  source.evidence.sha256 = sha256(evidenceText);
+  source.registration = null;
+  for (const coverage of source.coverage) {
+    coverage.evidenceItemIds = coverage.evidenceItemIds.filter((id) => evidenceIds.has(id));
+  }
+  model.assets = [];
+  removeFigmaComponentBindings(model);
+  return evidenceIds;
+}
+
 async function writeReviewEvidence(root, actors) {
   const evidence = {
-    version: '1.0.0',
+    version: '2.0.0',
     status: 'PASS',
     reviewId: 'review-' + 'a'.repeat(64),
     createdAt: new Date().toISOString(),
@@ -45,10 +184,11 @@ async function writeReviewEvidence(root, actors) {
       draftVersion: item.draftVersion,
       implementationHash: item.implementationHash,
       buildInputHash: item.buildInputs.contentHash,
-      reviewAddress: 'http://127.0.0.1:4173/?review=' + item.implementationHash.slice('sha256:'.length),
+      reviewAddress: 'http://127.0.0.1:4173/?review=1',
       screenshots: ['fixture-review.png'],
     })),
     validation: [{ id: 'fixture-pass', status: 'PASS', blockers: [] }],
+    feedbackPackets: [],
     markers: [],
   };
   const directory = reviewEvidenceDirectory(root);
@@ -56,48 +196,194 @@ async function writeReviewEvidence(root, actors) {
   await writeFile(resolve(directory, 'review-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
 }
 
+function reviewFeedback(actor, draftVersion, issueType, markerId = 1) {
+  const routing = {
+    interaction: { category: 'behavior', routedTo: 'use-cases' },
+    visual: { category: 'visual-input', routedTo: 'visual-spec' },
+    'position-size': { category: 'implementation', routedTo: 'canonical-ui-prototype' },
+    text: { category: 'implementation', routedTo: 'canonical-ui-prototype' },
+  }[issueType];
+  return {
+    version: '1.0.0',
+    kind: 'CanonicalUiReviewFeedbackPacket',
+    createdAt: '2026-07-23T10:00:00.000Z',
+    actor,
+    draftVersion,
+    pageUrl: 'http://127.0.0.1:4173/?review=1',
+    pageKey: '/::SCREEN-001',
+    viewport: { width: 1280, height: 720 },
+    markers: [{
+      id: markerId,
+      issueType,
+      category: routing.category,
+      routedTo: routing.routedTo,
+      description: 'fixture feedback ' + markerId,
+      target: '[data-screen-id="SCREEN-001"]',
+      rect: { x: 10, y: 20, width: 100, height: 40 },
+    }],
+  };
+}
+
 async function prepareExactFixture(root) {
   const { areaPath, path, model } = await canonicalFixture(root);
   const appPath = resolve(areaPath, 'src/psp-app.ts');
   const app = await readFile(appPath, 'utf8');
-  const guidedRuntime = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
+  const legalComponentMatrixEntries = model.stateMatrix.filter((item) => (
+    item.componentContractId === 'COMPONENT-CONTRACT-001'
+    && item.classification === 'legal'
+  ));
+  const guidedCaptureModel = structuredClone(model);
+  guidedCaptureModel.componentSourceParityAssertions = legalComponentMatrixEntries.map((item) => ({
+    id: 'COMPONENT-PARITY-CAPTURE-' + item.id + '-DESKTOP',
+    sourceId: 'DESIGN-SOURCE-001',
+    componentContractId: 'COMPONENT-CONTRACT-001',
+    pageInstanceId: 'REVIEW-PRIMARY-INSTANCE',
+    stateMatrixEntryId: item.id,
+    viewportId: 'VIEWPORT-DESKTOP',
+    baselineEvidenceItemId: 'EVIDENCE-SCREENSHOT-001',
+    aspects: ['color'],
+    checks: [{ kind: 'screenshot-match' }],
+  }));
+  await writeCanonical(path, guidedCaptureModel);
+  const guidedRuntime = runScript(
+    '.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs',
+    root,
+    ['--viewport', 'VIEWPORT-DESKTOP', '--json'],
+  );
   assert.equal(guidedRuntime.exitCode, 0, JSON.stringify(guidedRuntime.output, null, 2));
   const routeBaseline = guidedRuntime.output.evidence.find((item) => item.kind === 'route' && item.viewportId === 'VIEWPORT-DESKTOP').screenshot;
+  const componentMatrixBaselines = guidedRuntime.output.evidence
+    .filter((item) => (
+      item.kind === 'repair-diagnostic'
+      && item.blockerCode === 'AIH_VISUAL_PIXEL_DIAGNOSTIC'
+      && item.scope?.componentContractId === 'COMPONENT-CONTRACT-001'
+    ))
+    .map((item) => ({
+      componentContractId: item.scope.componentContractId,
+      stateMatrixEntryId: item.scope.stateMatrixEntryId,
+      screenshot: item.evidence.find((evidenceItem) => evidenceItem.kind === 'actual-screenshot')?.path,
+    }));
+  assert.equal(
+    componentMatrixBaselines.length,
+    legalComponentMatrixEntries.length,
+  );
+  assert.ok(componentMatrixBaselines.every((item) => item.screenshot));
+  const scenarioBaselines = guidedRuntime.output.evidence.filter((item) => (
+    item.kind === 'scenario' && item.viewportId === 'VIEWPORT-DESKTOP'
+  ));
   const baselineContent = await readFile(routeBaseline);
   const baselineRelativePath = 'design-sources/DESIGN-SOURCE-001/exact-desktop.png';
   const baselinePath = resolve(areaPath, baselineRelativePath);
   await writeFile(baselinePath, baselineContent);
+  const capturedComponentBaselines = await Promise.all(componentMatrixBaselines.map(async (item) => {
+    const content = await readFile(item.screenshot);
+    const relativePath = 'design-sources/DESIGN-SOURCE-001/exact-component-' + item.stateMatrixEntryId.toLowerCase() + '-desktop.png';
+    const evidenceItemId = 'EVIDENCE-EXACT-COMPONENT-' + item.stateMatrixEntryId + '-DESKTOP';
+    await writeFile(resolve(areaPath, relativePath), content);
+    return { ...item, content, relativePath, evidenceItemId };
+  }));
+  const capturedScenarioBaselines = await Promise.all(scenarioBaselines.map(async (item) => {
+    const content = await readFile(item.screenshot);
+    const relativePath = 'design-sources/DESIGN-SOURCE-001/exact-' + item.scenarioId.toLowerCase() + '-desktop.png';
+    const evidenceItemId = 'EVIDENCE-EXACT-' + item.scenarioId + '-DESKTOP';
+    await writeFile(resolve(areaPath, relativePath), content);
+    return { ...item, content, relativePath, evidenceItemId };
+  }));
   const evidencePath = resolve(areaPath, model.designSources[0].evidence.path);
   const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
   evidence.items.push({ id: 'EVIDENCE-EXACT-DESKTOP', role: 'screenshot', path: baselineRelativePath, sha256: sha256(baselineContent) });
+  for (const item of capturedComponentBaselines) {
+    evidence.items.push({
+      id: item.evidenceItemId,
+      role: 'screenshot',
+      path: item.relativePath,
+      sha256: sha256(item.content),
+      sourceNodeId: '1:2',
+    });
+  }
+  for (const item of capturedScenarioBaselines) {
+    evidence.items.push({
+      id: item.evidenceItemId,
+      role: 'screenshot',
+      path: item.relativePath,
+      sha256: sha256(item.content),
+      sourceNodeId: '1:2',
+    });
+  }
   const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
   await writeFile(evidencePath, evidenceText);
+  const registrationPath = resolve(areaPath, model.designSources[0].registration.path);
+  const registration = JSON.parse(await readFile(registrationPath, 'utf8'));
+  registration.evidenceSha256 = sha256(evidenceText);
+  registration.componentHandshake[0].baselineEvidenceItemIds.push(
+    ...capturedComponentBaselines.map((item) => item.evidenceItemId),
+  );
+  const registrationText = JSON.stringify(registration, null, 2) + '\n';
+  await writeFile(registrationPath, registrationText);
 
   const exact = structuredClone(model);
   exact.visualPolicy = {
     mode: 'exact',
     selectedBy: 'user-explicit',
     aspects: ['layout', 'dimensions', 'typography', 'color', 'spacing', 'shape', 'shadow', 'assets', 'visual-hierarchy'],
-    coverage: [{ sourceId: 'DESIGN-SOURCE-001', screenId: 'SCREEN-001', stateIds: exact.states.map((item) => item.id), viewportIds: ['VIEWPORT-DESKTOP'], evidenceItemIds: ['EVIDENCE-EXACT-DESKTOP'] }],
+    coverage: [{
+      sourceId: 'DESIGN-SOURCE-001',
+      screenId: 'SCREEN-001',
+      stateIds: exact.states.map((item) => item.id),
+      viewportIds: ['VIEWPORT-DESKTOP'],
+      evidenceItemIds: [
+        'EVIDENCE-EXACT-DESKTOP',
+        ...capturedComponentBaselines.map((item) => item.evidenceItemId),
+        ...capturedScenarioBaselines.map((item) => item.evidenceItemId),
+      ],
+    }],
   };
   exact.designSources[0].evidence.sha256 = sha256(evidenceText);
+  exact.designSources[0].registration.sha256 = sha256(registrationText);
   exact.designSources[0].coverage[0].viewportIds = ['VIEWPORT-DESKTOP'];
-  exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
+  exact.designSources[0].coverage[0].evidenceItemIds.push(
+    'EVIDENCE-EXACT-DESKTOP',
+    ...capturedComponentBaselines.map((item) => item.evidenceItemId),
+    ...capturedScenarioBaselines.map((item) => item.evidenceItemId),
+  );
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
-  exact.scenarios = [];
-  exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
-  exact.sourceParityAssertions = [{
-    id: 'PARITY-EXACT-DESKTOP',
+  exact.scenarios = exact.scenarios.map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
+  exact.renderAssertions = exact.renderAssertions.map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
+  exact.sourceParityAssertions = [
+    {
+      id: 'PARITY-EXACT-DESKTOP',
+      sourceId: 'DESIGN-SOURCE-001',
+      routeId: 'ROUTE-001',
+      viewportId: 'VIEWPORT-DESKTOP',
+      baselineEvidenceItemId: 'EVIDENCE-EXACT-DESKTOP',
+      aspects: exact.visualPolicy.aspects,
+      checks: [
+        { kind: 'screenshot-match' },
+        { kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' },
+      ],
+    },
+    ...capturedScenarioBaselines.map((item) => ({
+      id: 'PARITY-EXACT-' + item.scenarioId + '-DESKTOP',
+      sourceId: 'DESIGN-SOURCE-001',
+      routeId: item.routeId,
+      scenarioId: item.scenarioId,
+      viewportId: 'VIEWPORT-DESKTOP',
+      baselineEvidenceItemId: item.evidenceItemId,
+      aspects: exact.visualPolicy.aspects,
+      checks: [{ kind: 'screenshot-match' }],
+    })),
+  ];
+  exact.componentSourceParityAssertions = capturedComponentBaselines.map((item) => ({
+    id: 'COMPONENT-PARITY-' + item.stateMatrixEntryId + '-DESKTOP',
     sourceId: 'DESIGN-SOURCE-001',
-    routeId: 'ROUTE-001',
+    componentContractId: item.componentContractId,
+    pageInstanceId: 'REVIEW-PRIMARY-INSTANCE',
+    stateMatrixEntryId: item.stateMatrixEntryId,
     viewportId: 'VIEWPORT-DESKTOP',
-    baselineEvidenceItemId: 'EVIDENCE-EXACT-DESKTOP',
+    baselineEvidenceItemId: item.evidenceItemId,
     aspects: exact.visualPolicy.aspects,
-    checks: [
-      { kind: 'screenshot-match' },
-      { kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' },
-    ],
-  }];
+    checks: [{ kind: 'screenshot-match' }],
+  }));
   await writeCanonical(path, exact);
   const exactInput = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
   assert.equal(exactInput.exitCode, 0, JSON.stringify(exactInput.output, null, 2));
@@ -142,28 +428,140 @@ test('generic initialization creates atomic UC and provider-neutral Visual Spec 
   assert.match(canonicalSource, /export const canonicalUi/);
   assert.match(canonicalSource, /viewports: \[\]/);
   assert.doesNotMatch(canonicalSource, /accessibility\s*:/);
-  assert.match(await readFile(resolve(templateRoot, 'src/main.ts'), 'utf8'), /import '\.\/inconsistency-annotator';/);
+  const main = await readFile(resolve(templateRoot, 'src/main.ts'), 'utf8');
+  assert.doesNotMatch(main, /inconsistency-annotator|interaction-branch-driver/);
+  const reviewShell = await readFile(resolve(templateRoot, 'src/review-shell.ts'), 'utf8');
+  assert.match(reviewShell, /query\.get\(policy\.queryParameter\) === policy\.enabledValue/);
+  assert.match(reviewShell, /import\('\.\/inconsistency-annotator'\)/);
+  assert.match(reviewShell, /import\('\.\/interaction-branch-driver'\)/);
   const annotator = await readFile(resolve(templateRoot, 'src/inconsistency-annotator.ts'), 'utf8');
-  assert.match(annotator, /URLSearchParams\(window\.location\.search\)\.get\('annotate'\) !== '0'/);
+  assert.doesNotMatch(annotator, /annotate|psp-case|psp-cases|flow-review/);
+  assert.match(annotator, /document\.body\.append\(document\.createElement\('inconsistency-annotator'\)\)/);
   assert.match(annotator, /position: fixed; z-index: 2147483600; top: 20px; right: 20px;/);
   assert.match(annotator, /const image = this\.captureViewport\(markers\);/);
   assert.equal((annotator.match(/navigator\.clipboard\.write/g) || []).length, 1);
   assert.match(annotator, /data-action="download"/);
+  assert.match(annotator, /data-action="feedback"/);
+  assert.match(annotator, /CanonicalUiReviewFeedbackPacket/);
+  assert.match(annotator, /FEEDBACK_ROUTING/);
+  assert.doesNotMatch(annotator, /canonical-ui-repair|repair:canonical-ui/);
   assert.match(annotator, /pageKey: string/);
   assert.match(annotator, /new MutationObserver\(this\.schedulePageRefresh\)/);
   assert.match(annotator, /querySelectorAll<HTMLElement>\('\[data-screen-id\]'\)/);
   assert.match(annotator, /marker\.pageKey === this\.currentPageKey/);
+  const driver = await readFile(resolve(templateRoot, 'src/interaction-branch-driver.ts'), 'utf8');
+  assert.match(driver, /data-review-tool/);
+  assert.match(driver, /data-scenario-id/);
+  assert.match(driver, /psp:interaction-branch-complete/);
+  assert.match(canonicalSource, /classification: 'review-only'/);
+  assert.match(canonicalSource, /excludedProductScopes: \['requirements', 'features', 'pages', 'controls', 'downstream-implementation'\]/);
+  assert.match(canonicalSource, /protectedProductFacts: \['use-cases', 'interaction-flows', 'visual-spec'\]/);
+  assert.doesNotMatch(canonicalSource, /annotate|flow-review/);
   const runtime = await readFile(resolve(root, '.agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs'), 'utf8');
   assert.match(runtime, /server\.resolvedUrls\?\.local\?\.\[0\]/);
-  assert.doesNotMatch(runtime, /searchParams\.set\('annotate', '1'\)/);
+  assert.match(runtime, /searchParams\.set\('review', '0'\)/);
+  assert.doesNotMatch(runtime, /annotate|flow-review/);
   assert.doesNotMatch(runtime, /runRepairGate|runReviewReadiness|executeRegisteredCommand/);
-  assert.match(runtime, /独立应用评审地址/);
+  assert.match(runtime, /独立应用正式预览地址/);
   const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
   assert.equal(manifest.validationProfiles.some((item) => item.id === 'canonical-ui-review-readiness'), true);
   const skill = await readFile(resolve(root, '.agents/skills/product-design/SKILL.md'), 'utf8');
   assert.match(skill, /AIH_CANONICAL_UI_SERVER_FAILED/);
   assert.match(skill, /不得根据默认端口猜测或伪造地址/);
   assert.ok((await stat(resolve(templateRoot, 'public/vendor/html2canvas-1.4.1.min.js'))).isFile());
+});
+
+test('browser validator keeps 17 product pages clean in review=0 and loads all Review Tools in review=1', async () => {
+  const dependencyRequire = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || import.meta.url);
+  const [{ createServer }, { default: playwright }] = await Promise.all([
+    import('vite'),
+    import('@playwright/test'),
+  ]);
+  const temporary = await mkdtemp(resolve(tmpdir(), 'psp-review-boundary-'));
+  const appRoot = resolve(temporary, 'app');
+  const templateRoot = resolve(import.meta.dirname, '../canonical-ui-prototype/template');
+  await cp(templateRoot, appRoot, { recursive: true });
+  const canonicalPath = resolve(appRoot, 'src/spec/canonical-ui.ts');
+  const original = await readFile(canonicalPath, 'utf8');
+  const routes = Array.from({ length: 17 }, (_, index) => {
+    const number = String(index + 1).padStart(3, '0');
+    const path = index === 0 ? '/' : `/page-${number}`;
+    return `    { id: 'ROUTE-${number}', path: '${path}', screenId: 'SCREEN-001' },`;
+  }).join('\n');
+  const scenarios = Array.from({ length: 17 }, (_, index) => {
+    const number = String(index + 1).padStart(3, '0');
+    return `    { id: 'SCENARIO-${number}', useCaseId: 'UC-NNN', interactionFlowIds: ['IF-NNN'], transitionIds: ['IF-NNN-TRANS-NN'], recoveryStateIds: [], routeId: 'ROUTE-${number}', initialStateIds: ['INT-STATE-NNN', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: [] },`;
+  }).join('\n');
+  const expanded = original
+    .replace(
+      /  routes: \[\n[\s\S]*?\n  \],\n  screens:/,
+      `  routes: [\n${routes}\n  ],\n  screens:`,
+    )
+    .replace(
+      /  scenarios: \[\n[\s\S]*?\n  \],\n  viewports:/,
+      `  scenarios: [\n${scenarios}\n  ],\n  viewports:`,
+    );
+  assert.notEqual(expanded, original);
+  await writeFile(canonicalPath, expanded);
+
+  const server = await createServer({
+    root: appRoot,
+    configFile: false,
+    logLevel: 'silent',
+    resolve: {
+      alias: [
+        { find: 'lit', replacement: dependencyRequire.resolve('lit') },
+        { find: 'msw/browser', replacement: dependencyRequire.resolve('msw/browser') },
+        { find: 'msw', replacement: dependencyRequire.resolve('msw') },
+      ],
+    },
+    server: { host: '127.0.0.1', port: 0 },
+  });
+  let browser;
+  try {
+    await server.listen();
+    const address = server.httpServer.address();
+    assert.ok(address && typeof address === 'object');
+    const base = `http://127.0.0.1:${address.port}`;
+    browser = await playwright.chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const extensionCode = "export default {async activate(){const node=document.createElement('div');node.dataset.reviewTool='mockcase';document.body.append(node);return {dispose(){node.remove()}}}}";
+    const descriptor = {
+      id: 'mockcase',
+      apiVersion: 'psp.review-extension/v1',
+      moduleUrl: `data:text/javascript;base64,${Buffer.from(extensionCode).toString('base64')}`,
+      integrity: sha256(Buffer.from(extensionCode)),
+    };
+    await context.addInitScript((value) => {
+      Object.defineProperty(globalThis, '__PSP_REVIEW_EXTENSIONS__', {
+        value: Object.freeze([Object.freeze(value)]),
+        configurable: false,
+        writable: false,
+      });
+    }, descriptor);
+    const page = await context.newPage();
+    for (let index = 0; index < 17; index += 1) {
+      const number = String(index + 1).padStart(3, '0');
+      const path = index === 0 ? '/' : `/page-${number}`;
+      await page.goto(`${base}${path}?review=0`, { waitUntil: 'networkidle' });
+      assert.equal(await page.locator('psp-app').count(), 1, path);
+      assert.equal(await page.locator('[data-review-tool]').count(), 0, path);
+    }
+    for (let index = 0; index < 17; index += 1) {
+      const number = String(index + 1).padStart(3, '0');
+      const path = index === 0 ? '/' : `/page-${number}`;
+      await page.goto(`${base}${path}?review=1`, { waitUntil: 'networkidle' });
+      assert.equal(await page.locator('[data-review-tool]').count(), 3, path);
+      const driver = page.locator('[data-review-tool="interaction-branch-driver"]');
+      await driver.locator(`[data-scenario-id="SCENARIO-${number}"]`).click();
+      await driver.locator('[role="status"]').filter({ hasText: '已达到声明的最终状态' }).waitFor();
+    }
+    await context.close();
+  } finally {
+    if (browser) await browser.close();
+    await server.close();
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
 
 test('Use Cases validator blocks invalid actors, startsAt references, and duplicate identifiers', async () => {
@@ -614,16 +1012,148 @@ test('Canonical UI input gate requires reproducible design source evidence', asy
   assert.ok(codes(invalid).has('AIH_SOURCE_INTEGRITY_FAILED'));
 });
 
+test('Canonical UI input gate exact component source parity closes every Figma page, viewport, and legal matrix tuple exactly once', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+  configureStaticExactParity(model);
+  const expectedCount = model.componentContracts.flatMap((contract) => (
+    contract.pageInstances.filter((item) => item.origin === 'figma').flatMap((pageInstance) => {
+      const mapping = model.componentMappings.find((item) => item.id === contract.mappingId);
+      const source = model.designSources.find((item) => item.id === mapping.sourceId);
+      const viewportIds = [...new Set(
+        source.coverage
+          .filter((item) => item.screenId === pageInstance.screenId)
+          .flatMap((item) => item.viewportIds),
+      )];
+      const legalEntries = model.stateMatrix.filter((item) => (
+        item.componentContractId === contract.id && item.classification === 'legal'
+      ));
+      return viewportIds.flatMap((viewportId) => legalEntries.map((entry) => (
+        contract.id + '/' + pageInstance.id + '/' + entry.id + '/' + viewportId
+      )));
+    })
+  )).length;
+  assert.equal(model.componentSourceParityAssertions.length, expectedCount);
+  const schema = JSON.parse(await readFile(resolve(root, '.agents/skills/product-design/canonical-ui-prototype/schema.json'), 'utf8'));
+  assert.equal(schema.properties.componentSourceParityAssertions.uniqueItems, true);
+
+  await writeCanonical(path, model);
+  const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
+
+  const complete = structuredClone(model);
+  model.componentSourceParityAssertions.pop();
+  await writeCanonical(path, model);
+  const missing = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(codes(missing).has('AIH_VISUAL_SOURCE_INCOMPLETE'), JSON.stringify(missing.output, null, 2));
+  assert.ok(missing.output.blockers.some((item) => item.message.includes('实际 0 条')));
+
+  const duplicate = structuredClone(complete);
+  duplicate.componentSourceParityAssertions.push({
+    ...duplicate.componentSourceParityAssertions[0],
+    id: 'COMPONENT-PARITY-DUPLICATE',
+  });
+  await writeCanonical(path, duplicate);
+  const duplicated = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(codes(duplicated).has('AIH_VISUAL_SOURCE_INCOMPLETE'), JSON.stringify(duplicated.output, null, 2));
+  assert.ok(duplicated.output.blockers.some((item) => item.message.includes('实际 2 条')));
+
+  for (const [field, value] of [
+    ['componentContractId', 'COMPONENT-CONTRACT-999'],
+    ['pageInstanceId', 'REVIEW-UNKNOWN-INSTANCE'],
+    ['stateMatrixEntryId', 'STATE-MATRIX-UNKNOWN'],
+    ['viewportId', 'VIEWPORT-UNKNOWN'],
+  ]) {
+    const invalidModel = structuredClone(complete);
+    invalidModel.componentSourceParityAssertions[0][field] = value;
+    await writeCanonical(path, invalidModel);
+    const invalid = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+    assert.ok(codes(invalid).has('AIH_VISUAL_SOURCE_INCOMPLETE'), field + ': ' + JSON.stringify(invalid.output, null, 2));
+    assert.ok(invalid.output.blockers.some((item) => item.message.includes('Contract / Figma Page / 合法 Matrix / Viewport') || item.message.includes('闭合到可用 Figma Registration')));
+  }
+});
+
 test('Canonical UI input gate Review evidence binds a real address to the frozen Draft', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
+  const { path, model } = await canonicalFixture(root);
+  model.visualPolicy = { mode: 'autonomous', selectedBy: 'default-policy', aspects: [], coverage: [] };
+  model.designSources = [];
+  model.assets = [];
+  model.tokens = [];
+  model.sourceParityAssertions = [];
+  removeFigmaComponentBindings(model);
+  await writeCanonical(path, model);
+  const rendered = runScript('.agents/skills/product-design/scripts/render.mjs', root, ['--json']);
+  assert.equal(rendered.exitCode, 0, JSON.stringify(rendered.output, null, 2));
   const reviewed = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/review.mjs', root, ['--json']);
   assert.equal(reviewed.exitCode, 0, JSON.stringify(reviewed.output, null, 2));
-  assert.match(reviewed.output.actors[0].reviewAddress, /^http:\/\/127\.0\.0\.1:[0-9]+\/\?review=[a-f0-9]{64}$/);
+  assert.match(reviewed.output.actors[0].reviewAddress, /^http:\/\/127\.0\.0\.1:[0-9]+\/\?review=1$/);
   const evidence = JSON.parse(await readFile(reviewed.output.reviewEvidence, 'utf8'));
   assert.equal(evidence.status, 'PASS');
+  assert.equal(evidence.version, '2.0.0');
   assert.equal(evidence.actors[0].draftVersion, '1.0.0');
   assert.ok(evidence.actors[0].screenshots.length > 0);
+  assert.deepEqual(evidence.feedbackPackets, []);
+  assert.deepEqual(evidence.markers, []);
+  assert.equal((await fixtureProject(root)).stages['product-design'].status, 'active');
+});
+
+test('Review Feedback Packets validate, reject stale or misrouted input, and normalize CLI order', async () => {
+  const root = await temporaryRepository();
+  const locks = [{ actor: 'ACTOR-001', draftVersion: '1.0.0' }];
+  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
+  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-review');
+  const firstPath = resolve(root, 'feedback-first.json');
+  const equivalentFirstPath = resolve(root, 'feedback-first-minified.json');
+  const secondPath = resolve(root, 'feedback-second.json');
+  const firstPacket = reviewFeedback('ACTOR-001', locks[0].draftVersion, 'interaction', 1);
+  await writeFile(firstPath, JSON.stringify(firstPacket, null, 2) + '\n');
+  await writeFile(equivalentFirstPath, JSON.stringify(firstPacket));
+  await writeFile(secondPath, JSON.stringify(reviewFeedback('ACTOR-001', locks[0].draftVersion, 'position-size', 2), null, 2) + '\n');
+
+  const forward = await loadReviewFeedback(root, operation, locks, [firstPath, secondPath]);
+  const reversed = await loadReviewFeedback(root, operation, locks, [secondPath, firstPath]);
+  const equivalent = await loadReviewFeedback(root, operation, locks, [equivalentFirstPath, secondPath]);
+  assert.deepEqual(forward, reversed);
+  assert.deepEqual(forward, equivalent);
+  assert.equal(forward.feedbackPackets.length, 2);
+  assert.equal(forward.markers.length, 2);
+  assert.equal(
+    reviewIdentity(operation.evidenceVersion, locks, forward),
+    reviewIdentity(operation.evidenceVersion, locks, reversed),
+  );
+
+  const stalePath = resolve(root, 'feedback-stale.json');
+  await writeFile(stalePath, JSON.stringify(reviewFeedback('ACTOR-001', '9.9.9', 'text'), null, 2) + '\n');
+  await assert.rejects(
+    loadReviewFeedback(root, operation, locks, [stalePath]),
+    (error) => error.code === 'AIH_CANONICAL_UI_FEEDBACK_STALE',
+  );
+
+  const wrongActorPath = resolve(root, 'feedback-wrong-actor.json');
+  await writeFile(wrongActorPath, JSON.stringify(reviewFeedback('ACTOR-999', locks[0].draftVersion, 'text'), null, 2) + '\n');
+  await assert.rejects(
+    loadReviewFeedback(root, operation, locks, [wrongActorPath]),
+    (error) => error.code === 'AIH_CANONICAL_UI_FEEDBACK_STALE',
+  );
+
+  const invalidPath = resolve(root, 'feedback-invalid.json');
+  await writeFile(invalidPath, '{"not":"a feedback packet"}\n');
+  await assert.rejects(
+    loadReviewFeedback(root, operation, locks, [invalidPath]),
+    (error) => error.code === 'AIH_CANONICAL_UI_FEEDBACK_PACKET_INVALID',
+  );
+
+  const misrouted = reviewFeedback('ACTOR-001', locks[0].draftVersion, 'interaction');
+  misrouted.markers[0].routedTo = 'visual-spec';
+  const misroutedPath = resolve(root, 'feedback-misrouted.json');
+  await writeFile(misroutedPath, JSON.stringify(misrouted, null, 2) + '\n');
+  await assert.rejects(
+    loadReviewFeedback(root, operation, locks, [misroutedPath]),
+    (error) => error.code === 'AIH_CANONICAL_UI_FEEDBACK_ROUTE_INVALID',
+  );
 });
 
 test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form one lifecycle', async () => {
@@ -653,8 +1183,10 @@ test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form
   assert.equal(project.stages['product-design'].status, 'published');
   assert.equal(project.stages['architecture-design'].status, 'uninitialized');
   const ledger = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
+  assert.equal(ledger.version, '3.0.0');
   assert.ok(ledger.current.credential.startsWith('sha256:'));
   assert.equal(ledger.current.inputLocks.visualAssets.length, 1);
+  assert.equal(ledger.current.visualAcceptance, null);
 
   const stage = project.stages['product-design'];
   const appPath = resolve(root, stage.root, stage.areas['canonical-ui-prototypes'].root, 'ACTOR-001', 'src/psp-app.ts');
@@ -724,7 +1256,7 @@ test('exact Human Visual Acceptance requires explicit user confirmation and beco
 test('Figma source registration packet validates adapter output without owning Canonical UI identifiers', async () => {
   const root = await temporaryRepository();
   const schema = JSON.parse(await readFile(
-    resolve(root, '.agents/skills/capture-figma-design-source/source-registration.schema.json'),
+    resolve(root, '.agents/skills/figma-workflow/source-registration.schema.json'),
     'utf8',
   ));
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
@@ -735,11 +1267,39 @@ test('Figma source registration packet validates adapter output without owning C
     evidencePath: 'design-sources/DESIGN-SOURCE-001/evidence.json',
     evidenceSha256: 'sha256:' + 'a'.repeat(64),
     capturePlan: { path: 'design-sources/DESIGN-SOURCE-001/capture-plan.json', sha256: 'sha256:' + 'b'.repeat(64) },
+    designContext: { path: 'design-sources/DESIGN-SOURCE-001/design-context.json', sha256: 'sha256:' + 'e'.repeat(64) },
     ingestReceipt: { path: 'design-sources/DESIGN-SOURCE-001/ingest-receipt.json', sha256: 'sha256:' + 'c'.repeat(64) },
+    componentHandshake: [{
+      proposalId: 'COMPONENT-PROPOSAL-001',
+      decision: 'shared-component',
+      semanticRole: '展示验证状态',
+      reason: '共同语义与结构支持复用。',
+      counterexample: '仅颜色相同但职责不同的卡片不能复用。',
+      finalNodeIds: ['2:1', '2:2', '1:2'],
+      structureSignatures: ['sha256:' + 'f'.repeat(64)],
+      interfaceProposal: {
+        properties: [{
+          kind: 'variant',
+          figmaProperty: 'Mode',
+          litProperty: 'mode',
+          litAttribute: 'mode',
+          values: [{ figmaValue: 'Default', litValue: 'default' }],
+        }],
+        slots: [],
+        events: [],
+      },
+      usageBindings: [{ instanceNodeId: '1:2', screenId: 'SCREEN-001' }],
+      baselineEvidenceItemIds: ['EVIDENCE-SCREENSHOT-001'],
+      figmaComponentNodeId: '2:1',
+      variantDefinitionNodeIds: ['2:2'],
+      variantUsageInstanceNodeIds: ['1:2'],
+    }],
     assets: [{
       path: 'public/assets/DESIGN-SOURCE-001/source.svg',
       sourceNodeId: '1:3',
       assetKind: 'icon',
+      captureScope: 'layer',
+      containsDynamicContent: false,
       strategy: 'asset',
       format: 'svg',
       scale: 1,
@@ -768,8 +1328,20 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   await mkdir(downloadDirectory);
   const formalPlanPath = resolve(areaPath, 'design-sources/DESIGN-SOURCE-001/capture-plan.json');
   const formalAssetPath = resolve(areaPath, 'public/assets/DESIGN-SOURCE-001/source.svg');
-  const planContent = await readFile(formalPlanPath);
-  const plan = JSON.parse(planContent.toString('utf8'));
+  const plan = JSON.parse(await readFile(formalPlanPath, 'utf8'));
+  const now = Date.now();
+  plan.scopeConfirmation.scanInventory.scannedAt = new Date(now - 60_000).toISOString();
+  plan.scopeConfirmation.confirmedAt = new Date(now - 50_000).toISOString();
+  plan.highImpactConfirmation.confirmedAt = new Date(now - 40_000).toISOString();
+  plan.writebackBoundary.completedAt = new Date(now - 30_000).toISOString();
+  plan.frozenAt = new Date(now - 20_000).toISOString();
+  plan.formalCapture.startedAt = new Date(now - 10_000).toISOString();
+  plan.formalCapture.completedAt = new Date(now + 60_000).toISOString();
+  plan.scopeConfirmation.sha256 = confirmationSha256(plan.scopeConfirmation);
+  plan.highImpactConfirmation.scopeConfirmationSha256 = plan.scopeConfirmation.sha256;
+  plan.highImpactConfirmation.sha256 = confirmationSha256(plan.highImpactConfirmation);
+  plan.writebackBoundary.highImpactConfirmationSha256 = plan.highImpactConfirmation.sha256;
+  const planContent = Buffer.from(JSON.stringify(plan, null, 2) + '\n');
   const assetContent = await readFile(formalAssetPath);
   const planPath = resolve(session, 'capture-plan.json');
   const downloadPath = resolve(downloadDirectory, 'source.svg');
@@ -780,12 +1352,15 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
     sourceId: plan.sourceId,
     sourceVersion: plan.sourceVersion,
     capturePlanSha256: sha256(planContent),
-    downloadedAt: plan.frozenAt,
+    downloadedAt: new Date(now).toISOString(),
     downloadOperation: assetPlan.assetExport.downloadOperation,
     files: [{
       sourceNodeId: assetPlan.nodeId,
       path: 'downloads/source.svg',
       targetPath: assetPlan.assetExport.targetPath,
+      assetKind: assetPlan.assetKind,
+      captureScope: assetPlan.captureScope,
+      containsDynamicContent: assetPlan.containsDynamicContent,
       format: assetPlan.assetExport.format,
       scale: assetPlan.assetExport.scale,
       cropBounds: assetPlan.assetExport.cropBounds,
@@ -797,7 +1372,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   const acquisitionPath = resolve(session, 'acquisition.json');
   await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
 
-  const ingested = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+  const ingested = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
   assert.equal(ingested.exitCode, 0, JSON.stringify(ingested.output, null, 2));
@@ -805,7 +1380,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
 
   acquisition.files[0].sha256 = 'sha256:' + 'f'.repeat(64);
   await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
-  const mismatched = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+  const mismatched = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
   assert.ok(codes(mismatched).has('AIH_ASSET_HASH_MISMATCH'), JSON.stringify(mismatched.output, null, 2));
@@ -822,7 +1397,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   acquisition.capturePlanSha256 = sha256(ambiguousPlanContent);
   acquisition.files[0].sha256 = sha256(assetContent);
   await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
-  const ambiguous = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+  const ambiguous = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
   assert.ok(codes(ambiguous).has('AIH_ASSET_CLASSIFICATION_INCOMPLETE'), JSON.stringify(ambiguous.output, null, 2));
@@ -837,7 +1412,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   await writeFile(planPath, expandedPlanContent);
   acquisition.capturePlanSha256 = sha256(expandedPlanContent);
   await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
-  const expanded = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+  const expanded = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
   assert.ok(codes(expanded).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(expanded.output, null, 2));
@@ -854,7 +1429,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   await writeFile(planPath, unapprovedDetachContent);
   acquisition.capturePlanSha256 = sha256(unapprovedDetachContent);
   await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
-  const unapprovedDetach = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+  const unapprovedDetach = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
   assert.ok(codes(unapprovedDetach).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(unapprovedDetach.output, null, 2));
@@ -865,13 +1440,13 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   await writeFile(planPath, missingSecondConfirmationContent);
   acquisition.capturePlanSha256 = sha256(missingSecondConfirmationContent);
   await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
-  const missingConfirmation = runScript('.agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs', root, [
+  const missingConfirmation = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
-  assert.ok(codes(missingConfirmation).has('AIH_ASSET_CLASSIFICATION_INCOMPLETE'), JSON.stringify(missingConfirmation.output, null, 2));
+  assert.ok(codes(missingConfirmation).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(missingConfirmation.output, null, 2));
 });
 
-test('Canonical UI 9.0 rejects every removed legacy structure', async () => {
+test('Canonical UI 11.0 rejects legacy structures and incomplete public Lit projection contracts', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { path, model } = await canonicalFixture(root);
@@ -895,6 +1470,21 @@ test('Canonical UI 9.0 rejects every removed legacy structure', async () => {
   pageLevelFigmaLink.designSources[0].location = 'https://www.figma.com/design/example/psp-harness';
   await writeCanonical(path, pageLevelFigmaLink);
   assert.ok(codes(runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json'])).has('AIH_ARTIFACT_SCHEMA_FAILED'));
+
+  const unnamedComponentState = structuredClone(model);
+  delete unnamedComponentState.stateAxes.find((axis) => axis.kind === 'runtime-state').renderBinding.name;
+  await writeCanonical(path, unnamedComponentState);
+  assert.ok(codes(runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json'])).has('AIH_ARTIFACT_SCHEMA_FAILED'));
+
+  const missingRuntimeRenderValue = structuredClone(model);
+  delete missingRuntimeRenderValue.stateAxes.find((axis) => axis.kind === 'runtime-state').values[0].renderValue;
+  await writeCanonical(path, missingRuntimeRenderValue);
+  assert.ok(codes(runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json'])).has('AIH_ARTIFACT_SCHEMA_FAILED'));
+
+  const unknownRuntimeProperty = structuredClone(model);
+  unknownRuntimeProperty.stateAxes.find((axis) => axis.kind === 'runtime-state').renderBinding.name = 'undeclaredState';
+  await writeCanonical(path, unknownRuntimeProperty);
+  assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_STATE_MATRIX_INVALID'));
 });
 
 test('component abstraction gates require unique inventory, resolvable mappings, and complete Variant coverage', async () => {
@@ -924,8 +1514,9 @@ test('component abstraction gates require unique inventory, resolvable mappings,
   assert.ok(codes(unsupported).has('AIH_COMPONENT_ABSTRACTION_UNRESOLVED'), JSON.stringify(unsupported.output, null, 2));
 
   const missingVariant = structuredClone(model);
-  missingVariant.componentVariantCoverage[0].figmaVariantProperties.Mode = 'Busy';
-  missingVariant.componentVariantCoverage[0].litVariantAttributes.mode = 'busy';
+  missingVariant.componentVariantDefinitions = missingVariant.componentVariantDefinitions.filter(
+    (item) => item.figmaComponentNodeId !== '2:3',
+  );
   await writeCanonical(path, missingVariant);
   const incomplete = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
   assert.ok(codes(incomplete).has('AIH_COMPONENT_VARIANT_COVERAGE_FAILED'), JSON.stringify(incomplete.output, null, 2));
@@ -948,6 +1539,43 @@ test('Component Contract and State Matrix classify every finite combination exac
   bypassedInterface.componentContracts[0].litTagName = 'copied-state-card';
   await writeCanonical(path, bypassedInterface);
   assert.ok(codes(runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json'])).has('AIH_COMPONENT_CONTRACT_INVALID'));
+
+  const missingShell = structuredClone(model);
+  missingShell.componentContracts[0].implementationRole = 'shared-component';
+  await writeCanonical(path, missingShell);
+  const missingShellResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(
+    missingShellResult.output.blockers.some((item) => item.message.includes('每个 Screen 必须且只能声明一个 app-shell Page Instance')),
+    JSON.stringify(missingShellResult.output, null, 2),
+  );
+
+  const duplicateShell = structuredClone(model);
+  const duplicateShellContract = structuredClone(duplicateShell.componentContracts[0]);
+  duplicateShellContract.id = 'COMPONENT-CONTRACT-DUPLICATE-SHELL';
+  delete duplicateShellContract.mappingId;
+  duplicateShellContract.figmaInstanceNodeIds = [];
+  duplicateShellContract.pageInstances = [{
+    id: 'REVIEW-DUPLICATE-SHELL-INSTANCE',
+    screenId: 'SCREEN-001',
+    origin: 'local',
+  }];
+  duplicateShellContract.implementationPaths = ['src/product-router.ts'];
+  duplicateShell.componentContracts.push(duplicateShellContract);
+  await writeCanonical(path, duplicateShell);
+  const duplicateShellResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(
+    duplicateShellResult.output.blockers.some((item) => item.message.includes('每个 Screen 必须且只能声明一个 app-shell Page Instance')),
+    JSON.stringify(duplicateShellResult.output, null, 2),
+  );
+
+  const missingTokenBinding = structuredClone(model);
+  delete missingTokenBinding.tokens[0].cssProperty;
+  await writeCanonical(path, missingTokenBinding);
+  const missingTokenResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+  assert.ok(
+    missingTokenResult.output.blockers.some((item) => item.message.includes('Token 必须声明非空 targetIds 与合法 cssProperty')),
+    JSON.stringify(missingTokenResult.output, null, 2),
+  );
 
   const missingCombination = structuredClone(model);
   missingCombination.stateMatrix.pop();
@@ -979,7 +1607,13 @@ test('guided partial sources are valid while blocked and incomplete exact source
   assert.equal(partialResult.exitCode, 0, JSON.stringify(partialResult.output, null, 2));
 
   const blocked = structuredClone(model);
-  Object.assign(blocked.designSources[0], { status: 'blocked', capturedAt: null, evidence: null, coverage: [] });
+  Object.assign(blocked.designSources[0], {
+    status: 'blocked',
+    capturedAt: null,
+    evidence: null,
+    registration: null,
+    coverage: [],
+  });
   blocked.gaps = [{ id: 'GAP-SOURCE-001', description: 'Figma 节点无访问权限', owner: 'product-design', sourceIds: ['DESIGN-SOURCE-001'] }];
   await writeCanonical(path, blocked);
   assert.ok(codes(runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json'])).has('AIH_SOURCE_CAPTURE_BLOCKED'));
@@ -1128,9 +1762,9 @@ test('browser validator executes declared routes, interactions and viewports wit
   const { areaPath } = await canonicalFixture(root);
   const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.equal(result.exitCode, 0, JSON.stringify(result.output, null, 2));
-  assert.equal(result.output.evidence.length, 8);
   assert.equal(result.output.evidence.filter((item) => item.kind === 'route').length, 2);
   assert.equal(result.output.evidence.filter((item) => item.kind === 'scenario').length, 6);
+  assert.equal(result.output.evidence.filter((item) => item.kind === 'component').length, 8);
   assert.deepEqual(new Set(result.output.evidence.filter((item) => item.kind === 'scenario').map((item) => item.viewportId)), new Set(['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP']));
   for (const item of result.output.evidence.filter((entry) => entry.kind === 'scenario')) {
     const expected = item.scenarioId === 'SCENARIO-001'
@@ -1140,17 +1774,52 @@ test('browser validator executes declared routes, interactions and viewports wit
         : [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'], ['COMPONENT-STATE-DEFAULT']];
     assert.deepEqual(item.actionStateTraces.map((trace) => trace.stateIds), expected);
   }
-  assert.ok(result.output.evidence.every((item) => !item.screenshot.startsWith(root)));
+  assert.ok(result.output.evidence.filter((item) => item.screenshot).every((item) => !item.screenshot.startsWith(root)));
 
   const routerPath = resolve(areaPath, 'src/product-router.ts');
   const router = await readFile(routerPath, 'utf8');
-  await writeFile(routerPath, router.replace('mode="default"', 'mode="special"'));
+  await writeFile(routerPath, router.replace(
+    'host.setAttribute(attribute, value);',
+    "host.setAttribute(attribute, 'special');",
+  ));
   const mismatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.ok(codes(mismatch).has('AIH_COMPONENT_IMPLEMENTATION_MISMATCH'), JSON.stringify(mismatch.output, null, 2));
   const repair = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--new-session', '--json']);
   assert.equal(repair.output.status, 'REPAIR_REQUIRED', JSON.stringify(repair.output, null, 2));
   assert.ok(repair.output.failures.some((item) => item.defectClass === 'html-structure'));
   assert.ok(repair.output.failures.some((item) => item.defectClass === 'component-contract'));
+});
+
+test('browser validator enforces the single App Shell and registered Token consumption', async () => {
+  {
+    const root = await temporaryRepository();
+    await completeProductFixture(root);
+    const { areaPath } = await canonicalFixture(root);
+    const routerPath = resolve(areaPath, 'src/product-router.ts');
+    const router = await readFile(routerPath, 'utf8');
+    await writeFile(
+      routerPath,
+      router.replace(
+        '</psp-app>',
+        '</psp-app><psp-app data-component-id="COMPONENT-001"></psp-app>',
+      ),
+    );
+    const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
+    assert.ok(codes(result).has('AIH_COMPONENT_IMPLEMENTATION_MISMATCH'), JSON.stringify(result.output, null, 2));
+    assert.ok(result.output.blockers.some((item) => item.message.includes('app-shell')));
+  }
+
+  {
+    const root = await temporaryRepository();
+    await completeProductFixture(root);
+    const { areaPath } = await canonicalFixture(root);
+    const appPath = resolve(areaPath, 'src/psp-app.ts');
+    const app = await readFile(appPath, 'utf8');
+    await writeFile(appPath, app.replaceAll('var(--accent)', '#c8f36a'));
+    const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
+    assert.ok(codes(result).has('AIH_VISUAL_STYLE_BINDING_FAILED'), JSON.stringify(result.output, null, 2));
+    assert.ok(result.output.blockers.some((item) => item.message.includes('CSS var() 消费')));
+  }
 });
 
 test('visual policy supports autonomous, guided and exact enforcement without a change-profile bypass', async () => {
@@ -1169,14 +1838,7 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   autonomous.designSources = [];
   autonomous.assets = [];
   autonomous.tokens = [];
-  autonomous.componentInventory = [];
-  autonomous.componentMappings = [];
-  autonomous.componentVariantCoverage = [];
-  for (const contract of autonomous.componentContracts) {
-    delete contract.mappingId;
-    contract.figmaInstanceNodeIds = [];
-    for (const instance of contract.pageInstances) delete instance.figmaInstanceNodeId;
-  }
+  removeFigmaComponentBindings(autonomous);
   autonomous.sourceParityAssertions = [];
   await writeCanonical(path, autonomous);
   const autonomousResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
@@ -1206,45 +1868,7 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   assert.ok(guidedRepair.output.failures.some((item) => item.defectClass === 'source-parity'));
   await writeFile(appPath, app);
 
-  const guidedRuntime = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
-  assert.equal(guidedRuntime.exitCode, 0, JSON.stringify(guidedRuntime.output, null, 2));
-  const routeBaseline = guidedRuntime.output.evidence.find((item) => item.kind === 'route' && item.viewportId === 'VIEWPORT-DESKTOP').screenshot;
-  const baselineContent = await readFile(routeBaseline);
-  const baselineRelativePath = 'design-sources/DESIGN-SOURCE-001/exact-desktop.png';
-  await writeFile(resolve(areaPath, baselineRelativePath), baselineContent);
-  const evidencePath = resolve(areaPath, model.designSources[0].evidence.path);
-  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-  evidence.items.push({ id: 'EVIDENCE-EXACT-DESKTOP', role: 'screenshot', path: baselineRelativePath, sha256: sha256(baselineContent) });
-  const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
-  await writeFile(evidencePath, evidenceText);
-
-  const exact = structuredClone(model);
-  exact.visualPolicy = {
-    mode: 'exact',
-    selectedBy: 'user-explicit',
-    aspects: ['layout', 'dimensions', 'typography', 'color', 'spacing', 'shape', 'shadow', 'assets', 'visual-hierarchy'],
-    coverage: [{ sourceId: 'DESIGN-SOURCE-001', screenId: 'SCREEN-001', stateIds: exact.states.map((item) => item.id), viewportIds: ['VIEWPORT-DESKTOP'], evidenceItemIds: ['EVIDENCE-EXACT-DESKTOP'] }],
-  };
-  exact.designSources[0].evidence.sha256 = sha256(evidenceText);
-  exact.designSources[0].coverage[0].viewportIds = ['VIEWPORT-DESKTOP'];
-  exact.designSources[0].coverage[0].evidenceItemIds.push('EVIDENCE-EXACT-DESKTOP');
-  exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
-  exact.scenarios = [];
-  exact.renderAssertions = exact.renderAssertions.filter((item) => !item.scenarioId).map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
-  exact.sourceParityAssertions = [{
-    id: 'PARITY-EXACT-DESKTOP',
-    sourceId: 'DESIGN-SOURCE-001',
-    routeId: 'ROUTE-001',
-    viewportId: 'VIEWPORT-DESKTOP',
-    baselineEvidenceItemId: 'EVIDENCE-EXACT-DESKTOP',
-    aspects: exact.visualPolicy.aspects,
-    checks: [{ kind: 'screenshot-match' }],
-  }];
-  await writeCanonical(path, exact);
-  const exactInput = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
-  assert.equal(exactInput.exitCode, 0, JSON.stringify(exactInput.output, null, 2));
-  const exactMatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
-  assert.equal(exactMatch.exitCode, 0, JSON.stringify(exactMatch.output, null, 2));
+  const exact = (await prepareExactFixture(root)).model;
 
   await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
   const exactMismatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
@@ -1254,6 +1878,44 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   const localManifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
   const defaultProfile = localManifest.validationProfiles.find((item) => item.id === 'canonical-ui-prototype');
   assert.ok(defaultProfile.commands.includes('product-strict'));
+});
+
+test('provider-neutral implementation inputs accept guided screenshots and exact screenshot or export evidence without Figma closure', async () => {
+  {
+    const root = await temporaryRepository();
+    await completeProductFixture(root);
+    const { areaPath, path, model } = await canonicalFixture(root);
+    const guided = structuredClone(model);
+    const evidenceIds = await convertFixtureSourceToProviderNeutral(areaPath, guided, 'screenshot');
+    guided.designSources[0].status = 'partial';
+    guided.designSources[0].coverage[0].stateIds = ['INT-STATE-001'];
+    guided.designSources[0].coverage[0].evidenceItemIds = guided.designSources[0].coverage[0].evidenceItemIds.filter((id) => evidenceIds.has(id));
+    guided.visualPolicy.coverage[0].stateIds = ['INT-STATE-001'];
+    guided.visualPolicy.coverage[0].evidenceItemIds = guided.visualPolicy.coverage[0].evidenceItemIds.filter((id) => evidenceIds.has(id));
+    await writeCanonical(path, guided);
+    const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+    assert.equal(result.exitCode, 0, JSON.stringify(result.output, null, 2));
+  }
+
+  for (const kind of ['screenshot', 'export']) {
+    const root = await temporaryRepository();
+    await completeProductFixture(root);
+    const exactFixture = await prepareExactFixture(root);
+    const exact = structuredClone(exactFixture.model);
+    const evidenceIds = await convertFixtureSourceToProviderNeutral(exactFixture.areaPath, exact, kind);
+    exact.designSources[0].coverage[0].evidenceItemIds = exact.designSources[0].coverage[0].evidenceItemIds.filter((id) => evidenceIds.has(id));
+    exact.visualPolicy.coverage[0].evidenceItemIds = exact.visualPolicy.coverage[0].evidenceItemIds.filter((id) => evidenceIds.has(id));
+    await writeCanonical(exactFixture.path, exact);
+    const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', root, ['--json']);
+    assert.equal(result.exitCode, 0, kind + ': ' + JSON.stringify(result.output, null, 2));
+    if (kind === 'screenshot') {
+      const missingCoverage = structuredClone(exact);
+      missingCoverage.designSources[0].coverage[0].stateIds = ['INT-STATE-001'];
+      await writeCanonical(exactFixture.path, missingCoverage);
+      const strict = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json']);
+      assert.ok(codes(strict).has('AIH_SOURCE_COVERAGE_FAILED'), JSON.stringify(strict.output, null, 2));
+    }
+  }
 });
 
 test('exact visual repair emits a complete packet and passes after an allowed implementation fix', async () => {
@@ -1307,6 +1969,7 @@ test('repair entry does not depend on Handoff Receipt or Human Visual Acceptance
     '../canonical-ui-prototype/scripts/repair.mjs',
   ), 'utf8');
   assert.doesNotMatch(source, /handoff|receipt|visualAcceptance|visual-acceptance/i);
+  assert.doesNotMatch(source, /canonical-ui-dev|canonical-ui-review|publish-product-design/);
   assert.match(source, /stage\?\.status === 'published'/);
   assert.match(source, /stage\?\.status !== 'active'/);
   assert.match(source, /repair\.allowedVisualModes\.includes/);
@@ -1422,11 +2085,86 @@ test('Component Contract runner generates isolated Playwright checks from the sh
   const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
   assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
 
-  const { path, model } = await canonicalFixture(root);
+  const { areaPath, path, model } = await canonicalFixture(root);
+  const appPath = resolve(areaPath, 'src/psp-app.ts');
+  const app = await readFile(appPath, 'utf8');
+
+  await writeFile(appPath, app.replace('    mode: { type: String, reflect: true },\n', ''));
+  const ignoredVariant = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
+  assert.ok(codes(ignoredVariant).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(ignoredVariant.output, null, 2));
+  assert.ok(ignoredVariant.output.blockers.some((item) => item.message.includes('Variant 未通过声明的 Lit Attribute 实际渲染')));
+
+  await writeFile(appPath, app.replace('${this.message || this.feedback}', '${this.feedback}'));
+  const ignoredContent = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
+  assert.ok(codes(ignoredContent).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(ignoredContent.output, null, 2));
+  assert.ok(ignoredContent.output.blockers.some((item) => item.message.includes('Content Override 的 Lit Property 未形成可见内容')));
+
+  await writeFile(appPath, app);
   model.componentContracts[0].properties[0].defaultValue = 'unexpected';
   await writeCanonical(path, model);
   const failed = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
   assert.ok(codes(failed).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(failed.output, null, 2));
+});
+
+test('Matrix Mount preserves Lit Boolean attribute semantics and requires visible Slot assignment', async () => {
+  const root = await temporaryRepository();
+  await completeProductFixture(root);
+  const { areaPath, path, model } = await canonicalFixture(root);
+  const contract = model.componentContracts[0];
+  contract.properties.push({ name: 'compact', type: 'boolean', required: false, defaultValue: false });
+  contract.attributes.push({ name: 'compact', propertyName: 'compact' });
+  contract.slots.push('label');
+  model.stateAxes.push(
+    {
+      id: 'STATE-AXIS-COMPACT',
+      componentContractId: contract.id,
+      kind: 'content-override',
+      name: 'compact',
+      renderBinding: { kind: 'lit-attribute', name: 'compact' },
+      values: [{ id: 'AXIS-VALUE-COMPACT-FALSE', value: 'false', renderValue: false }],
+    },
+    {
+      id: 'STATE-AXIS-LABEL',
+      componentContractId: contract.id,
+      kind: 'content-override',
+      name: 'label',
+      renderBinding: { kind: 'slot-text', name: 'label' },
+      values: [{ id: 'AXIS-VALUE-LABEL-FIXTURE', value: 'fixture', renderValue: 'Slotted fixture' }],
+    },
+  );
+  for (const entry of model.stateMatrix) {
+    entry.values['STATE-AXIS-COMPACT'] = 'AXIS-VALUE-COMPACT-FALSE';
+    entry.values['STATE-AXIS-LABEL'] = 'AXIS-VALUE-LABEL-FIXTURE';
+  }
+  await writeCanonical(path, model);
+
+  const appPath = resolve(areaPath, 'src/psp-app.ts');
+  const app = await readFile(appPath, 'utf8');
+  const withBindings = app
+    .replace('    message: { type: String },', '    message: { type: String },\n    compact: { type: Boolean, reflect: true },')
+    .replace('  declare message: string;', '  declare message: string;\n  declare compact: boolean;')
+    .replace("    this.message = '';", "    this.message = '';\n    this.compact = false;")
+    .replace('<p>${this.message || this.feedback}</p>', '<p>${this.message || this.feedback}</p>\n                <slot name="label"></slot>');
+  await writeFile(appPath, withBindings);
+
+  const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
+  assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
+
+  const mountPath = resolve(areaPath, 'src/matrix-mount.ts');
+  const mount = await readFile(mountPath, 'utf8');
+  await writeFile(mountPath, mount.replace(
+    '    else host.removeAttribute(name);',
+    "    else host.setAttribute(name, 'false');",
+  ));
+  const falseAsPresent = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
+  assert.ok(codes(falseAsPresent).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(falseAsPresent.output, null, 2));
+  assert.ok(falseAsPresent.output.blockers.some((item) => item.message.includes('Lit Attribute 未实际渲染')));
+
+  await writeFile(mountPath, mount);
+  await writeFile(appPath, withBindings.replace('<slot name="label"></slot>', ''));
+  const unassignedSlot = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
+  assert.ok(codes(unassignedSlot).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(unassignedSlot.output, null, 2));
+  assert.ok(unassignedSlot.output.blockers.some((item) => item.message.includes('Slot 文本未实际渲染')));
 });
 
 test('incremental validation selects impacted component routes and viewports, then reuses OS-temporary cache', async () => {

@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/harness-manifest.schema.json",
   "name": "psp-repository-ai-coding-harness",
-  "version": "18.0.0",
+  "version": "18.1.0",
   "runtime": {
     "protocol": "pre-sdd-harness/v3",
     "authority": "generated-workspace-local",
@@ -36,10 +36,8 @@
       ".agents/skills/project-consistency/SKILL.md",
       ".agents/skills/product-design/SKILL.md",
       ".agents/skills/architecture-design/SKILL.md",
-      ".agents/skills/capture-figma-design-source/SKILL.md",
-      ".agents/skills/organize-figma-assets/SKILL.md",
-      ".agents/skills/figma-component-from-design/SKILL.md",
-      ".agents/skills/implement-figma-lit-page/SKILL.md",
+      ".agents/skills/figma-workflow/SKILL.md",
+      ".agents/skills/implement-canonical-ui/SKILL.md",
       ".agents/skills/repair-canonical-ui/SKILL.md",
       ".agents/skills/mockcase/SKILL.md"
     ]
@@ -506,7 +504,7 @@
       "stage": "mockcase",
       "artifact": "mockcase-suite",
       "profile": "mockcase-runtime",
-      "evidenceVersion": "1.0.0"
+      "evidenceVersion": "2.0.0"
     },
     {
       "id": "verify-mockcase",
@@ -521,7 +519,7 @@
       "stage": "mockcase",
       "artifact": "mockcase-suite",
       "profile": "mockcase-readiness",
-      "evidenceVersion": "1.0.0"
+      "evidenceVersion": "2.0.0"
     },
     {
       "id": "refresh-canonical-ui-projections",
@@ -549,7 +547,7 @@
       "run": "npm run ingest:figma-assets",
       "executor": {
         "kind": "module",
-        "path": ".agents/skills/capture-figma-design-source/scripts/ingest-assets.mjs",
+        "path": ".agents/skills/figma-workflow/scripts/ingest-assets.mjs",
         "args": [
           "--json"
         ]
@@ -558,11 +556,30 @@
       "stage": "product-design",
       "artifact": "canonical-ui-prototype",
       "packetSchemas": {
-        "capturePlan": ".agents/skills/capture-figma-design-source/capture-plan.schema.json",
-        "acquisition": ".agents/skills/capture-figma-design-source/acquisition-packet.schema.json",
-        "receipt": ".agents/skills/capture-figma-design-source/ingest-receipt.schema.json",
-        "registration": ".agents/skills/capture-figma-design-source/source-registration.schema.json"
+        "capturePlan": ".agents/skills/figma-workflow/capture-plan.schema.json",
+        "acquisition": ".agents/skills/figma-workflow/acquisition-packet.schema.json",
+        "receipt": ".agents/skills/figma-workflow/ingest-receipt.schema.json",
+        "registration": ".agents/skills/figma-workflow/source-registration.schema.json"
       }
+    },
+    {
+      "id": "canonical-ui-dev",
+      "kind": "preview",
+      "npmScript": "dev",
+      "run": "npm run dev",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs",
+        "args": [
+          "--capability",
+          "dev"
+        ]
+      },
+      "domain": "product-design",
+      "stage": "product-design",
+      "artifact": "canonical-ui-prototype",
+      "sessionMode": "long-running",
+      "outputRole": "temporary-preview"
     },
     {
       "id": "canonical-ui-repair",
@@ -603,7 +620,8 @@
       "stage": "product-design",
       "artifact": "canonical-ui-prototype",
       "profile": "canonical-ui-review-readiness",
-      "evidenceVersion": "1.0.0"
+      "evidenceVersion": "2.0.0",
+      "feedbackPacketSchema": ".agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json"
     },
     {
       "id": "accept-canonical-ui-visual",
@@ -1267,31 +1285,6 @@
       "timeoutMs": 600000,
       "cache": {
         "mode": "content-addressed"
-      }
-    },
-    {
-      "id": "canonical-ui-dev",
-      "npmScript": "dev",
-      "run": "npm run dev",
-      "purpose": "用 --actor ACTOR-NNN 启动一个参与者 Canonical UI 独立应用并输出带不一致标记工具的实际 HTTP 评审地址，不以前置视觉修复或正式就绪为条件",
-      "blocking": true,
-      "domain": "product-design",
-      "executor": {
-        "kind": "module",
-        "path": ".agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs",
-        "args": [
-          "--capability",
-          "dev"
-        ]
-      },
-      "costClass": "full",
-      "allowedContexts": [
-        "main",
-        "release"
-      ],
-      "timeoutMs": 1800000,
-      "cache": {
-        "mode": "disabled"
       }
     },
     {
@@ -2779,7 +2772,7 @@
       "code": "AIH_SOURCE_CAPTURE_BLOCKED",
       "severity": "blocker",
       "owner": "product-design",
-      "meaning": "设计来源连接器、权限或指定节点访问失败",
+      "meaning": "设计来源连接器、权限或指定节点访问失败，或范围确认、高影响确认、写回边界与冻结来源版本未形成可验证闭包",
       "domain": "product-design",
       "gateClass": "domain-diagnostic"
     },
@@ -2811,7 +2804,7 @@
       "code": "AIH_COMPONENT_VARIANT_COVERAGE_FAILED",
       "severity": "blocker",
       "owner": "product-design",
-      "meaning": "使用中的 Figma Instance 或 Variant 未被 Lit Attribute 与 Screen 覆盖关系完整表达",
+      "meaning": "Figma Component Set 已定义 Variant 或使用中的 Instance 未被 Lit Attribute、使用位置与 Screen 覆盖关系完整表达",
       "domain": "product-design",
       "gateClass": "domain-diagnostic"
     },
@@ -2819,7 +2812,55 @@
       "code": "AIH_COMPONENT_IMPLEMENTATION_MISMATCH",
       "severity": "blocker",
       "owner": "product-design",
-      "meaning": "运行页面没有使用声明的 Lit 自定义元素、Variant Attribute 或 Slot 渲染 Figma Instance",
+      "meaning": "运行页面没有使用 Component Contract 声明的唯一 App Shell、Lit 自定义元素、Page Instance、Variant Attribute 或 Slot",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_COMPONENT_CONTRACT_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Component Contract 与组件映射、Lit 接口、页面实例或实现所有权无法闭合",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_COMPONENT_CONTRACT_COVERAGE_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "组件状态、页面实例或契约断言缺少完整的可执行 Component Contract 覆盖",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_COMPONENT_CONTRACT_TEST_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Component Contract 测试断言引用组件外目标、非法状态组合或不匹配的可访问性要求",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_COMPONENT_CONTRACT_TEST_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Lit 组件未通过已登记属性、Attribute、Slot、Event、状态与可访问性契约测试",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_STATE_MATRIX_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "组件有限状态轴、轴值或 State Matrix 笛卡尔组合存在遗漏、重复、越界或错误分类",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_STATE_GALLERY_FAILED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "State Gallery 未精确呈现全部合法状态组合，或呈现了互斥、不可达及缺少运行预览的组合",
       "domain": "product-design",
       "gateClass": "domain-diagnostic"
     },
@@ -3201,7 +3242,7 @@
       "severity": "blocker",
       "owner": "mockcase",
       "domain": "mockcase",
-      "meaning": "正式 Use Case 或 Scenario 缺少生成 MockCase 所需的业务结果、恢复状态或真实激活事实",
+      "meaning": "正式 Use Case 或 Scenario 缺少生成唯一 State Matrix 公开属性投影所需的业务结果、恢复状态或显式绑定事实",
       "gateClass": "domain-diagnostic"
     },
     {
@@ -3225,7 +3266,7 @@
       "severity": "blocker",
       "owner": "mockcase",
       "domain": "mockcase",
-      "meaning": "MockCase 或 Effect 的 Route、Scenario、实例、Activation、Behavior 或 Matrix 引用无效",
+      "meaning": "MockCase 或 Effect 的 Route、Scenario、实例、Data Binding、Behavior 或 Matrix 引用无效",
       "gateClass": "domain-diagnostic"
     },
     {
@@ -3234,6 +3275,38 @@
       "owner": "mockcase",
       "domain": "mockcase",
       "meaning": "MockCase 默认 Case 或 business Scenario 覆盖不符合领域规则",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_COVERAGE_INCOMPLETE",
+      "severity": "blocker",
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "Scoped MockCase Suite 尚未覆盖全部 Canonical UI Scenario，因此只能处于 PARTIAL",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_PROJECTION_UNSUPPORTED",
+      "severity": "blocker",
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "State Matrix 绑定无法收敛为 Component Contract 声明的公开 Lit Property",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_PROPERTY_INVALID",
+      "severity": "blocker",
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "MockCase 投影引用未知公开属性、无效 Fixture Pointer 或类型不匹配的属性值",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_MOCKCASE_PROJECTION_CONFLICT",
+      "severity": "blocker",
+      "owner": "mockcase",
+      "domain": "mockcase",
+      "meaning": "同一正式组件公开属性收到值不一致的 State Matrix 或 Fixture 投影",
       "gateClass": "domain-diagnostic"
     },
     {
@@ -3249,7 +3322,7 @@
       "severity": "blocker",
       "owner": "mockcase",
       "domain": "mockcase",
-      "meaning": "MockCase 目标组件实例或 Activation Control 在当前 Route 中不存在",
+      "meaning": "MockCase 目标组件实例或公开 Component Contract 身份在当前 Route 中不存在",
       "gateClass": "domain-diagnostic"
     },
     {
@@ -3338,6 +3411,22 @@
       "owner": "product-design",
       "domain": "product-design",
       "meaning": "Review 反馈未按行为问题、视觉输入问题和实现偏差路由到既有唯一事实来源",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_FEEDBACK_PACKET_INVALID",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Review Feedback Packet 无法读取、不符合 Schema 或缺少确定性标记事实",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_CANONICAL_UI_FEEDBACK_STALE",
+      "severity": "blocker",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Review Feedback Packet 的 Actor 或 Draft 版本不是当前待评审版本",
       "gateClass": "domain-diagnostic"
     },
     {

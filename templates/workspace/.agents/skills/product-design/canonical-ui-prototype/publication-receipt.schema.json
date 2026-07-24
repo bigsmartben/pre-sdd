@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["version", "stage", "current", "history"],
   "properties": {
-    "version": {"const": "2.0.0"},
+    "version": {"const": "3.0.0"},
     "stage": {"const": "product-design"},
     "current": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/publication"}]},
     "history": {"type": "array", "items": {"$ref": "#/$defs/publication"}}
@@ -42,7 +42,7 @@
         "review": {
           "type": "object", "additionalProperties": false,
           "required": ["version", "reviewId", "evidenceHash", "reviewAddress"],
-          "properties": {"version": {"const": "1.0.0"}, "reviewId": {"type": "string", "pattern": "^review-[a-f0-9]{64}$"}, "evidenceHash": {"$ref": "#/$defs/hash"}, "reviewAddress": {"type": "string"}}
+          "properties": {"version": {"const": "2.0.0"}, "reviewId": {"type": "string", "pattern": "^review-[a-f0-9]{64}$"}, "evidenceHash": {"$ref": "#/$defs/hash"}, "reviewAddress": {"type": "string"}}
         }
       }
     },
@@ -70,7 +70,7 @@
           "properties": {"useCases": {"$ref": "#/$defs/input"}, "visualSpec": {"$ref": "#/$defs/input"}, "visualAssets": {"type": "array", "items": {"$ref": "#/$defs/asset"}}}
         },
         "actors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/actor"}},
-        "reviewVersion": {"const": "1.0.0"},
+        "reviewVersion": {"const": "2.0.0"},
         "visualAcceptance": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/visualAcceptance"}]},
         "stageIdentityHash": {"$ref": "#/$defs/hash"},
         "credential": {"$ref": "#/$defs/hash"}

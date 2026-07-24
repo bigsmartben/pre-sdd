@@ -61,9 +61,12 @@ Handoff 只在用户明确请求后运行 preflight（预检）。预检会展�
 
 ### 1.3 没有 Figma：生成 UI HTML
 
+技能顺序：`product-design`、`apply-repository-harness` → `implement-canonical-ui` → 用户明确要求时使用 `repair-canonical-ui`。
+
 ```text
 请根据已确认的 Use Cases、正式 Interaction Flow 和已就绪 Visual Spec 开始 Canonical UI Prototype。Low-Fi UI Blueprint 仅作内部建议，可按可用性重组页面；视觉细节以 Visual Spec 为准。
 运行环境：电脑网页；本轮不做其他版本。
+请使用 implement-canonical-ui；本轮没有 Figma 来源，不要要求 Capture Plan、Figma 组件映射或 Instance 标识。
 ```
 
 每个参与者对应 `Canonical-UI-Prototypes/<ACTOR-ID>/` 中一个完全独立的 UI 应用。页面可运行后，智能代理必须启动该参与者的 HTTP 服务、验证并提供 UI HTML 地址；严格检查继续执行，未通过项不能阻塞地址。
@@ -72,7 +75,7 @@ Handoff 只在用户明确请求后运行 preflight（预检）。预检会展�
 
 先提供：Figma 链接与 Frame、Team / Project、副本名、页面范围、运行环境、视觉目标和权限。
 
-技能顺序：`product-design`、`apply-repository-harness` → `organize-figma-assets` → `figma-component-from-design` → `capture-figma-design-source` → `implement-figma-lit-page` → `repair-canonical-ui`。
+技能顺序：`product-design`、`apply-repository-harness` → `figma-workflow` → `implement-canonical-ui` → 用户明确要求时使用 `repair-canonical-ui`。
 
 ### 2.1 创建 Figma 副本
 
@@ -87,15 +90,17 @@ Duplicate 原稿，移动到目标 Team / Project，命名为“产品名 + UI R
 ### 2.2 按页面和组件重建结构
 
 ```text
-请使用 organize-figma-assets 盘点页面、状态、Instance、已有组件和 Export/ 资源。
-先给修改清单，确认后再整理命名、图层和 Auto Layout；不要创建组件、Variant 或变量。
+请使用 figma-workflow 只读盘点页面、状态、Instance、已有组件和候选资源。
+Scope Confirmation 必须逐项列出范围内的视觉节点和组件相关节点，并绑定扫描时的 sourceVersion 与确认内容哈希。
+先返回候选，不要修改 Figma、Detach Instance、采集来源或写代码。
 ```
 
 需要新组件时：
 
 ```text
-请使用 figma-component-from-design 提出共享组件、属性、Variant、变量、Slot 和 Event。
-等我确认后再写入 Figma；不要开始采集或实现。
+继续使用 figma-workflow 提出共享组件、属性、有限 Variant、变量、Slot、Event、资源分类和完整写回清单。
+每个组件提案写明语义职责、结构签名、复用依据和不能复用的反例；状态轴必须绑定具体提案并列出有限值。
+等我完成 High-impact Confirmation 后，把获批整理与组件操作合并为一个写回批次；不要开始正式采集或实现。
 ```
 
 确认每个状态有独立 Frame，组件可切换，动态内容未导出为图片，整理前后视觉一致。
@@ -111,18 +116,19 @@ Duplicate 原稿，移动到目标 Team / Project，命名为“产品名 + UI R
 ### 2.4 采集并登记来源
 
 ```text
-请使用 capture-figma-design-source 采集冻结节点的截图、布局、字体、颜色、变量、组件和资源。
-校验 Export/ 资源，再交回 product-design 登记来源、资源、组件映射和 Variant 覆盖；不要修改 Figma 或开始实现。
+请继续使用 figma-workflow 对冻结节点执行唯一一次正式采集，获取截图、布局、字体、颜色、变量、组件和资源。
+同时保留原始设计上下文、完整 Component Set 定义目录，并输出与最终节点和结构签名闭合的 Component Handshake。
+校验 Export/ 资源，再交回 product-design 分别登记“全部已定义 Variant”和“实际使用的 Instance”；不要修改 Figma 或开始实现。
 ```
 
-Figma 再次写入后，必须重新执行 2.3 和 2.4。
+冻结或正式采集后再次写入 Figma，必须从 2.2 的只读扫描和两次确认重新开始。
 
 ### 2.5 每个页面一个实现任务
 
 规则：一次只实现一个页面、状态和必要组件；未提供当前 UI HTML 地址前不得开始下一页。
 
 ```text
-请使用 implement-figma-lit-page。
+请使用 implement-canonical-ui。
 本任务只实现电脑网页的“项目列表”页面及已确认状态。
 使用已登记的最终 Figma 证据；先实现共享 Lit 组件，再组装页面。
 不要实现反馈详情、手机、平板或其他页面。
@@ -144,7 +150,7 @@ Figma 再次写入后，必须重新执行 2.3 和 2.4。
 4. 对照 Figma 检查位置、尺寸、文字、字体、颜色和资源。
 5. 发现问题后进入 2.7。
 
-普通地址显示不一致标记工具；干净预览使用 `?annotate=0`。
+正式产品预览使用 `?review=0`，不会加载任何 Review Tool（评审工具）；需要不一致标记、MockCase 切换器和交互分支驱动器时统一使用 `?review=1`。未设置 `review` 与 `review=0` 等价。
 
 ### 2.7 标记反馈并迭代
 

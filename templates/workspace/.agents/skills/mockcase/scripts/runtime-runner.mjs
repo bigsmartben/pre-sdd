@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -19,6 +20,11 @@ import {
 } from './lib.mjs';
 
 const { chromium } = playwright;
+const dependencyRequire = createRequire(
+  process.env.PRE_SDD_DEPENDENCY_ENTRY
+  || process.env.PRE_SDD_RUNTIME_ENTRY
+  || import.meta.url,
+);
 const DEFAULT_REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
 
 function reviewTimeoutMs() {
@@ -53,15 +59,82 @@ async function waitForReviewDecision(page, timeoutMs) {
   }
 }
 
+async function waitForRuntimeApi(page) {
+  await page.waitForFunction(
+    () => Boolean(globalThis.__pspMockcaseRuntimeApi)
+      || Boolean(globalThis.__pspMockcaseReviewDecision?.extensionError),
+    null,
+    { timeout: 10000 },
+  );
+  const extensionError = await page.evaluate(
+    () => globalThis.__pspMockcaseReviewDecision?.extensionError ?? null,
+  );
+  if (extensionError) {
+    throw Object.assign(new Error(`MockCase Extension 激活失败：${extensionError.message}`), {
+      code: 'AIH_MOCKCASE_PLUGIN_FAILED',
+    });
+  }
+}
+
 function sameIds(actual, expected) {
   const left = [...actual].sort();
   const right = [...expected].sort();
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function reviewModeUrl(base, routePath = null) {
+  const url = routePath === null ? new URL(base) : new URL(routePath, base);
+  url.searchParams.set('review', '1');
+  return url.href;
+}
+
+function reviewDecisionFacts(decision, runtime, actor) {
+  const detail = decision?.detail;
+  const requiredRoutes = runtime.routes
+    .filter((route) => runtime.cases.some((item) => item.routeId === route.id))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const completedRoutes = Array.isArray(detail?.completedRoutes)
+    ? [...detail.completedRoutes].sort((left, right) => left.routeId.localeCompare(right.routeId))
+    : [];
+  if (
+    decision?.decision !== 'complete'
+    || detail?.actor !== actor
+    || detail?.allRoutesComplete !== true
+    || !sameIds(completedRoutes.map((item) => item.routeId), requiredRoutes.map((item) => item.id))
+  ) {
+    throw Object.assign(new Error('MockCase 完成事件缺少全量 Route 的成功投影事实。'), {
+      code: 'AIH_MOCKCASE_PLUGIN_FAILED',
+    });
+  }
+  return completedRoutes.map((completed) => {
+    const available = new Map(runtime.cases
+      .filter((item) => item.routeId === completed.routeId)
+      .map((item) => [item.id, item.projectionDigest]));
+    const caseProjections = Array.isArray(completed.caseProjections)
+      ? [...completed.caseProjections].sort((left, right) => left.caseId.localeCompare(right.caseId))
+      : [];
+    if (
+      caseProjections.length === 0
+      || caseProjections.some((item) =>
+        available.get(item.caseId) !== item.projectionDigest)
+    ) {
+      throw Object.assign(new Error('MockCase Route 决策引用了无效的 Case 投影摘要：' + completed.routeId), {
+        code: 'AIH_MOCKCASE_PLUGIN_FAILED',
+      });
+    }
+    return {
+      kind: 'review-decision',
+      decision: 'complete',
+      routeId: completed.routeId,
+      caseProjections,
+      status: 'PASS',
+    };
+  });
+}
+
 async function disposeRuntimePage(page) {
-  const disposed = await page.evaluate(() => {
-    globalThis.__pspMockcaseRuntimeApi.dispose();
+  const disposed = await page.evaluate(async () => {
+    await globalThis.__pspMockcaseRuntimeApi.dispose();
     return {
       runtimeApi: typeof globalThis.__pspMockcaseRuntimeApi,
       toolCount: document.querySelectorAll('[data-review-tool="mockcase"]').length,
@@ -79,6 +152,9 @@ async function bundleExtension(context, runtime) {
   const result = await build({
     configFile: false,
     logLevel: 'silent',
+    resolve: {
+      alias: [{ find: 'lit', replacement: dependencyRequire.resolve('lit') }],
+    },
     build: {
       write: false,
       minify: false,
@@ -137,7 +213,7 @@ export async function runRuntime(mode, options = {}) {
     throw Object.assign(new Error('verify-mockcase 是独立无头验证，不接受 --headed。'), { code: 'AIH_COMMAND_INVALID' });
   }
   const context = await workspaceContext(actor, { allowMissingSuite: false });
-  await validateSuiteData(context);
+  await validateSuiteData(context, { requireCoverage: true });
   const runtimeText = await readFile(repositoryFile(context.root, context.files.runtime), 'utf8');
   const runtime = JSON.parse(runtimeText);
   const schemas = await compileSchemas(context.root);
@@ -174,19 +250,22 @@ export async function runRuntime(mode, options = {}) {
         configurable: false,
         writable: false,
       });
-      const reviewDecision = { decision: null, detail: null };
+      const reviewDecision = { decision: null, detail: null, extensionError: null };
       Object.defineProperty(globalThis, '__pspMockcaseReviewDecision', {
         value: reviewDecision,
         configurable: false,
         writable: false,
       });
       globalThis.addEventListener('psp:mockcase-review-complete', (event) => {
-        reviewDecision.decision = 'complete';
         reviewDecision.detail = event.detail;
+        if (event.detail?.allRoutesComplete === true) reviewDecision.decision = 'complete';
       });
       globalThis.addEventListener('psp:mockcase-review-cancel', (event) => {
         reviewDecision.decision = 'cancel';
         reviewDecision.detail = event.detail;
+      });
+      globalThis.addEventListener('psp:review-extension-error', (event) => {
+        reviewDecision.extensionError = event.detail;
       });
     }, [descriptor]);
     facts.push({ kind: 'descriptor', descriptor });
@@ -196,9 +275,9 @@ export async function runRuntime(mode, options = {}) {
       for (const route of routes) {
         const page = await browserContext.newPage();
         try {
-          const routeUrl = new URL(route.path, reviewUrl).href;
+          const routeUrl = reviewModeUrl(reviewUrl, route.path);
           await page.goto(routeUrl, { waitUntil: 'networkidle' });
-          await page.waitForFunction(() => Boolean(globalThis.__pspMockcaseRuntimeApi), null, { timeout: 10000 });
+          await waitForRuntimeApi(page);
           const caseIds = await page.evaluate(() => [...globalThis.__pspMockcaseRuntimeApi.caseIds]);
           const expectedCaseIds = runtime.cases.filter((item) => item.routeId === route.id).map((item) => item.id);
           if (!sameIds(caseIds, expectedCaseIds)) {
@@ -216,10 +295,17 @@ export async function runRuntime(mode, options = {}) {
                 cause: error,
               });
             }
-            facts.push({ kind: 'case', caseId, status: 'PASS' });
+            const runtimeCase = runtime.cases.find((item) => item.id === caseId);
+            facts.push({
+              kind: 'case',
+              caseId,
+              routeId: route.id,
+              projectionDigest: runtimeCase.projectionDigest,
+              status: 'PASS',
+            });
           }
           await disposeRuntimePage(page);
-          facts.push({ kind: 'dispose', status: 'PASS' });
+          facts.push({ kind: 'dispose', routeId: route.id, status: 'PASS' });
         } finally {
           await page.close();
         }
@@ -227,8 +313,8 @@ export async function runRuntime(mode, options = {}) {
     } else {
       const page = await browserContext.newPage();
       try {
-        await page.goto(reviewUrl, { waitUntil: 'networkidle' });
-        await page.waitForFunction(() => Boolean(globalThis.__pspMockcaseRuntimeApi), null, { timeout: 10000 });
+        await page.goto(reviewModeUrl(reviewUrl), { waitUntil: 'networkidle' });
+        await waitForRuntimeApi(page);
         await options.onPageReady?.(page, { mode, routeId: null });
         facts.push({ kind: 'review-host', url: page.url(), status: 'PASS' });
         if (interactiveReview) {
@@ -239,14 +325,14 @@ export async function runRuntime(mode, options = {}) {
               code: 'AIH_MOCKCASE_REVIEW_CANCELLED',
             });
           }
-          facts.push({ kind: 'review-decision', decision: 'complete', status: 'PASS' });
+          facts.push(...reviewDecisionFacts(decision, runtime, actor));
         }
       } finally {
         await page.close();
       }
     }
     const evidence = {
-      schemaVersion: '1.0.0',
+      schemaVersion: '2.0.0',
       actor,
       lifecycle: mode === 'verify' ? 'VERIFIED' : 'READY',
       suiteDigest: context.suiteDigest,

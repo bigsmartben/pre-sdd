@@ -80,7 +80,7 @@ function impacted(model, normalizedPaths) {
       continue;
     }
     if (path.startsWith('src/mocks/')) { all('mock-behavior-changed'); continue; }
-    if (/^(?:index\.html|package\.json|tsconfig\.json|vite\.config\.ts|src\/(?:main|state-gallery|review-shell|inconsistency-annotator)\.ts|src\/.*\.css)$/.test(path)) { all('shared-runtime-changed'); continue; }
+    if (/^(?:index\.html|package\.json|tsconfig\.json|vite\.config\.ts|src\/(?:main|state-gallery|matrix-mount|review-shell|inconsistency-annotator|interaction-branch-driver)\.ts|src\/.*\.css)$/.test(path)) { all('shared-runtime-changed'); continue; }
     all('unknown-path-conservative-fallback');
   }
   return { components: [...components], routes: [...routes], reasons: [...reasons] };
@@ -120,7 +120,7 @@ if (await exists(cachePath)) {
   try { cache = JSON.parse(await readFile(cachePath, 'utf8')); } catch { /* Invalid cache is a deterministic miss. */ }
 }
 const implementationFiles = [...new Set(model.componentContracts.filter((item) => impact.components.includes(item.componentId)).flatMap((item) => item.implementationPaths))];
-const globalFiles = ['index.html', 'package.json', 'tsconfig.json', 'vite.config.ts', 'src/main.ts', 'src/state-gallery.ts', 'src/review-shell.ts', 'src/inconsistency-annotator.ts'];
+const globalFiles = ['index.html', 'package.json', 'tsconfig.json', 'vite.config.ts', 'src/main.ts', 'src/state-gallery.ts', 'src/matrix-mount.ts', 'src/review-shell.ts', 'src/inconsistency-annotator.ts', 'src/interaction-branch-driver.ts'];
 const hashes = {};
 for (const path of [...new Set([authorityPath, ...implementationFiles.map((item) => paths.authorityRoot + '/' + actor + '/' + item), ...globalFiles.map((item) => paths.authorityRoot + '/' + actor + '/' + item)])]) {
   hashes[path] = await fileHash(repositoryFile(root, path));
@@ -129,10 +129,43 @@ const assetHashes = {};
 for (const asset of model.assets) {
   assetHashes[asset.path] = await fileHash(resolve(areaRoot, asset.path));
 }
+const sourcePacketHashes = {};
+const componentBaselineHashes = {};
+for (const source of model.designSources) {
+  for (const reference of [source.evidence, source.registration]) {
+    if (reference?.path) sourcePacketHashes[reference.path] = await fileHash(resolve(areaRoot, reference.path));
+  }
+  if (!source.evidence?.path) continue;
+  try {
+    const evidence = JSON.parse(await readFile(resolve(areaRoot, source.evidence.path), 'utf8'));
+    const baselineIds = new Set(
+      (model.componentSourceParityAssertions || [])
+        .filter((assertion) => assertion.sourceId === source.id)
+        .map((assertion) => assertion.baselineEvidenceItemId),
+    );
+    for (const item of evidence.items || []) {
+      if (baselineIds.has(item.id)) componentBaselineHashes[item.id] = await fileHash(resolve(areaRoot, item.path));
+    }
+  } catch {
+    sourcePacketHashes[source.evidence.path] = 'invalid';
+  }
+}
 const fingerprints = {
   staticInput: sha256(JSON.stringify({ authority: hashes[authorityPath], version: model.version })),
-  assets: sha256(JSON.stringify({ assets: model.assets, designSources: model.designSources, assetHashes })),
-  components: sha256(JSON.stringify({ components: impact.components, contracts: model.componentContracts.filter((item) => impact.components.includes(item.componentId)), matrix: model.stateMatrix, hashes })),
+  assets: sha256(JSON.stringify({ assets: model.assets, designSources: model.designSources, assetHashes, sourcePacketHashes })),
+  components: sha256(JSON.stringify({
+    components: impact.components,
+    contracts: model.componentContracts.filter((item) => impact.components.includes(item.componentId)),
+    definitions: model.componentVariantDefinitions,
+    usageCoverage: model.componentVariantCoverage,
+    stateAxes: model.stateAxes,
+    matrix: model.stateMatrix,
+    componentSourceParityAssertions: model.componentSourceParityAssertions,
+    registrations: model.designSources.map((source) => ({ id: source.id, registration: source.registration })),
+    componentBaselineHashes,
+    sourcePacketHashes,
+    hashes,
+  })),
   routes: sha256(JSON.stringify({ routes: impact.routes, viewports, scenarios, hashes, assetHashes, includeVisualDiagnostics })),
 };
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "整理 Figma 资源"
-  short_description: "确认 Figma 范围后整理图层、复用现有组件并标记导出资源"
-  default_prompt: "Use $organize-figma-assets with the required Figma execution skill to confirm the write scope, save before-and-after screenshots and node inventories, replace components only when every role, variant, property, override, dimension, constraint, and auto-layout check maps, mark eligible static exports, and require fresh source capture after the final mutation."

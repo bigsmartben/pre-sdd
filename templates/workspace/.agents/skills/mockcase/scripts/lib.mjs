@@ -12,7 +12,7 @@ import {
 } from '../../../../.psp/harness/scripts/lib/repository.mjs';
 import { extractCanonicalUi } from '../../product-design/canonical-ui-prototype/scripts/extract.mjs';
 
-export const MODEL_VERSION = '1.0.0';
+export const MODEL_VERSION = '2.0.0';
 export const HOST_API_VERSION = 'psp.review-extension/v1';
 
 export function sha256(value) {
@@ -175,11 +175,16 @@ export async function workspaceContext(actor, { allowMissingSuite = true } = {})
 export async function compileSchemas(root) {
   const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
   const load = async (name) => JSON.parse(await readFile(repositoryFile(root, `.agents/skills/mockcase/${name}.schema.json`), 'utf8'));
+  const mockdata = await load('mockdata');
+  const mockcases = await load('mockcases');
+  ajv.addSchema(mockdata);
+  ajv.addSchema(mockcases);
   return {
     ajv,
     suite: ajv.compile(await load('suite')),
-    mockdata: ajv.compile(await load('mockdata')),
-    mockcases: ajv.compile(await load('mockcases')),
+    mockdata: ajv.getSchema('mockdata.schema.json'),
+    mockcases: ajv.getSchema('mockcases.schema.json'),
+    packet: ajv.compile(await load('mockdata-packet')),
     candidate: ajv.compile(await load('candidate')),
     runtime: ajv.compile(await load('runtime')),
     evidence: ajv.compile(await load('evidence')),
@@ -191,12 +196,147 @@ function schemaFailure(validate, name) {
   fail('AIH_ARTIFACT_SCHEMA_FAILED', `${name} Schema 校验失败：${detail}`);
 }
 
+function valueAtPointer(value, pointer) {
+  if (pointer === '') return value;
+  let current = value;
+  for (const token of pointer.slice(1).split('/').map((item) => item.replaceAll('~1', '/').replaceAll('~0', '~'))) {
+    if (
+      current === null
+      || typeof current !== 'object'
+      || !Object.prototype.hasOwnProperty.call(current, token)
+    ) fail('AIH_MOCKCASE_PROPERTY_INVALID', 'Fixture sourcePointer 不存在：' + pointer);
+    current = current[token];
+  }
+  return current;
+}
+
+function propertyAccepts(property, value) {
+  if (property.type === 'string') return typeof value === 'string';
+  if (property.type === 'boolean') return typeof value === 'boolean';
+  if (property.type === 'number') return typeof value === 'number' && Number.isFinite(value);
+  return property.type === 'object' && value !== null && typeof value === 'object';
+}
+
+function stateIdsFor(model, matrix) {
+  return model.stateAxes.filter((axis) => axis.componentContractId === matrix.componentContractId).flatMap((axis) => {
+    const selected = axis.values.find((item) => item.id === matrix.values[axis.id]);
+    return selected?.stateId ? [selected.stateId] : [];
+  }).sort();
+}
+
+function propertyForBinding(contract, binding) {
+  if (binding.kind === 'component-state' || binding.kind === 'lit-property') {
+    return contract.properties.find((item) => item.name === binding.name);
+  }
+  if (binding.kind === 'lit-attribute') {
+    const attribute = contract.attributes.find((item) => item.name === binding.name);
+    return contract.properties.find((item) => item.name === attribute?.propertyName);
+  }
+  return null;
+}
+
+function addAssignment(assignments, property, value, source) {
+  if (!property) fail('AIH_MOCKCASE_PROPERTY_INVALID', '投影目标不是 Component Contract 声明的公开 Lit Property。');
+  if (!propertyAccepts(property, value)) {
+    fail('AIH_MOCKCASE_PROPERTY_INVALID', `投影值类型不匹配：${property.name} / ${property.type}`);
+  }
+  const previous = assignments.get(property.name);
+  if (previous && stableJson(previous.value) !== stableJson(value)) {
+    fail('AIH_MOCKCASE_PROJECTION_CONFLICT', '同一公开属性收到冲突投影：' + property.name);
+  }
+  if (previous) {
+    if (!previous.sources.some((item) => stableJson(item) === stableJson(source))) previous.sources.push(source);
+    return;
+  }
+  assignments.set(property.name, { propertyName: property.name, value, sources: [source] });
+}
+
+export function compileProjectionEffect(context, effect) {
+  const matrix = context.canonicalUi.stateMatrix.find((item) =>
+    item.id === effect.stateMatrixEntryId && item.classification === 'legal');
+  if (!matrix) fail('AIH_MOCKCASE_TARGET_MISSING', 'Effect 引用的合法 State Matrix Entry 不存在：' + effect.stateMatrixEntryId);
+  const contract = context.canonicalUi.componentContracts.find((item) =>
+    item.id === matrix.componentContractId
+    && item.pageInstances.some((instance) => instance.id === effect.targetInstanceId));
+  if (!contract) fail('AIH_MOCKCASE_TARGET_MISSING', 'Effect 目标实例不属于 State Matrix 的 Component Contract：' + effect.targetInstanceId);
+
+  const assignments = new Map();
+  const mapping = context.canonicalUi.componentMappings.find((item) => item.id === contract.mappingId);
+  for (const axis of context.canonicalUi.stateAxes.filter((item) => item.componentContractId === contract.id)) {
+    const selected = axis.values.find((item) => item.id === matrix.values[axis.id]);
+    if (!selected) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'State Matrix 缺少轴值：' + matrix.id + ' / ' + axis.id);
+    const source = { kind: 'state-matrix', axisId: axis.id, valueId: selected.id };
+    if (axis.renderBinding.kind === 'workflow-state') continue;
+    if (axis.renderBinding.kind === 'slot-text') {
+      fail('AIH_MOCKCASE_PROJECTION_UNSUPPORTED', '当前页 MockCase 不允许通过 Slot 修改正式 DOM：' + axis.id);
+    }
+    if (axis.renderBinding.kind === 'mapped-variant') {
+      const propertyMapping = mapping?.propertyMappings.find((item) =>
+        item.kind === 'variant' && item.figmaProperty === axis.name);
+      const mapped = propertyMapping?.values.find((item) => item.figmaValue === selected.value);
+      const attribute = contract.attributes.find((item) => item.name === propertyMapping?.litAttribute);
+      const propertyName = propertyMapping?.litProperty ?? attribute?.propertyName;
+      const property = contract.properties.find((item) => item.name === propertyName);
+      if (!propertyMapping || !mapped || !property) {
+        fail('AIH_MOCKCASE_PROJECTION_UNSUPPORTED', 'Variant 无法解析为公开 Lit Property：' + axis.id);
+      }
+      let value = mapped.litValue;
+      if (property.type === 'boolean') value = value === '' || value === 'true';
+      if (property.type === 'number') value = Number(value);
+      if (property.type === 'object') {
+        try {
+          value = JSON.parse(value);
+        } catch {
+          fail('AIH_MOCKCASE_PROPERTY_INVALID', 'Variant Object Property 不是合法 JSON：' + property.name);
+        }
+      }
+      addAssignment(assignments, property, value, source);
+      continue;
+    }
+    addAssignment(assignments, propertyForBinding(contract, axis.renderBinding), selected.renderValue, source);
+  }
+
+  for (const binding of effect.dataBindings) {
+    const behavior = context.mockdata.behaviors.find((item) => item.id === binding.behaviorId);
+    const fixture = context.mockdata.fixtures.find((item) => item.id === behavior?.response.fixtureId);
+    if (!behavior || !fixture) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Data Binding 引用不存在的 Behavior 或 Fixture：' + binding.behaviorId);
+    const property = contract.properties.find((item) => item.name === binding.propertyName);
+    addAssignment(assignments, property, valueAtPointer(fixture.payload, binding.sourcePointer), {
+      kind: 'fixture',
+      behaviorId: behavior.id,
+      fixtureId: fixture.id,
+      sourcePointer: binding.sourcePointer,
+    });
+  }
+
+  return {
+    targetInstanceId: effect.targetInstanceId,
+    componentContractId: contract.id,
+    stateMatrixEntryId: matrix.id,
+    assignments: [...assignments.values()]
+      .map((item) => ({ ...item, sources: item.sources.sort((left, right) => stableJson(left).localeCompare(stableJson(right))) }))
+      .sort((left, right) => left.propertyName.localeCompare(right.propertyName)),
+    expectedStateIds: stateIdsFor(context.canonicalUi, matrix),
+  };
+}
+
+export function coverageFor(context, cases = context.mockcases.cases, scenarioIds = null) {
+  const requiredScenarioIds = (scenarioIds ?? context.canonicalUi.scenarios.map((item) => item.id)).slice().sort();
+  const coveredScenarioIds = requiredScenarioIds.filter((id) =>
+    cases.filter((item) => item.kind === 'business' && item.scenarioId === id).length === 1);
+  return {
+    requiredScenarioIds,
+    coveredScenarioIds,
+    missingScenarioIds: requiredScenarioIds.filter((id) => !coveredScenarioIds.includes(id)),
+  };
+}
+
 export async function validateSuiteData(
   context,
   {
     requireCurrentInputs = true,
     requireCurrentReferences = true,
-    requireCoverage = true,
+    requireCoverage = false,
   } = {},
 ) {
   const schemas = await compileSchemas(context.root);
@@ -240,11 +380,8 @@ export async function validateSuiteData(
     caseIds.add(item.id);
     if (item.kind === 'business') scenarioIds.add(item.scenarioId);
     for (const effect of item.effects) {
-      if (effect.behaviorIds.some((id) => !behaviorIds.has(id))) {
-        fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Effect 引用不存在 Behavior：' + item.id);
-      }
-      if (effect.activation.kind === 'request' && effect.behaviorIds.length === 0) {
-        fail('AIH_MOCKCASE_CONTRACT_INVALID', 'request Activation 必须引用 Behavior：' + item.id);
+      if (effect.dataBindings.some((binding) => !behaviorIds.has(binding.behaviorId))) {
+        fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Effect Data Binding 引用不存在 Behavior：' + item.id);
       }
       if (requireCurrentReferences) {
         const route = context.canonicalUi.routes.find((entry) => entry.id === item.routeId);
@@ -256,21 +393,17 @@ export async function validateSuiteData(
         const contract = context.canonicalUi.componentContracts.find((entry) =>
           entry.pageInstances.some((instance) => instance.id === effect.targetInstanceId && instance.screenId === screen?.id));
         const matrix = context.canonicalUi.stateMatrix.find((entry) =>
-          entry.id === effect.expectedStateMatrixEntryId && entry.classification === 'legal');
+          entry.id === effect.stateMatrixEntryId && entry.classification === 'legal');
         if (!contract || !matrix || matrix.componentContractId !== contract.id) {
           fail('AIH_MOCKCASE_TARGET_MISSING', 'Effect 目标实例或 State Matrix 引用无效：' + item.id);
         }
-        if (effect.activation.controlId) {
-          const control = context.canonicalUi.controls.find((entry) => entry.id === effect.activation.controlId);
-          if (!control || control.componentId !== contract.componentId) {
-            fail('AIH_MOCKCASE_TARGET_MISSING', 'Activation Control 不属于目标组件：' + item.id);
-          }
-        }
+        compileProjectionEffect(context, effect);
       }
     }
   }
   for (const behaviorId of behaviorIds) {
-    if (!context.mockcases.cases.some((item) => item.effects.some((effect) => effect.behaviorIds.includes(behaviorId)))) {
+    if (!context.mockcases.cases.some((item) =>
+      item.effects.some((effect) => effect.dataBindings.some((binding) => binding.behaviorId === behaviorId)))) {
       fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Behavior 未被任何 Case 使用：' + behaviorId);
     }
   }
@@ -280,20 +413,24 @@ export async function validateSuiteData(
       fail('AIH_MOCKCASE_COVERAGE_FAILED', '每个含 Case 的 Route 必须恰好有一个 Default Case：' + routeId);
     }
   }
-  if (requireCoverage && requireCurrentReferences) {
-    const requiredScenarioIds = new Set(context.canonicalUi.scenarios.map((item) => item.id));
-    const missing = [...requiredScenarioIds].filter((id) =>
-      context.mockcases.cases.filter((item) => item.kind === 'business' && item.scenarioId === id).length !== 1);
+  const coverage = coverageFor(context);
+  if (requireCurrentReferences) {
+    const requiredScenarioIds = new Set(coverage.requiredScenarioIds);
     const unexpected = [...scenarioIds].filter((id) => !requiredScenarioIds.has(id));
-    if (missing.length > 0 || unexpected.length > 0) {
+    if (unexpected.length > 0) {
       fail(
         'AIH_MOCKCASE_COVERAGE_FAILED',
-        `MockCase 必须恰好覆盖每个 Canonical UI Scenario：missing=${missing.join(',') || 'none'}；`
-        + `unexpected=${unexpected.join(',') || 'none'}`,
+        `MockCase 包含非当前 Canonical UI Scenario：unexpected=${unexpected.join(',')}`,
       );
     }
   }
-  return { schemas, scenarioIds };
+  if (requireCoverage && coverage.missingScenarioIds.length > 0) {
+    fail(
+      'AIH_MOCKCASE_COVERAGE_INCOMPLETE',
+      'MockCase 全局覆盖不完整：missing=' + coverage.missingScenarioIds.join(','),
+    );
+  }
+  return { schemas, scenarioIds, coverage };
 }
 
 function requestedScope(argv = process.argv) {
@@ -326,23 +463,35 @@ function entryStateIds(model, entry) {
   });
 }
 
-function generateCase(context, scenario, behaviorBindings) {
+function generateCase(context, scenario, binding) {
   const route = context.canonicalUi.routes.find((item) => item.id === scenario.routeId);
   const screen = context.canonicalUi.screens.find((item) => item.id === route?.screenId);
-  const wanted = new Set([...(scenario.expectedStateIds || []), ...(scenario.recoveryStateIds || [])]);
-  const matrix = context.canonicalUi.stateMatrix
-    .filter((item) => item.classification === 'legal' && entryStateIds(context.canonicalUi, item).some((id) => wanted.has(id)))
-    .sort((a, b) => a.id.localeCompare(b.id))[0];
+  const desiredStateIds = [...new Set(
+    scenario.recoveryStateIds?.length > 0
+      ? scenario.recoveryStateIds
+      : scenario.expectedStateIds || [],
+  )];
+  const matchingMatrices = context.canonicalUi.stateMatrix.filter((item) => {
+    if (item.classification !== 'legal') return false;
+    const contract = context.canonicalUi.componentContracts.find((candidate) =>
+      candidate.id === item.componentContractId && screen?.componentIds.includes(candidate.componentId));
+    if (!contract) return false;
+    const states = new Set(entryStateIds(context.canonicalUi, item));
+    return desiredStateIds.every((id) => states.has(id));
+  }).sort((left, right) => left.id.localeCompare(right.id));
+  const matrix = binding?.stateMatrixEntryId
+    ? matchingMatrices.find((item) => item.id === binding.stateMatrixEntryId)
+    : matchingMatrices.length === 1 ? matchingMatrices[0] : null;
+  if (!matrix) {
+    const detail = binding?.stateMatrixEntryId
+      ? `显式 State Matrix Entry 无效：${binding.stateMatrixEntryId}`
+      : `合法 State Matrix Entry 匹配数量必须为 1，实际为 ${matchingMatrices.length}`;
+    return { gap: `Scenario 无法形成唯一公开属性投影：${scenario.id}；${detail}` };
+  }
   const contract = matrix && context.canonicalUi.componentContracts.find((item) =>
     item.id === matrix.componentContractId && screen?.componentIds.includes(item.componentId));
   const instance = contract?.pageInstances.filter((item) => item.screenId === screen?.id).sort((a, b) => a.id.localeCompare(b.id))[0];
-  if (!route || !screen || !matrix || !contract || !instance) return { gap: `Scenario 缺少合法 Route、组件实例或 State Matrix：${scenario.id}` };
-  const event = (scenario.eventIds || []).map((id) => context.canonicalUi.events.find((item) => item.id === id)).find((item) => {
-    const action = context.canonicalUi.actions.find((candidate) => candidate.eventId === item?.id);
-    return item && action?.resultingStateIds.some((id) => wanted.has(id));
-  });
-  const behaviorIds = behaviorBindings.get(scenario.id) || [];
-  if (!event && behaviorIds.length === 0) return { gap: `Scenario 缺少可执行 Control/Event 或显式 Behavior 绑定：${scenario.id}` };
+  if (!route || !screen || !contract || !instance) return { gap: `Scenario 缺少合法 Route 或组件实例：${scenario.id}` };
   const id = `MOCK-CASE-${scenario.id}`;
   return {
     item: {
@@ -353,12 +502,8 @@ function generateCase(context, scenario, behaviorBindings) {
       scenarioId: scenario.id,
       effects: [{
         targetInstanceId: instance.id,
-        behaviorIds,
-        activation: {
-          kind: behaviorIds.length > 0 ? 'request' : 'control-event',
-          ...(event?.controlId ? { controlId: event.controlId } : {}),
-        },
-        expectedStateMatrixEntryId: matrix.id,
+        stateMatrixEntryId: matrix.id,
+        dataBindings: binding?.dataBindings ?? [],
       }],
       isDefault: false,
     },
@@ -373,13 +518,14 @@ async function seedPacket(context, path) {
   } catch (error) {
     fail('AIH_ARTIFACT_SCHEMA_FAILED', '显式 MockData Packet 无法读取：' + error.message);
   }
+  const schemas = await compileSchemas(context.root);
+  if (!schemas.packet(packet)) schemaFailure(schemas.packet, 'MockData Input Packet');
   const candidateData = {
     schemaVersion: MODEL_VERSION,
     actor: context.actor,
     fixtures: packet.fixtures || [],
     behaviors: packet.behaviors || [],
   };
-  const schemas = await compileSchemas(context.root);
   if (!schemas.mockdata(candidateData)) schemaFailure(schemas.mockdata, 'MockData Packet');
   return { ...candidateData, bindings: packet.bindings || [] };
 }
@@ -394,7 +540,11 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
   const selectedScope = scope || requestedScope(argv);
   const scenarios = scopeScenarios(context, selectedScope);
   const seed = await seedPacket(context, seedPath ?? argument('--mockdata', argv));
-  const bindings = new Map(seed.bindings.map((item) => [item.scenarioId, [...new Set(item.behaviorIds || [])].sort()]));
+  const bindings = new Map(seed.bindings.map((item) => [item.scenarioId, {
+    ...(item.stateMatrixEntryId ? { stateMatrixEntryId: item.stateMatrixEntryId } : {}),
+    dataBindings: [...item.dataBindings].sort((left, right) => stableJson(left).localeCompare(stableJson(right))),
+  }]));
+  if (bindings.size !== seed.bindings.length) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'MockData Packet 的 Scenario Binding 必须唯一。');
   const availableBehaviorIds = new Set([...context.mockdata.behaviors, ...seed.behaviors].map((item) => item.id));
   const existingBusiness = context.mockcases.cases
     .filter((item) => item.kind === 'business')
@@ -407,15 +557,21 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
     if (bindings.has(scenario.id)) continue;
     const existing = existingByScenario.get(scenario.id);
     if (!existing) continue;
-    bindings.set(scenario.id, [...new Set(existing.effects.flatMap((effect) => effect.behaviorIds))].sort());
+    bindings.set(scenario.id, {
+      stateMatrixEntryId: existing.effects[0]?.stateMatrixEntryId,
+      dataBindings: existing.effects.flatMap((effect) => effect.dataBindings)
+        .sort((left, right) => stableJson(left).localeCompare(stableJson(right))),
+    });
   }
-  for (const [scenarioId, ids] of bindings) {
-    if (ids.some((id) => !availableBehaviorIds.has(id))) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Scenario Binding 引用不存在 Behavior：' + scenarioId);
+  for (const [scenarioId, binding] of bindings) {
+    if (binding.dataBindings.some((item) => !availableBehaviorIds.has(item.behaviorId))) {
+      fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Scenario Binding 引用不存在 Behavior：' + scenarioId);
+    }
   }
   const generated = [];
   const gaps = [];
   for (const scenario of scenarios) {
-    const result = generateCase(context, scenario, bindings);
+    const result = generateCase(context, scenario, bindings.get(scenario.id));
     if (result.gap) gaps.push({
       code: 'AIH_MOCKCASE_UPSTREAM_GAP',
       message: result.gap,
@@ -485,7 +641,7 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
   const nextBehaviorsById = new Map(context.mockdata.behaviors.map((item) => [item.id, item]));
   for (const item of seed.behaviors) nextBehaviorsById.set(item.id, item);
   const referencedBehaviorIds = new Set(normalizedCases.flatMap((item) =>
-    item.effects.flatMap((effect) => effect.behaviorIds)));
+    item.effects.flatMap((effect) => effect.dataBindings.map((binding) => binding.behaviorId))));
   for (const id of nextBehaviorsById.keys()) {
     if (!referencedBehaviorIds.has(id)) nextBehaviorsById.delete(id);
   }
@@ -512,7 +668,15 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
     .map((item) => item.id)
     .sort();
 
-  const before = scenarios.filter((item) => existingByScenario.has(item.id)).length;
+  const selectedScenarioIdsOrdered = scenarios.map((item) => item.id).sort();
+  const coverageBefore = {
+    scope: coverageFor(context, context.mockcases.cases, selectedScenarioIdsOrdered),
+    project: coverageFor(context),
+  };
+  const coverageAfter = {
+    scope: coverageFor(context, normalizedCases, selectedScenarioIdsOrdered),
+    project: coverageFor(context, normalizedCases),
+  };
   if (gaps.length === 0) {
     const nextMockdata = {
       ...context.mockdata,
@@ -556,12 +720,8 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
       upsertCases: caseUpserts,
       removeCaseIds: caseRemovals,
     },
-    coverageBefore: { requiredScenarios: scenarios.length, coveredScenarios: before },
-    coverageAfter: {
-      requiredScenarios: scenarios.length,
-      coveredScenarios: scenarios.filter((scenario) =>
-        normalizedCases.some((item) => item.kind === 'business' && item.scenarioId === scenario.id)).length,
-    },
+    coverageBefore,
+    coverageAfter,
     gaps: gaps.sort((a, b) => a.scenarioId.localeCompare(b.scenarioId)),
   };
   return { context, candidate: { ...body, candidateHash: sha256(stableJson(body)) } };

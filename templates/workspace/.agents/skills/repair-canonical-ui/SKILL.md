@@ -1,15 +1,19 @@
 ---
 name: repair-canonical-ui
-description: 对 Canonical UI Prototype（规范界面原型）的 HTML、CSS、Lit 模板、组件渲染、资源绑定或来源视觉差异执行一次有边界的 Agent 自动修复。用户明确要求修复界面实现，或 canonical-ui-repair 返回 AIH_UI_REPAIR_REQUIRED 和 Schema 有效的 Repair Packet（修复数据包）时使用；适用于 autonomous、guided 和 exact 三种已解析视觉模式。
+description: 用户明确要求修复 Canonical UI Prototype（规范界面原型）实现时使用：先调用 canonical-ui-repair；只有返回 AIH_UI_REPAIR_REQUIRED 和 Schema 有效的 Repair Packet（修复数据包）后，才对 HTML、CSS、Lit 模板、组件渲染、资源绑定或机器可判定的来源差异执行一次有边界的 Agent 实现修复。适用于 autonomous、guided 和 exact 三种已解析视觉模式；不负责 Review、预览服务、反馈路由、发布、来源变更或主观美化。
 ---
 
 # 修复 Canonical UI
 
 ## 边界
 
-开始前加载 `$product-design` 与 `$apply-repository-harness`。首次调用 Manifest 登记的 `canonical-ui-repair` operation 时传入 `--new-session`；operation 返回 `PASS` 时立即完成，不修改任何文件。
+本技能只拥有一次有边界的 Canonical UI 实现修复。正式 Review、反馈路由、Publish 与 Reopen 生命周期由 `$product-design` 拥有；`canonical-ui-dev` 临时预览服务、Review Marker 和 Review Evidence 都不属于本技能。
 
-只有 `REPAIR_REQUIRED` Repair Packet 是本次写入依据。Validator（校验器）负责判定、截图和生成 Repair Diagnostic（修复诊断），Agent 只修改实现。`allowedImplementationPaths` 是最小范围指导，不是代码写入许可；不得修改 `src/spec/**`、Mock 数据、业务状态逻辑、设计来源、截图基线或视觉容差。
+开始前加载 `$product-design` 与 `$apply-repository-harness`。只有用户明确请求本次修复后，才首次调用 Manifest 登记的 `canonical-ui-repair` operation 并传入 `--new-session`；operation 返回 `PASS` 时立即完成，不修改任何文件。
+
+Review Feedback Packet（评审反馈包）只表达用户反馈，不是 Repair Packet，也不授权修复。必须先由 Validator（校验器）形成机器可判定诊断，并由 `canonical-ui-repair` operation 生成有效 Repair Packet；无法形成该数据包的反馈必须返回 `$product-design` 保留为未解析反馈，不得按主观判断修改。
+
+只有状态为 `REPAIR_REQUIRED` 且通过 Schema 校验的 Repair Packet 是本次写入依据。Validator（校验器）负责判定、截图和生成 Repair Diagnostic（修复诊断），Agent 只修改实现。`allowedImplementationPaths` 是最小范围指导，不是代码写入许可；实际写入还必须通过 Resolver（解析器）。不得修改 `src/spec/**`、Mock 数据、业务状态逻辑、设计来源、截图基线或视觉容差。
 
 以下缺陷可以进入本技能：
 
@@ -18,9 +22,9 @@ description: 对 Canonical UI Prototype（规范界面原型）的 HTML、CSS、
 - `html-accessibility`：已登记的名称、ARIA、可聚焦、焦点样式、触控尺寸或减少动画检查失败。
 - `asset-binding`：已登记资源没有加载或没有被声明目标使用。
 - `component-contract`：组件契约的渲染、结构或语义断言失败。
-- `source-parity`：guided/exact 的来源样式或 exact 的截图一致性失败。
+- `source-parity`：guided/exact 中已登记、机器可判定的来源样式或结构检查失败。
 
-业务状态迁移、API、网络、控制台异常、服务器、构建、类型检查、来源完整性和主观美化不属于本技能。Repair Packet 混入任何没有完整诊断的失败时停止。
+业务状态迁移、API、网络、控制台异常、服务器、构建、类型检查、来源完整性、来源写回、主观美化和人工视觉接受不属于本技能。`AIH_VISUAL_PIXEL_DIAGNOSTIC` 是非阻塞诊断，不得作为修复授权或 Repair Packet 输入。Repair Packet 混入任何没有完整诊断或不可修复失败时停止。
 
 ## 实施规则
 
@@ -34,10 +38,10 @@ description: 对 Canonical UI Prototype（规范界面原型）的 HTML、CSS、
 
 ## 单次修复协议
 
-1. 使用 `canonical-ui-repair --new-session` 开始；`PASS` 立即完成。
+1. 确认用户已明确请求本次修复，再使用 `canonical-ui-repair --new-session` 开始；`PASS` 立即完成。
 2. 读取 `AIH_UI_REPAIR_REQUIRED` 返回的 Repair Packet，确认 `repairSessionId`、`attempt: 1`、允许路径和全部诊断。
 3. 对全部诊断执行一次最小实现修改，不改变业务语义或验证输入。
 4. 使用同一个 operation 并传入 `--session <repairSessionId>` 重新验证。
 5. 返回 `PASS` 时立即完成；返回 `AIH_UI_REPAIR_EXHAUSTED`、`AIH_UI_REPAIR_SESSION_INVALID` 或其他 `BLOCKED` 时立即停止，不开始第二次修复。
 
-完成只由第二次 `canonical-ui-repair` 的真实 `PASS` 判定。Repair Action Report 是 operation 生成的临时过程证据，不是写入前许可，也不触发 Publish 或 Handoff。
+完成只由第二次 `canonical-ui-repair` 的真实 `PASS` 判定。Repair Action Report 是 operation 生成的临时过程证据，不是写入前许可，也不触发 Preview、Review、Publish 或 Handoff；完成后把控制权交回 `$product-design`，由它重新提供临时预览。

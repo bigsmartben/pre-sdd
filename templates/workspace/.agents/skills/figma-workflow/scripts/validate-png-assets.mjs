@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Owned by capture-figma-design-source; uses only Node.js built-ins.
+// Owned by figma-workflow; uses only Node.js built-ins.
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { inflateSync } from 'node:zlib';

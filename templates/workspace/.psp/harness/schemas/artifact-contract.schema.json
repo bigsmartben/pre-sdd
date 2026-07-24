@@ -44,6 +44,26 @@
         "owns": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "excludes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "domainRules": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "implementationReuse": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority", "requiredPreflight", "priority", "stopWhen"],
+          "properties": {
+            "authority": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["componentIdentity", "shellAndLayout", "style"],
+              "properties": {
+                "componentIdentity": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+                "shellAndLayout": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+                "style": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+              }
+            },
+            "requiredPreflight": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "priority": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "stopWhen": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+          }
+        },
         "projections": {
           "type": "array",
           "minItems": 1,
@@ -128,8 +148,9 @@
         "review": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["evidenceSchema", "feedbackRoutes"],
+          "required": ["feedbackPacketSchema", "evidenceSchema", "feedbackRoutes"],
           "properties": {
+            "feedbackPacketSchema": {"type": "string", "minLength": 1},
             "evidenceSchema": {"type": "string", "minLength": 1},
             "visualAcceptanceSchema": {"type": "string", "minLength": 1},
             "visualAcceptanceRecord": {"type": "string", "minLength": 1},
