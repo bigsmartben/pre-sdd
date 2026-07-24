@@ -332,7 +332,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   for (const field of ['designContext', 'componentHandshake']) {
     assert.ok(registrationSchema.required.includes(field), 'registration.' + field);
   }
-  assert.equal(canonicalSchema.properties.version.const, '10.0.0');
+  assert.equal(canonicalSchema.properties.version.const, '11.0.0');
   for (const field of ['reviewTools', 'componentVariantDefinitions', 'componentSourceParityAssertions']) {
     assert.ok(canonicalSchema.required.includes(field), 'canonical.' + field);
   }
