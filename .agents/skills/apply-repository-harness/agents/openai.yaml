@@ -1,4 +1,0 @@
-interface:
-  display_name: "Apply Scaffold Harness"
-  short_description: "Resolve pre-sdd scaffold changes through hard gates"
-  default_prompt: "Use $apply-repository-harness to govern this pre-sdd scaffold change and run every required engineering gate."

@@ -1,16 +1,30 @@
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { stringify as stringifyYaml } from 'yaml';
-import { executeRegisteredCommand } from '../../../../../.psp/harness/scripts/lib/execute-command.mjs';
-import { artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactPaths, loadProject, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import { canonicalLocks, inputLocks, reviewEvidenceDirectory, sha256 } from './integrity.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 import { verifyVisualAcceptance, visualAcceptanceRecordPath } from './visual-acceptance.mjs';
 
 const defaultRoot = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
+const PUBLICATION_ACTIONS = {
+  'publish-product-design': {
+    kind: 'publish',
+    stage: 'product-design',
+    fromState: 'active',
+    toState: 'published',
+  },
+  'reopen-product-design': {
+    kind: 'reopen',
+    stage: 'product-design',
+    fromState: 'published',
+    toState: 'active',
+  },
+};
 
 function argument(name) {
   const index = process.argv.indexOf('--' + name);
@@ -87,23 +101,47 @@ async function atomicLifecycleWrite(root, project, receiptPath, ledger) {
   }
 }
 
-function runProfile(root, manifest, profileId) {
-  const profile = manifest.validationProfiles.find((item) => item.id === profileId);
-  if (!profile) throw Object.assign(new Error('Publish 引用未知 Profile：' + profileId), { code: 'AIH_PROFILE_INVALID' });
-  const selected = new Set(profile.commands);
+function runPublicationChecks(root) {
+  const checks = [
+    ['product-structure', '.agents/skills/product-design/scripts/validate.mjs', ['--json']],
+    ['canonical-ui-input', '.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', ['--json']],
+    ['canonical-ui-typecheck', '.agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs', ['--capability', 'typecheck', '--json']],
+    ['canonical-ui-build', '.agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs', ['--capability', 'build', '--json']],
+    ['canonical-ui-contract-tests', '.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', ['--json']],
+    ['canonical-ui-runtime', '.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', ['--json']],
+    ['ui-case-verify', '.agents/skills/ui-case-mock/scripts/verify.mjs', ['--json']],
+    ['product-strict', '.agents/skills/product-design/scripts/validate.mjs', ['--strict', '--json']],
+  ];
   const validation = [];
   let failed = false;
-  for (const command of manifest.commands.filter((item) => selected.has(item.id))) {
-    if (failed) { validation.push({ id: command.id, status: 'NOT_RUN', blockers: [] }); continue; }
-    const result = executeRegisteredCommand(root, command, { arguments: command.executor.kind === 'module' ? ['--json'] : [], timeout: 240_000 });
-    validation.push({ id: command.id, status: result.status, blockers: result.blockers || [] });
-    if (result.status !== 'PASS') failed = true;
+  for (const [id, path, args] of checks) {
+    if (failed) {
+      validation.push({ id, status: 'NOT_RUN', blockers: [] });
+      continue;
+    }
+    const execution = spawnSync(process.execPath, [repositoryFile(root, path), ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PSP_REPOSITORY_ROOT: root },
+      timeout: 240_000,
+      windowsHide: true,
+    });
+    const status = execution.status === 0 ? 'PASS' : 'FAIL';
+    validation.push({
+      id,
+      status,
+      blockers: status === 'PASS' ? [] : ['AIH_PUBLISH_VALIDATION_FAILED'],
+    });
+    if (status !== 'PASS') failed = true;
   }
-  if (failed) throw Object.assign(new Error('Publish Profile 未通过。'), { code: validation.flatMap((item) => item.blockers)[0] || 'AIH_PUBLISH_VALIDATION_FAILED', validation });
+  if (failed) throw Object.assign(new Error('Product Design 发布检查未通过。'), {
+    code: 'AIH_PUBLISH_VALIDATION_FAILED',
+    validation,
+  });
   return validation;
 }
 
-export async function verifyPublishedProduct(root, project, manifest) {
+export async function verifyPublishedProduct(root, project) {
   const stage = project.stages?.['product-design'];
   if (stage?.status !== 'published') return [];
   const blockers = [];
@@ -112,7 +150,7 @@ export async function verifyPublishedProduct(root, project, manifest) {
     const ledger = await readLedger(repositoryFile(root, receiptPath));
     await validateLedger(root, ledger);
     if (!ledger.current) throw Object.assign(new Error('published 阶段缺少当前发布凭证。'), { code: 'AIH_PUBLISH_RECEIPT_INVALID' });
-    const currentInputs = await inputLocks(root, project, manifest);
+    const currentInputs = await inputLocks(root, project);
     const currentActors = await canonicalLocks(root, project);
     if (currentActors.length !== ledger.current.actors.length) throw Object.assign(new Error('已锁定 UI HTML Actor 集合发生漂移。'), { code: 'AIH_PUBLISH_CREDENTIAL_STALE' });
     const lockedActors = ledger.current.actors.map((locked) => {
@@ -120,7 +158,7 @@ export async function verifyPublishedProduct(root, project, manifest) {
       if (!current) throw Object.assign(new Error('已锁定 UI HTML Actor 缺失：' + locked.actor), { code: 'AIH_PUBLISH_CREDENTIAL_STALE' });
       return { ...current, review: locked.review };
     });
-    for (const item of await verifyVisualAcceptance(root, project, manifest, { markStale: true })) blockers.push(item);
+    for (const item of await verifyVisualAcceptance(root, project, { markStale: true })) blockers.push(item);
     const identity = stageIdentity(currentInputs, lockedActors, ledger.current.reviewVersion, ledger.current.visualAcceptance);
     if (identity !== ledger.current.stageIdentityHash || publicationCredential(ledger.current) !== ledger.current.credential) {
       throw Object.assign(new Error('已锁定 UC、Visual Spec、Asset、UI HTML 或 Review 身份发生漂移。'), { code: 'AIH_PUBLISH_CREDENTIAL_STALE' });
@@ -131,11 +169,11 @@ export async function verifyPublishedProduct(root, project, manifest) {
   return blockers;
 }
 
-async function publish(root, project, manifest, operation) {
+async function publish(root, project, operation) {
   const stage = project.stages?.[operation.stage];
   if (stage?.status !== operation.fromState) throw Object.assign(new Error('当前状态不允许 Publish：' + stage?.status), { code: stage?.status === 'published' ? 'AIH_STAGE_LOCKED' : 'AIH_STAGE_UNINITIALIZED' });
-  const validation = runProfile(root, manifest, operation.profile);
-  const acceptanceBlockers = await verifyVisualAcceptance(root, project, manifest, { markStale: true });
+  const validation = runPublicationChecks(root);
+  const acceptanceBlockers = await verifyVisualAcceptance(root, project, { markStale: true });
   if (acceptanceBlockers.length > 0) throw Object.assign(new Error(acceptanceBlockers[0].message), { code: acceptanceBlockers[0].code, validation });
   const reviewPath = resolve(reviewEvidenceDirectory(root), 'review-evidence.json');
   const reviewRaw = await readFile(reviewPath);
@@ -143,7 +181,7 @@ async function publish(root, project, manifest, operation) {
   const reviewSchema = JSON.parse(await readFile(repositoryFile(root, '.agents/skills/product-design/canonical-ui-prototype/review-evidence.schema.json'), 'utf8'));
   const validateReview = new Ajv2020({ allErrors: true, strict: false, formats: { 'date-time': true } }).compile(reviewSchema);
   if (!validateReview(review)) throw Object.assign(new Error('缺少结构有效的 UI HTML Review Evidence：' + JSON.stringify(validateReview.errors)), { code: 'AIH_CANONICAL_UI_REVIEW_REQUIRED' });
-  const inputs = await inputLocks(root, project, manifest);
+  const inputs = await inputLocks(root, project);
   const actors = await canonicalLocks(root, project);
   const reviewActors = new Map(review.actors.map((item) => [item.actor, item]));
   const lockedActors = actors.map((actor) => {
@@ -159,7 +197,7 @@ async function publish(root, project, manifest, operation) {
     }
     return { ...actor, review: { version: review.version, reviewId: review.reviewId, evidenceHash: sha256(reviewRaw), reviewAddress: reviewed.reviewAddress } };
   });
-  const receiptPath = repositoryFile(root, operation.receipt);
+  const receiptPath = repositoryFile(root, project.stages[operation.stage].publication.receipt);
   const ledger = await readLedger(receiptPath);
   const previous = ledger.history.at(-1);
   if (previous) for (const actor of lockedActors) {
@@ -199,30 +237,31 @@ async function publish(root, project, manifest, operation) {
   ledger.current = publication;
   project.stages[operation.stage].status = operation.toState;
   await validateLedger(root, ledger);
-  await atomicLifecycleWrite(root, project, operation.receipt, ledger);
+  await atomicLifecycleWrite(root, project, project.stages[operation.stage].publication.receipt, ledger);
   return { status: 'PASS', mode: 'publish', stage: operation.stage, publicationId: publication.publicationId, credential: publication.credential, validation, downstreamAction: 'NOT_RUN' };
 }
 
-async function reopen(root, project, manifest, operation) {
+async function reopen(root, project, operation) {
   const stage = project.stages?.[operation.stage];
   if (stage?.status !== operation.fromState) throw Object.assign(new Error('当前状态不允许 Reopen：' + stage?.status), { code: 'AIH_PROJECT_BINDING_INVALID' });
-  const ledger = await readLedger(repositoryFile(root, operation.receipt));
+  const receiptPath = project.stages[operation.stage].publication.receipt;
+  const ledger = await readLedger(repositoryFile(root, receiptPath));
   await validateLedger(root, ledger);
   if (!ledger.current) throw Object.assign(new Error('Reopen 缺少当前发布凭证。'), { code: 'AIH_PUBLISH_RECEIPT_INVALID' });
   ledger.history.push({ ...ledger.current, reopenedAt: new Date().toISOString() });
   ledger.current = null;
   project.stages[operation.stage].status = operation.toState;
   await validateLedger(root, ledger);
-  await atomicLifecycleWrite(root, project, operation.receipt, ledger);
+  await atomicLifecycleWrite(root, project, receiptPath, ledger);
   return { status: 'PASS', mode: 'reopen', stage: operation.stage, previousPublicationId: ledger.history.at(-1).publicationId, downstreamAction: 'NOT_RUN' };
 }
 
 async function main(root) {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const operationId = argument('operation');
-  const operation = manifest.operations.find((item) => item.id === operationId && ['publish', 'reopen'].includes(item.kind));
-  if (!operation) throw Object.assign(new Error('Manifest 未声明 UI HTML Publish/Reopen operation：' + operationId), { code: 'AIH_CONTRACT_INVALID' });
-  return operation.kind === 'publish' ? publish(root, project, manifest, operation) : reopen(root, project, manifest, operation);
+  const operation = PUBLICATION_ACTIONS[operationId];
+  if (!operation) throw Object.assign(new Error('Product Design 不支持该发布动作：' + operationId), { code: 'AIH_CONTRACT_INVALID' });
+  return operation.kind === 'publish' ? publish(root, project, operation) : reopen(root, project, operation);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

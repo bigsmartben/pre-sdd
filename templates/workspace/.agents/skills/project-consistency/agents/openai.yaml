@@ -1,5 +1,0 @@
-interface:
-  display_name: "Project Consistency"
-  short_description: "按项目 DAG 只读检查节点、边和领域产物一致性"
-  default_prompt: "Use $project-consistency only for this explicit request. Inspect the requested scope or full project in DAG order, delegate only the node-declared read-only domain validators, and report evidence, impact, and optional actions without modifying, initializing, rendering, synchronizing, repairing, or handing off artifacts."
-

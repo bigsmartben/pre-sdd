@@ -1,4 +1,4 @@
-import { commitManagedWrites } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
+import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
 import {
   HOST_API_VERSION,
   MODEL_VERSION,
@@ -40,6 +40,8 @@ try {
       canonicalUi: context.upstream.canonicalUiDigest,
     },
     routes: context.canonicalUi.routes.map(({ id, path }) => ({ id, path })),
+    fixtures: context.mockdata.fixtures,
+    behaviors: context.mockdata.behaviors,
     cases: runtimeCases,
   };
   const schemas = await compileSchemas(context.root);

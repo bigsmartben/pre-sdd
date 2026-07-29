@@ -1,32 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://psp.dev/adapters/figma/source-registration.schema.json",
+  "$id": "https://psp.dev/skills/figma-workflow/source-registration.schema.json",
   "title": "Figma Source Registration Packet",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "sourceId", "sourceVersion", "evidencePath", "evidenceSha256", "capturePlan", "designContext", "ingestReceipt", "componentHandshake", "assets", "gaps"],
   "properties": {
-    "version": {"const": "2.0.0"},
+    "version": {"const": "3.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
     "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
     "evidencePath": {"$ref": "#/$defs/path"},
     "evidenceSha256": {"$ref": "#/$defs/sha256"},
-    "capturePlan": {"$ref": "#/$defs/reference"},
-    "designContext": {"$ref": "#/$defs/reference"},
-    "ingestReceipt": {"$ref": "#/$defs/reference"},
-    "componentHandshake": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/componentHandshakeItem"}
-    },
+    "capturePlan": {"$ref": "#/$defs/fileReference"},
+    "designContext": {"$ref": "#/$defs/fileReference"},
+    "ingestReceipt": {"$ref": "#/$defs/fileReference"},
+    "componentHandshake": {"type": "array", "items": {"$ref": "#/$defs/componentHandshake"}},
     "assets": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "sourceNodeId", "assetKind", "captureScope", "containsDynamicContent", "strategy", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "sha256", "downloadOperation", "consumerTargets", "status"],
+        "required": ["path", "sourceNodeId", "assetBoundaryNodeId", "assetKind", "captureScope", "containsDynamicContent", "strategy", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "sha256", "downloadOperation", "consumerTargets", "status"],
         "properties": {
-          "path": {"type": "string", "pattern": "^public/assets/[^/]+/.+"},
+          "path": {"type": "string", "pattern": "^public/assets/[^/]+/[^/]+\\.(?:png|svg)$"},
           "sourceNodeId": {"$ref": "#/$defs/nodeId"},
+          "assetBoundaryNodeId": {"$ref": "#/$defs/nodeId"},
           "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
           "captureScope": {"enum": ["layer", "artwork-subtree"]},
           "containsDynamicContent": {"const": false},
@@ -38,7 +36,7 @@
           "expectedDimensions": {"$ref": "#/$defs/dimensions"},
           "sha256": {"$ref": "#/$defs/sha256"},
           "downloadOperation": {"type": "string", "pattern": "^figma:[a-z][a-z0-9-]*$"},
-          "consumerTargets": {"$ref": "#/$defs/nonEmptyIds"},
+          "consumerTargets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
           "status": {"const": "verified"}
         }
       }
@@ -47,78 +45,50 @@
   },
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
-    "nonEmptyIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
     "nodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
     "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
-    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
-    "reference": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha256"}}},
-    "componentHandshakeItem": {
+    "sourceVersion": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "figma-file-version"}, "value": {"type": "string", "minLength": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "remote-last-modified"}, "value": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "node-fingerprint"}, "value": {"$ref": "#/$defs/sha256"}}}
+      ]
+    },
+    "fileReference": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["proposalId", "decision", "semanticRole", "reason", "counterexample", "finalNodeIds", "structureSignatures", "interfaceProposal", "usageBindings", "baselineEvidenceItemIds"],
+      "required": ["path", "sha256"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "componentHandshake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposalId", "decision", "finalNodeIds", "structureSignatures", "figmaComponentContract", "usageBindings", "baselineEvidenceItemIds"],
       "properties": {
         "proposalId": {"$ref": "#/$defs/id"},
         "decision": {"enum": ["shared-component", "primitive-only", "local-structure"]},
-        "semanticRole": {"type": "string", "minLength": 1},
-        "reason": {"type": "string", "minLength": 1},
-        "counterexample": {"type": "string", "minLength": 1},
-        "finalNodeIds": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/nodeId"}
-        },
-        "structureSignatures": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/sha256"}
-        },
-        "interfaceProposal": {"$ref": "#/$defs/interfaceProposal"},
-        "usageBindings": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/usageBinding"}
-        },
-        "baselineEvidenceItemIds": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/id"}
-        },
+        "finalNodeIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "structureSignatures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+        "figmaComponentContract": {"$ref": "#/$defs/figmaComponentContract"},
+        "usageBindings": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/usageBinding"}},
+        "baselineEvidenceItemIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
         "figmaComponentNodeId": {"$ref": "#/$defs/nodeId"},
-        "variantDefinitionNodeIds": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/nodeId"}
-        },
-        "variantUsageInstanceNodeIds": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/nodeId"}
-        }
+        "variantDefinitionNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "variantUsageInstanceNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}}
       },
       "allOf": [
         {
           "if": {"properties": {"decision": {"const": "shared-component"}}, "required": ["decision"]},
           "then": {
+            "required": ["figmaComponentNodeId", "variantDefinitionNodeIds", "variantUsageInstanceNodeIds"],
             "properties": {
               "figmaComponentNodeId": {},
               "variantDefinitionNodeIds": {},
               "variantUsageInstanceNodeIds": {}
-            },
-            "required": ["figmaComponentNodeId", "variantDefinitionNodeIds", "variantUsageInstanceNodeIds"]
-          },
-          "else": {
-            "not": {
-              "anyOf": [
-                {"required": ["figmaComponentNodeId"]},
-                {"required": ["variantDefinitionNodeIds"]},
-                {"required": ["variantUsageInstanceNodeIds"]}
-              ]
             }
-          }
+          },
+          "else": {"not": {"anyOf": [{"required": ["figmaComponentNodeId"]}, {"required": ["variantDefinitionNodeIds"]}, {"required": ["variantUsageInstanceNodeIds"]}]}}
         }
       ]
     },
@@ -126,100 +96,73 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["instanceNodeId", "screenId"],
-      "properties": {
-        "instanceNodeId": {"$ref": "#/$defs/nodeId"},
-        "screenId": {"$ref": "#/$defs/id"}
-      }
+      "properties": {"instanceNodeId": {"$ref": "#/$defs/nodeId"}, "screenId": {"$ref": "#/$defs/id"}}
     },
-    "interfaceProposal": {
+    "figmaComponentContract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["properties", "slots", "events"],
-      "properties": {
-        "properties": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfaceProperty"}
-        },
-        "slots": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfaceSlot"}
-        },
-        "events": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfaceEvent"}
-        }
-      }
-    },
-    "interfaceProperty": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "figmaProperty", "litProperty", "litAttribute", "values"],
-      "properties": {
-        "kind": {"enum": ["variant", "text", "boolean", "instance-swap"]},
-        "figmaProperty": {"type": "string", "minLength": 1},
-        "litProperty": {"$ref": "#/$defs/litName"},
-        "litAttribute": {
-          "oneOf": [
-            {"$ref": "#/$defs/litName"},
-            {"type": "null"}
-          ]
-        },
-        "values": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfacePropertyValue"}
-        }
-      },
-      "allOf": [
-        {
-          "if": {"properties": {"kind": {"const": "variant"}}, "required": ["kind"]},
-          "then": {
-            "properties": {
-              "litAttribute": {"$ref": "#/$defs/litName"},
-              "values": {"type": "array", "minItems": 1}
-            }
-          }
-        }
-      ]
-    },
-    "interfacePropertyValue": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["figmaValue", "litValue"],
-      "properties": {
-        "figmaValue": {"type": "string", "minLength": 1},
-        "litValue": {"type": "string", "minLength": 1}
-      }
-    },
-    "interfaceSlot": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["figmaProperty", "litSlot", "contentRole"],
-      "properties": {
-        "figmaProperty": {"type": "string", "minLength": 1},
-        "litSlot": {"$ref": "#/$defs/litName"},
-        "contentRole": {"type": "string", "minLength": 1}
-      }
-    },
-    "interfaceEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "trigger", "litEvent"],
+      "required": ["name", "properties", "variantAxes", "contentRegions", "nestedComponentNodeIds", "sizeBehavior"],
       "properties": {
         "name": {"type": "string", "minLength": 1},
-        "trigger": {"type": "string", "minLength": 1},
-        "litEvent": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"}
+        "properties": {"type": "array", "items": {"$ref": "#/$defs/figmaProperty"}},
+        "variantAxes": {"type": "array", "items": {"$ref": "#/$defs/variantAxis"}},
+        "contentRegions": {"type": "array", "items": {"$ref": "#/$defs/contentRegion"}},
+        "nestedComponentNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "sizeBehavior": {"$ref": "#/$defs/sizeBehavior"}
       }
     },
-    "litName": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
-    "bounds": {"type": "object", "additionalProperties": false, "required": ["x", "y", "width", "height"], "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number", "exclusiveMinimum": 0}, "height": {"type": "number", "exclusiveMinimum": 0}}},
-    "padding": {"type": "object", "additionalProperties": false, "required": ["top", "right", "bottom", "left"], "properties": {"top": {"type": "integer", "minimum": 0}, "right": {"type": "integer", "minimum": 0}, "bottom": {"type": "integer", "minimum": 0}, "left": {"type": "integer", "minimum": 0}}},
-    "dimensions": {"type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}},
-    "sourceVersion": {
-      "oneOf": [
-        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "figma-file-version"}, "value": {"type": "string", "minLength": 1}}},
-        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "remote-last-modified"}, "value": {"$ref": "#/$defs/timestamp"}}},
-        {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "node-fingerprint"}, "value": {"$ref": "#/$defs/sha256"}}}
-      ]
+    "figmaProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "values"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["variant", "text", "boolean", "instance-swap"]},
+        "values": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "variantAxis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "values"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "contentRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role"],
+      "properties": {"name": {"type": "string", "minLength": 1}, "role": {"type": "string", "minLength": 1}}
+    },
+    "sizeBehavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "wrap"],
+      "properties": {
+        "width": {"enum": ["fixed", "hug", "fill", "content", "mixed"]},
+        "height": {"enum": ["fixed", "hug", "fill", "content", "mixed"]},
+        "wrap": {"enum": ["none", "text", "content", "mixed"]}
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number", "exclusiveMinimum": 0}, "height": {"type": "number", "exclusiveMinimum": 0}}
+    },
+    "padding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["top", "right", "bottom", "left"],
+      "properties": {"top": {"type": "integer", "minimum": 0}, "right": {"type": "integer", "minimum": 0}, "bottom": {"type": "integer", "minimum": 0}, "left": {"type": "integer", "minimum": 0}}
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}
     }
   }
 }

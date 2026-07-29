@@ -1,43 +1,26 @@
-# PSP 生成工作区说明（Generated Workspace Instructions）
+# PSP 生成工作区说明
 
-当前目录是生成工作区（Generated Workspace），由 `pre-sdd init` 创建；项目绑定类型必须是 `PSPProject`。本地 Harness、Manifest 与领域 Skill 是本工作区的执行唯一事实来源；这里不是 `pre-sdd` 脚手架源仓库。
+当前目录是由 `sdd-pre init .` 创建的生成工作区（Generated Workspace），不是脚手架源仓库。
 
-本地 `.psp/harness/` 是 User Harness（使用者治理层），只治理当前生成工作区。它不继承脚手架根目录的 Maintainer Harness，也不得反向控制脚手架模板、运行时或发布流程。
+## 与用户协作
 
-## 沟通语言
+- 优先使用中文；英文术语首次出现时附中文说明。
+- 用户可以直接用自然语言提出任务，例如“开始产品设计，先整理 Use Cases（用例）”或“独立开始架构设计”。
+- 只处理用户明确请求的当前产物，不自动扩展到其他阶段、发布或下游实现。
+- 最终回复说明实际修改、验证结果与剩余问题，不要求用户运行 npm、Node.js、内部脚本或治理命令。
 
-- 与用户沟通、编写规格和说明性文档时，优先使用中文。
-- 代码标识符、协议名、技术名词和业界通用缩写可保留英文。
+## 工作区边界
 
-## 行为边界
+- `psp.project.yaml` 声明阶段、产物路径和领域元数据；具体语义与工作流由 `.agents/skills/` 中对应 Domain Skill（领域技能）拥有。
+- `.agents/runtime/` 只提供无领域语义的项目读取与原子文件事务。
+- `.psp/harness/HARNESS.md` 只是一份简短行为原则，不是执行入口。
+- 不存在 Harness Manifest、Resolver、Profile、Scope、Gate、Consistency Report（统一一致性报告）、Handoff Receipt（移交凭证）或中央生命周期控制面。遇到要求使用这些旧概念的请求时，停止写入并解释当前版本由 Agent 与领域 Skill 直接协作。
+- Product Design、MockCase 与 Architecture Design 生命周期彼此独立。架构设计可只读引用固定版本的产品产物，但不得改写产品事实。
+- 领域 Skill 可以在后台调用当前工作区本地脚本完成初始化、原子写入、渲染和验证；不得让用户承担这些内部操作。
+- 面向用户阅读和评审的正式规格使用 Markdown；隐藏 YAML/JSON 模型只能写到项目绑定声明的位置。
+- Canonical UI Prototype（规范界面原型）的可执行界面与 `src/spec/canonical-ui.ts` 是界面事实；临时截图、构建目录和评审数据不是正式交付物。
+- 修改前保留已有改动；不得覆盖无关内容，不得把 `FAIL`、`BLOCKED` 或 `NOT_RUN` 描述为通过。
 
-- 仓库内部交付关系为 Product Idea → Use Cases；每个 UC 原子包含 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint；Use Cases → provider-neutral Visual Spec → Canonical UI Prototype。Architecture Design 拥有独立生命周期，不依赖 Product Design readiness、发布状态或 handoff；它可以显式选择固定版本、只读的 Use Cases 引用，但该引用不形成生命周期控制。当前工作区不绑定任何外部框架生命周期。Agent 每轮只处理用户明确请求的当前产物，不得把“一句话”自动扩展成全部分支产物。
-- Use Cases 是产品设计的首个权威产物和产品事实唯一来源；YAML 是机器权威视图，`UC.md` 是从同一模型确定性生成的唯一人类视图，不拥有独立事实，也不得反向更新 Use Cases。
-- Visual Spec 只拥有确定渲染事实，不拥有或修改产品行为；`visual-spec.yaml` 是机器权威视图，`Visual-Spec.md` 是确定性用户投影。写入必须使用独立 operation，并在缺少已就绪 Use Cases 时以稳定 blocker 阻断。
-- Handoff 只在用户显式请求时执行 preflight；展示验证、风险、版本和哈希后必须停止等待用户确认或拒绝。只有显式确认才写入 Receipt；无论结果如何都不得初始化、修改或运行下游。
-- Harness 只拥有与产品语义和内容效果无关的硬治理：输入输出角色与路径绑定、Scope、Dependency/Handoff 关系登记、生命周期、工程命令与 blocker code 协议；Dependency 语义由一致性或领域 Skill 只读分析，Handoff 决定属于用户。
-- 架构设计不得修改、补齐或锁定产品设计；可选 Product Design 引用只用于只读一致性校验，不得从实现便利性反向推导、静默改变或伪造产品事实。
-- 除 Canonical UI Prototype 外，面向用户阅读、评审和交付的正式规格产物必须是 Markdown。Canonical UI Prototype 的可执行界面及 `src/spec/canonical-ui.ts` 是正式界面规格和唯一事实来源；README 是面向人的评审投影。
-- YAML/JSON 只作为领域能力使用的隐藏结构化模型或机器投影，必须位于项目绑定声明的 `.psp/models/` 路径，不属于用户产物。对 authorityKind 为 `internal-model` 或 `internal-model-set` 的产物，Agent 不得直接写目标 YAML 或对应 Markdown；必须通过 Manifest 登记的 artifact operation（产物操作）从同一候选数据生成两者。集合产物以稳定 `ACTOR-ID` 分区，显示名称变化不得移动目录。
-- `user-artifact` 是正式用户产物；`generated-support` 只供机器消费，不得列入用户交付清单。用户目录不得放置 Contract、Schema、Validator、Harness 测试或通用模板。
-- 具体用户目录与产物路径只从 psp.project.yaml 读取，不得从目录名称猜测。
-- 工作区初始化必须创建所有已绑定且非 unavailable 的阶段根目录；空目录骨架不等于用户实例。
-- 纯脚手架初始状态下，所有非 unavailable 阶段必须为 uninitialized，阶段根目录只能包含 manifest 声明的工作区标记。
-- status 为 uninitialized 的阶段只有目录骨架，不拥有用户实例；只有用户明确开始该阶段时才能执行 manifest 声明的初始化 operation。
-- status 为 unavailable 的阶段禁止写入；Architecture 独立模式不读取该阶段，显式引用模式只能记录缺口，不得把架构假设写成产品事实。
+## 开始与停止
 
-## Harness 接入
-
-- 任务开始时读取 `.psp/harness/HARNESS.md`、`psp.project.yaml` 和 `.psp/harness/harness.manifest.json`；这些隐藏基础设施不构成用户阅读路径。
-- 使用 Repository Skill apply-repository-harness 调用统一 resolver，并执行返回的全部 validation commands。
-- 初始化纯脚手架工作区时只使用 manifest 声明的 initialize-workspace operation；它不得创建产品或架构用户实例。
-- 日常更新内部模型产物时，先在工作区外的临时位置准备候选数据，再运行对应 artifact operation；`--dry-run` 只用于预检 Schema 与目标路径，正式写入不要求旧版本 hash。operation 从同一候选生成机器权威视图与绑定的人类视图，并使用短期文件锁避免同一产物同时写入，但不得把内容 hash 当成代码或产物修改许可。`render:product` 与 `render:architecture` 只允许由阶段初始化 operation 调用，不是日常更新入口。
-- AGENTS.md 只拥有行为边界；执行协议与机器路由由 Harness protocol 和 Manifest 拥有。产品与架构的 Agent 工作流、Contract、Schema、模板、投影器、追溯规则和领域 Validator 分别由 `.agents/skills/product-design/` 与 `.agents/skills/architecture-design/` 仓库领域 Skill 拥有。
-- 验证通过、用户允许 Handoff 与下游开始执行是三个独立事实；结构校验通过也可能只表示 uninitialized 空状态或 draft 结构有效。
-
-## 变更保护与交付
-
-- 修改前识别并保留用户已有改动；不得覆盖无关内容。
-- 路径变更必须同步维护项目绑定、内部模型、用户产物、机器生成支撑和追溯关系。
-- 不得绕过机器门禁，或把 FAIL、BLOCKED、NOT_RUN 表述为 PASS。
-- 最终交付必须报告 Scope、实际变更、逐项验证状态和剩余 blocker。
+只有用户明确开始某领域时，Agent 才调用该领域 Skill 的初始化能力。出现范围外修复、不可恢复错误或需要新的用户决定时停止，并用通俗语言说明原因。

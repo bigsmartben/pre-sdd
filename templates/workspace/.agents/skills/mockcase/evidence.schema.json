@@ -27,12 +27,13 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "caseId", "routeId", "projectionDigest", "status"],
+            "required": ["kind", "caseId", "routeId", "projectionDigest", "applyStatus", "status"],
             "properties": {
               "kind": {"const": "case"},
               "caseId": {"$ref": "#/$defs/id"},
               "routeId": {"$ref": "#/$defs/id"},
               "projectionDigest": {"$ref": "#/$defs/digest"},
+              "applyStatus": {"const": "PASS"},
               "status": {"const": "PASS"}
             }
           },
@@ -49,7 +50,7 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "decision", "routeId", "caseProjections", "status"],
+            "required": ["kind", "decision", "routeId", "caseProjections", "applyStatus", "rollbackStatus", "status"],
             "properties": {
               "kind": {"const": "review-decision"},
               "decision": {"const": "complete"},
@@ -60,16 +61,21 @@
                 "uniqueItems": true,
                 "items": {"$ref": "#/$defs/caseProjection"}
               },
+              "applyStatus": {"const": "PASS"},
+              "rollbackStatus": {"const": "PASS"},
               "status": {"const": "PASS"}
             }
           },
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "routeId", "status"],
+            "required": ["kind", "routeId", "rollbackStatus", "beforeDigest", "afterDigest", "status"],
             "properties": {
               "kind": {"const": "dispose"},
               "routeId": {"$ref": "#/$defs/id"},
+              "rollbackStatus": {"const": "PASS"},
+              "beforeDigest": {"$ref": "#/$defs/digest"},
+              "afterDigest": {"$ref": "#/$defs/digest"},
               "status": {"const": "PASS"}
             }
           }

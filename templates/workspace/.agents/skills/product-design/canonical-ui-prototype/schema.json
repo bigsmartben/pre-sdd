@@ -7,11 +7,11 @@
   "required": [
     "version", "actor", "draft", "visualPolicy", "reviewTools", "repairPolicy", "designSources", "assets", "tokens", "routes", "screens", "components",
     "componentInventory", "componentMappings", "componentVariantDefinitions", "componentVariantCoverage", "componentContracts", "stateAxes", "stateMatrix",
-    "controls", "states", "events", "actions", "scenarios", "viewports",
+    "uiViewModels", "uiCases", "controls", "states", "events", "actions", "scenarios", "viewports",
     "renderAssertions", "sourceParityAssertions", "componentSourceParityAssertions", "motions", "traceability", "gaps"
   ],
   "properties": {
-    "version": {"const": "11.0.0"},
+    "version": {"const": "12.0.0"},
     "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
     "draft": {"$ref": "#/$defs/draft"},
     "visualPolicy": {"$ref": "#/$defs/visualPolicy"},
@@ -30,6 +30,8 @@
     "componentContracts": {"type": "array", "items": {"$ref": "#/$defs/componentContract"}},
     "stateAxes": {"type": "array", "items": {"$ref": "#/$defs/stateAxis"}},
     "stateMatrix": {"type": "array", "items": {"$ref": "#/$defs/stateMatrixEntry"}},
+    "uiViewModels": {"type": "array", "items": {"$ref": "#/$defs/uiViewModel"}},
+    "uiCases": {"type": "array", "items": {"$ref": "#/$defs/uiCase"}},
     "controls": {"type": "array", "items": {"$ref": "#/$defs/control"}},
     "states": {"type": "array", "items": {"$ref": "#/$defs/state"}},
     "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
@@ -226,14 +228,14 @@
             "properties": {
               "id": {"$ref": "#/$defs/id"},
               "kind": {
-                "enum": ["inconsistency-annotator", "mockcase-switcher", "interaction-branch-driver"]
+                "enum": ["inconsistency-annotator", "ui-case-switcher", "interaction-branch-driver"]
               },
               "delivery": {"enum": ["built-in", "review-extension"]}
             }
           },
           "allOf": [
             {"contains": {"type": "object", "properties": {"kind": {"const": "inconsistency-annotator"}, "delivery": {"const": "built-in"}}, "required": ["kind", "delivery"]}},
-            {"contains": {"type": "object", "properties": {"kind": {"const": "mockcase-switcher"}, "delivery": {"const": "review-extension"}}, "required": ["kind", "delivery"]}},
+            {"contains": {"type": "object", "properties": {"kind": {"const": "ui-case-switcher"}, "delivery": {"const": "review-extension"}}, "required": ["kind", "delivery"]}},
             {"contains": {"type": "object", "properties": {"kind": {"const": "interaction-branch-driver"}, "delivery": {"const": "built-in"}}, "required": ["kind", "delivery"]}}
           ]
         }
@@ -341,6 +343,7 @@
         "kind": {"enum": ["image", "icon", "font", "other"]},
         "sourceIds": {"$ref": "#/$defs/ids"},
         "sourceNodeId": {"$ref": "#/$defs/nodeId"},
+        "assetBoundaryNodeId": {"$ref": "#/$defs/nodeId"},
         "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
         "strategy": {"const": "asset"},
         "format": {"enum": ["png", "svg"]},
@@ -624,12 +627,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "id", "componentId", "implementationRole", "figmaInstanceNodeIds", "litTagName", "slots",
+        "id", "componentId", "visualComponentId", "implementationRole", "figmaInstanceNodeIds", "litTagName", "slots",
         "properties", "attributes", "eventIds", "stateAxisCoverage", "defaultStateMatrixEntryId", "pageInstances", "implementationPaths", "testAssertions"
       ],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "componentId": {"$ref": "#/$defs/id"},
+        "visualComponentId": {"type": "string", "pattern": "^VISUAL-COMPONENT-[0-9]{3}$"},
         "implementationRole": {"enum": ["app-shell", "feature-shell", "shared-component", "layout-primitive", "page-local"]},
         "mappingId": {"$ref": "#/$defs/id"},
         "figmaInstanceNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
@@ -704,7 +708,10 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["kind"],
-          "properties": {"kind": {"const": "workflow-state"}}
+          "properties": {
+            "kind": {"const": "workflow-state"},
+            "name": {"$ref": "#/$defs/litPropertyName"}
+          }
         },
         {
           "type": "object",
@@ -732,7 +739,15 @@
       "allOf": [
         {
           "if": {"properties": {"kind": {"const": "variant"}}, "required": ["kind"]},
-          "then": {"properties": {"renderBinding": {"type": "object", "properties": {"kind": {"const": "mapped-variant"}}, "required": ["kind"]}}}
+          "then": {
+            "properties": {
+              "renderBinding": {
+                "type": "object",
+                "properties": {"kind": {"enum": ["mapped-variant", "lit-property", "lit-attribute"]}},
+                "required": ["kind"]
+              }
+            }
+          }
         },
         {
           "if": {"properties": {"kind": {"const": "runtime-state"}}, "required": ["kind"]},
@@ -760,7 +775,7 @@
         },
         {
           "if": {"properties": {"kind": {"const": "interaction-state"}}, "required": ["kind"]},
-          "then": {"properties": {"renderBinding": {"type": "object", "properties": {"kind": {"const": "workflow-state"}}, "required": ["kind"]}}}
+          "then": {"properties": {"renderBinding": {"type": "object", "properties": {"kind": {"const": "workflow-state"}, "name": {"$ref": "#/$defs/litPropertyName"}}, "required": ["kind"]}}}
         },
         {
           "if": {"properties": {"kind": {"const": "content-override"}}, "required": ["kind"]},
@@ -813,6 +828,42 @@
           "else": {"properties": {"renderInGallery": {"const": false}, "reason": {"type": "string", "minLength": 1}}, "required": ["reason"]}
         }
       ]
+    },
+    "uiViewModelOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pageInstanceId", "stateMatrixEntryId"],
+      "properties": {
+        "pageInstanceId": {"$ref": "#/$defs/id"},
+        "stateMatrixEntryId": {"$ref": "#/$defs/id"}
+      }
+    },
+    "uiViewModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "routeId", "base", "overrides"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^UI-VM-[0-9]{3}$"},
+        "name": {"type": "string", "minLength": 1},
+        "routeId": {"$ref": "#/$defs/id"},
+        "base": {"const": "component-contract-defaults"},
+        "overrides": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/uiViewModelOverride"}
+        }
+      }
+    },
+    "uiCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "viewModelId", "viewportIds"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^UI-CASE-[0-9]{3}$"},
+        "name": {"type": "string", "minLength": 1},
+        "viewModelId": {"type": "string", "pattern": "^UI-VM-[0-9]{3}$"},
+        "viewportIds": {"$ref": "#/$defs/nonEmptyIds"}
+      }
     },
     "control": {"type": "object", "additionalProperties": false, "required": ["id", "componentId", "label"], "properties": {"id": {"$ref": "#/$defs/id"}, "componentId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}}},
     "state": {"type": "object", "additionalProperties": false, "required": ["id", "scope", "ownerId", "label"], "properties": {"id": {"$ref": "#/$defs/id"}, "scope": {"enum": ["workflow", "component"]}, "ownerId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}}},

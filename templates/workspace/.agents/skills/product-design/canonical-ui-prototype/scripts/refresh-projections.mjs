@@ -1,12 +1,13 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { commitManagedWrites } from '../../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
+import { commitManagedWrites } from '../../../../runtime/artifact-transaction.mjs';
 import {
   actorPartition,
+  artifactDefinition,
   artifactPaths,
-  loadProjectAndManifest,
+  loadProject,
   repositoryRootFrom,
-} from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../../runtime/project.mjs';
 import { canonicalExpectedOutputs } from './project.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
@@ -23,18 +24,22 @@ function fail(code, message) {
 export async function refreshCanonicalUiProjections(rootDirectory, options = {}) {
   const operationId = options.operationId || 'refresh-canonical-ui-projections';
   const dryRun = options.dryRun === true;
-  const { project, manifest } = await loadProjectAndManifest(rootDirectory);
-  const operation = manifest.operations.find((item) => (
-    item.id === operationId
-    && item.kind === 'projection-refresh'
-  ));
-  if (!operation) fail('AIH_CONTRACT_INVALID', 'Manifest 未声明 Canonical UI 投影刷新 operation：' + operationId);
+  const project = await loadProject(rootDirectory);
+  if (operationId !== 'refresh-canonical-ui-projections') {
+    fail('AIH_CONTRACT_INVALID', 'Canonical UI 不支持该投影刷新动作：' + operationId);
+  }
+  const operation = {
+    id: operationId,
+    stage: 'product-design',
+    artifact: 'canonical-ui-prototype',
+    outputRole: 'generated-support',
+  };
 
   const stage = project.stages?.[operation.stage];
   if (stage?.status === 'published') fail('AIH_STAGE_LOCKED', '阶段已经发布并锁定；请先执行 Reopen：' + operation.stage);
   if (stage?.status !== 'active') fail('AIH_STAGE_UNINITIALIZED', '阶段尚未初始化，不能刷新投影：' + operation.stage);
 
-  const registry = manifest.artifactRegistry.find((item) => item.id === operation.artifact);
+  const registry = artifactDefinition(project, operation.artifact, operation.stage);
   const paths = artifactPaths(project, operation.artifact, operation.stage);
   const bindings = (paths?.memberOutputs || []).filter((item) => item.role === operation.outputRole);
   if (
@@ -46,7 +51,7 @@ export async function refreshCanonicalUiProjections(rootDirectory, options = {})
     fail('AIH_PROJECT_BINDING_INVALID', 'Canonical UI 投影刷新缺少 Area Set 或 generated-support 项目绑定。');
   }
 
-  const expected = (await canonicalExpectedOutputs(rootDirectory, project, manifest))
+  const expected = (await canonicalExpectedOutputs(rootDirectory, project))
     .filter((item) => item.role === operation.outputRole);
   for (const output of expected) {
     if (!actorPartition(output.actor)) fail('AIH_PROJECT_BINDING_INVALID', '投影缺少合法 ACTOR-NNN 分区：' + output.output);

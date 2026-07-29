@@ -1,8 +1,5 @@
 apiVersion: psp.dev/v1
 kind: PSPProject
-harness:
-  protocol: pre-sdd-harness/v3
-  manifest: .psp/harness/harness.manifest.json
 stages:
   product-design:
     status: uninitialized
@@ -11,12 +8,22 @@ stages:
       receipt: .psp/publications/product-design.json
     artifacts:
       capabilities:
+        format: yaml
+        renderer: capabilities-markdown
+        contract: .agents/skills/product-design/capabilities/contract.yaml
+        schema: .agents/skills/product-design/capabilities/schema.json
+        template: .agents/skills/product-design/capabilities/template.yaml
         internalModel: .psp/models/use-cases.yaml
         outputs:
           - path: UC.md
             role: user-artifact
             projection: use-cases-document
       visual-spec:
+        format: yaml
+        renderer: visual-spec-markdown
+        contract: .agents/skills/product-design/visual-spec/contract.yaml
+        schema: .agents/skills/product-design/visual-spec/schema.json
+        template: .agents/skills/product-design/visual-spec/template.yaml
         inputRoot: inputs/visual-spec
         internalModel: .psp/models/visual-spec.yaml
         outputs:
@@ -24,6 +31,9 @@ stages:
             role: user-artifact
             projection: visual-spec-document
       canonical-ui-prototype:
+        format: typescript
+        contract: .agents/skills/product-design/canonical-ui-prototype/contract.yaml
+        schema: .agents/skills/product-design/canonical-ui-prototype/schema.json
         authority:
           kind: area-set
           area: canonical-ui-prototypes
@@ -41,9 +51,15 @@ stages:
     root: MockCase
     artifacts:
       mockcase-suite:
+        format: json
+        contract: .agents/skills/mockcase/contract.yaml
+        schema: .agents/skills/mockcase/suite.schema.json
+        memberSchemas:
+          mockdata.json: .agents/skills/mockcase/mockdata.schema.json
+          mockcases.json: .agents/skills/mockcase/mockcases.schema.json
         authority:
           kind: area-set
-          area: mockcase-suites
+          area: mockcase-models
           semanticEntry: suite.json
           companionEntries:
             - mockdata.json
@@ -55,31 +71,52 @@ stages:
             role: runtime-projection
             projection: mockcase-runtime
     areas:
-      mockcase-suites:
-        root: actors
+      mockcase-models:
+        root: .psp/models/actors
   architecture-design:
     status: uninitialized
     root: 02-architecture-design
     artifacts:
       architecture-package:
+        format: yaml
+        renderer: architecture-package-markdown
+        contract: .agents/skills/architecture-design/architecture-package/contract.yaml
+        schema: .agents/skills/architecture-design/architecture-package/schema.json
+        template: .agents/skills/architecture-design/architecture-package/template.yaml
         inputRoot: inputs/architecture-package
         internalModel: .psp/models/architecture-package.yaml
         outputs:
           - path: README.md
             role: user-artifact
       system-boundary:
+        format: yaml
+        renderer: system-boundary-markdown
+        contract: .agents/skills/architecture-design/system-boundary/contract.yaml
+        schema: .agents/skills/architecture-design/system-boundary/schema.json
+        template: .agents/skills/architecture-design/system-boundary/template.yaml
         inputRoot: inputs/system-boundary
         internalModel: .psp/models/system-boundary.yaml
         outputs:
           - path: 系统边界.md
             role: user-artifact
       conceptual-model:
+        format: yaml
+        renderer: conceptual-model-markdown
+        contract: .agents/skills/architecture-design/conceptual-model/contract.yaml
+        schema: .agents/skills/architecture-design/conceptual-model/schema.json
+        template: .agents/skills/architecture-design/conceptual-model/template.yaml
         inputRoot: inputs/conceptual-model
         internalModel: .psp/models/conceptual-model.yaml
         outputs:
           - path: 概念建模.md
             role: user-artifact
       technical-validation:
+        format: yaml
+        renderer: technical-validation-markdown
+        contract: .agents/skills/architecture-design/technical-validation/contract.yaml
+        schema: .agents/skills/architecture-design/technical-validation/schema.json
+        template: .agents/skills/architecture-design/technical-validation/template.yaml
+        areaTemplate: .agents/skills/architecture-design/technical-validation/template-area
         inputRoot: inputs/technical-validation
         internalModel: .psp/models/technical-validation.yaml
         outputs:

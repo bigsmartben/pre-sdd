@@ -6,8 +6,9 @@ import { createRequire } from 'node:module';
 import playwright from '@playwright/test';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { createServer } from 'vite';
-import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactDefinition, artifactMemberPath, artifactPaths, loadProject, readStructured, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import { extractCanonicalUi } from './extract.mjs';
+import { findFigmaVisualBypasses } from './lib/figma-css-policy.mjs';
 import { createRepairDiagnostic } from './lib/repair-diagnostics.mjs';
 import { verifyMatrixMount } from './lib/verify-matrix-mount.mjs';
 
@@ -36,7 +37,7 @@ const forwardedFilters = [
 ];
 
 if (!requestedActor) {
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const members = await artifactCollectionMembers(root, paths);
   const aggregateBlockers = [];
@@ -209,6 +210,44 @@ async function implementationUsesToken(areaPath, contracts, cssProperty) {
     if (pattern.test(implementationSourceCache.get(implementationPath))) return true;
   }
   return false;
+}
+
+async function implementationSource(areaPath, implementationPath) {
+  if (!implementationSourceCache.has(implementationPath)) {
+    try {
+      implementationSourceCache.set(implementationPath, await readFile(resolve(areaPath, implementationPath), 'utf8'));
+    } catch {
+      implementationSourceCache.set(implementationPath, '');
+    }
+  }
+  return implementationSourceCache.get(implementationPath);
+}
+
+async function validateFigmaImplementationPolicy(model, areaPath) {
+  if (model.visualPolicy.mode !== 'exact') return;
+  const sourceKinds = new Map(model.designSources.map((source) => [source.id, source.kind]));
+  const mappingSources = new Map(model.componentMappings.map((mapping) => [mapping.id, mapping.sourceId]));
+  const paths = new Set(
+    model.componentContracts
+      .filter((contract) => contract.mappingId && sourceKinds.get(mappingSources.get(contract.mappingId)) === 'figma')
+      .flatMap((contract) => contract.implementationPaths),
+  );
+  for (const implementationPath of paths) {
+    const source = await implementationSource(areaPath, implementationPath);
+    for (const issue of findFigmaVisualBypasses(source)) {
+      if (issue.kind === 'css-property') {
+        block(
+          'AIH_ASSET_CSS_BYPASS',
+          'Figma 精确覆盖区域的 CSS 只能负责布局和文字排版；禁止视觉声明：' + issue.property,
+          implementationPath,
+        );
+      } else if (issue.kind === 'pseudo-element') {
+        block('AIH_ASSET_CSS_BYPASS', 'Figma 精确覆盖区域禁止使用伪元素绘制视觉内容。', implementationPath);
+      } else {
+        block('AIH_ASSET_CSS_BYPASS', 'Figma 精确覆盖区域禁止使用内联 SVG 或 Canvas 替代来源资产。', implementationPath);
+      }
+    }
+  }
 }
 
 async function observeTokens(page, model, tokens, tokenTargets, areaPath, location, scope, screenshot) {
@@ -1400,7 +1439,23 @@ async function installClipboardProbe(page) {
           for (const item of items) {
             for (const type of item.types) {
               const value = await item.getType(type);
-              write.types.push({ type, size: value.size });
+              const entry = { type, size: value.size };
+              if (type === 'image/png') {
+                const bitmap = await createImageBitmap(value);
+                const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+                const context = canvas.getContext('2d', { willReadFrequently: true });
+                context.drawImage(bitmap, 0, 0);
+                const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+                let redPixels = 0;
+                for (let index = 0; index < pixels.length; index += 4) {
+                  if (pixels[index] > 190 && pixels[index + 1] < 120 && pixels[index + 2] < 130 && pixels[index + 3] > 200) {
+                    redPixels += 1;
+                  }
+                }
+                entry.image = { width: bitmap.width, height: bitmap.height, redPixels };
+                bitmap.close();
+              }
+              write.types.push(entry);
             }
           }
           globalThis.__pspClipboardWrites.push(write);
@@ -1433,6 +1488,15 @@ async function verifyReviewToolCopy(page, routePath) {
   const successfulTypes = new Set(writes[0]?.types?.map((item) => item.type));
   if (writes.length !== 1 || writes[0]?.active !== true || !successfulTypes.has('image/png') || !successfulTypes.has('text/plain')) {
     block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具没有在用户点击期间写入 PNG 与文字。', routePath);
+  }
+  const copiedImage = writes[0]?.types?.find((item) => item.type === 'image/png')?.image;
+  if (
+    !copiedImage
+    || copiedImage.width < viewport.width
+    || copiedImage.height <= viewport.height
+    || copiedImage.redPixels < 100
+  ) {
+    block('AIH_CANONICAL_UI_RUNTIME_FAILED', '不一致标记工具复制的 PNG 缺少有效视口、图例或红色标记绘制。', routePath);
   }
 
   await page.waitForFunction(() => document.querySelector('[data-action="copy"]')?.textContent === '复制');
@@ -1510,16 +1574,27 @@ async function verifyStateGallery(viewport, base, model) {
   const { context, page } = await guardedPage(viewport, base);
   const location = '/__review/components';
   try {
+    const selectedContractIds = new Set(model.componentContracts.filter((item) => componentFilter.size === 0 || componentFilter.has(item.componentId)).map((item) => item.id));
+    const legalEntries = model.stateMatrix.filter((entry) => entry.classification === 'legal' && entry.renderInGallery && selectedContractIds.has(entry.componentContractId));
     const galleryUrl = new URL(location, base);
     galleryUrl.searchParams.set('review', '1');
     for (const componentId of componentFilter) galleryUrl.searchParams.append('__pspComponentFilter', componentId);
-    await page.goto(galleryUrl.href, { waitUntil: 'networkidle' });
+    await page.goto(galleryUrl.href, { waitUntil: 'domcontentloaded' });
+    await page.locator('psp-state-gallery').waitFor({ state: 'attached', timeout: 60000 });
     if (await page.locator('psp-state-gallery').count() !== 1) {
       block('AIH_STATE_GALLERY_FAILED', '缺少唯一的 /__review/components State Gallery。', location);
       return;
     }
-    const selectedContractIds = new Set(model.componentContracts.filter((item) => componentFilter.size === 0 || componentFilter.has(item.componentId)).map((item) => item.id));
-    const legalEntries = model.stateMatrix.filter((entry) => entry.classification === 'legal' && entry.renderInGallery && selectedContractIds.has(entry.componentContractId));
+    await page.waitForFunction(
+      (expected) => (
+        document.querySelector('psp-state-gallery')
+          ?.shadowRoot
+          ?.querySelectorAll('[data-state-gallery] iframe')
+          .length === expected
+      ),
+      legalEntries.length,
+      { timeout: 60000 },
+    );
     const renderedIds = await page.locator('[data-state-gallery] [data-state-matrix-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-state-matrix-id')));
     if (JSON.stringify([...renderedIds].sort()) !== JSON.stringify(legalEntries.map((entry) => entry.id).sort())) {
       block('AIH_STATE_GALLERY_FAILED', 'State Gallery 必须精确渲染全部合法 Matrix Entry，且不得渲染互斥或不可达组合。', location);
@@ -1582,7 +1657,7 @@ async function capture(page, evidenceRoot, item) {
 }
 
 try {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const stage = project.stages?.['product-design'];
   if (stage?.status !== 'active') throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
@@ -1614,7 +1689,8 @@ try {
   if (componentFilter.size > 0 && model.components.filter((item) => componentFilter.has(item.id)).length !== componentFilter.size) block('AIH_INCREMENTAL_SCOPE_INVALID', '增量校验引用未知 Component。', [...componentFilter].join(', '));
   if (model.actor !== requestedActor) block('AIH_REFERENCE_UNRESOLVED', '应用 actor 与目录参与者不一致。', authorityPath);
   const areaPath = repositoryFile(root, paths.authorityRoot + '/' + requestedActor);
-  const registry = manifest.artifactRegistry.find((item) => item.id === 'canonical-ui-prototype');
+  await validateFigmaImplementationPolicy(model, areaPath);
+  const registry = artifactDefinition(project, 'canonical-ui-prototype', 'product-design');
   const contract = await readStructured(root, registry.contract, 'yaml');
   const thresholds = contract.spec.visualParity;
   const parityEvidence = await loadParityEvidence(areaPath, model);

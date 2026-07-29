@@ -35,7 +35,7 @@ async function snapshotTree(path, relative = '') {
 }
 
 async function completeArchitectureFixture(root) {
-  const initialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
+  const initialization = runScript('.agents/skills/architecture-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
 
   const project = await fixtureProject(root);
@@ -205,33 +205,6 @@ async function completeArchitectureFixture(root) {
   return { project, stage, validation };
 }
 
-test('System Boundary Handoff ignores unfinished Conceptual Model and Technical Validation consumers', async () => {
-  const root = await temporaryRepository();
-  const { stage } = await completeArchitectureFixture(root);
-  await writeFile(resolve(root, stage.root, stage.artifacts['conceptual-model'].internalModel), 'invalid: true\n');
-  await writeFile(resolve(root, stage.root, stage.artifacts['technical-validation'].internalModel), 'invalid: true\n');
-
-  for (const target of ['conceptual-model', 'technical-validation']) {
-    const preflight = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
-      '--from', 'system-boundary', '--to', target, '--json',
-    ]);
-    assert.equal(preflight.exitCode, 0, JSON.stringify(preflight.output, null, 2));
-    assert.equal(preflight.output.confirmable, true, JSON.stringify(preflight.output, null, 2));
-    assert.deepEqual(preflight.output.dependencyClosure, ['system-boundary']);
-    assert.deepEqual(preflight.output.validation.commands.map((item) => item.id), [
-      'harness', 'project-consistency', 'architecture-system-boundary',
-    ]);
-    const confirmed = runScript('.psp/harness/scripts/run-handoff.mjs', root, [
-      '--from', 'system-boundary', '--to', target,
-      '--confirm', '--actor', 'user:test',
-      '--preflight-token', preflight.output.preflightToken,
-      '--json',
-    ]);
-    assert.equal(confirmed.exitCode, 0, JSON.stringify(confirmed.output, null, 2));
-    assert.equal(confirmed.output.receipt.status, 'VALID');
-  }
-});
-
 test('architecture empty scaffold passes structure and blocks readiness', async () => {
   const root = await temporaryRepository();
   const structure = runScript('.agents/skills/architecture-design/scripts/validate.mjs', root, ['--json']);
@@ -251,7 +224,7 @@ test('architecture initialization ignores Product Design lifecycle state and nev
   for (const scenario of scenarios) {
     const root = await temporaryRepository();
     if (scenario.initializeProduct) {
-      const productInitialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+      const productInitialization = runScript('.agents/skills/product-design/scripts/initialize.mjs', root, ['--json']);
       assert.equal(productInitialization.exitCode, 0, scenario.name + ': ' + JSON.stringify(productInitialization.output, null, 2));
       const projectPath = resolve(root, 'psp.project.yaml');
       const project = parseYaml(await readFile(projectPath, 'utf8'));
@@ -261,7 +234,7 @@ test('architecture initialization ignores Product Design lifecycle state and nev
     }
     const productRoot = resolve(root, '01-product-design');
     const before = await snapshotTree(productRoot);
-    const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
+    const initialized = runScript('.agents/skills/architecture-design/scripts/initialize.mjs', root, ['--json']);
     assert.equal(initialized.exitCode, 0, scenario.name + ': ' + JSON.stringify(initialized.output, null, 2));
     assert.deepEqual(await snapshotTree(productRoot), before, scenario.name);
     assert.equal(initialized.output.outputs.some((path) => path.startsWith('01-product-design/')), false, scenario.name);
@@ -275,7 +248,7 @@ test('architecture initialization ignores Product Design lifecycle state and nev
 
 test('architecture artifact operation commits its YAML and Markdown as one revision', async () => {
   const root = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
+  const initialized = runScript('.agents/skills/architecture-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['architecture-design'];
@@ -310,9 +283,9 @@ test('complete Architecture mapping from local Use Case to capability to real-co
 
 test('optional Product Design reference is fixed-version read-only and ignores lifecycle status', async () => {
   const root = await temporaryRepository();
-  const productInitialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+  const productInitialization = runScript('.agents/skills/product-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(productInitialization.exitCode, 0, JSON.stringify(productInitialization.output, null, 2));
-  const architectureInitialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-architecture', '--json']);
+  const architectureInitialization = runScript('.agents/skills/architecture-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(architectureInitialization.exitCode, 0, JSON.stringify(architectureInitialization.output, null, 2));
 
   const projectPath = resolve(root, 'psp.project.yaml');
@@ -370,11 +343,10 @@ test('strict validation accepts the current experiment result without a persiste
 test('all architecture artifacts declare fixed inputs owned by the Architecture Design Skill', async () => {
   const root = await temporaryRepository();
   const project = await fixtureProject(root);
-  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  const artifacts = manifest.artifactRegistry.filter((item) => item.stage === 'architecture-design');
+  const artifacts = Object.entries(project.stages['architecture-design'].artifacts)
+    .map(([id, binding]) => ({ id, ...binding }));
   assert.equal(artifacts.length, 4);
   for (const item of artifacts) {
-    assert.equal(item.domain, 'architecture-design');
     assert.match(item.contract, /^\.agents\/skills\/architecture-design\//);
     assert.match(item.schema, /^\.agents\/skills\/architecture-design\//);
     assert.match(project.stages['architecture-design'].artifacts[item.id].inputRoot, /^inputs\/[a-z][a-z0-9-]*$/);

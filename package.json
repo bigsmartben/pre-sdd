@@ -1,40 +1,22 @@
 {
-  "name": "pre-sdd",
-  "version": "0.4.2",
-  "description": "Harness-governed reusable Product Design and Architecture Design workspace scaffold",
+  "name": "pre-sdd-maintainer",
+  "version": "0.5.0",
+  "description": "Maintainer tooling and domain tests for the sdd-pre workspace scaffold",
+  "private": true,
   "type": "module",
-  "bin": {
-    "pre-sdd": "./bin/pre-sdd.mjs"
-  },
-  "files": [
-    "bin/",
-    "runtime/",
-    "templates/workspace/",
-    "README.md",
-    "QUICKSTART.md"
-  ],
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "validate:harness": "node .psp/harness/scripts/validate-harness.mjs",
-    "check:scaffold-consistency": "node .agents/skills/scaffold-consistency/scripts/check.mjs",
-    "harness:resolve": "node .psp/harness/scripts/resolve-validation.mjs",
-    "test:harness": "node --test .psp/harness/tests/scaffold/*.test.mjs",
-    "test:template:harness": "node .psp/harness/scripts/run-workspace-suite.mjs --mode template --suite harness",
-    "test:template:product": "node .psp/harness/scripts/run-workspace-suite.mjs --mode template --suite product",
-    "test:template:mockcase": "node .psp/harness/scripts/run-workspace-suite.mjs --mode template --suite mockcase",
-    "test:template:architecture": "node .psp/harness/scripts/run-workspace-suite.mjs --mode template --suite architecture",
-    "test:workspace:harness": "node .psp/harness/scripts/run-workspace-suite.mjs --mode generated --suite harness",
-    "test:workspace:product": "node .psp/harness/scripts/run-workspace-suite.mjs --mode generated --suite product",
-    "test:workspace:mockcase": "node .psp/harness/scripts/run-workspace-suite.mjs --mode generated --suite mockcase",
-    "test:workspace:architecture": "node .psp/harness/scripts/run-workspace-suite.mjs --mode generated --suite architecture",
-    "test:package:fast": "node tests/package/run-suite.mjs --tier fast",
-    "test:package:slow": "node tests/package/run-suite.mjs --tier slow",
-    "test:package": "npm run test:package:fast && npm run test:package:slow",
-    "test": "npm run test:harness && npm run test:package",
-    "check": "npm run validate:harness && npm test && npm run pack:check",
-    "pack:check": "npm pack --dry-run --json"
+    "test:python": "uv run --isolated python -B -m unittest discover -s tests/package -p test_*.py",
+    "test:package": "node --test tests/package/png-assets.test.mjs tests/package/workspace.test.mjs",
+    "test:product": "node templates/workspace/.agents/skills/product-design/tests/run-suite.mjs",
+    "test:mockcase": "node --test templates/workspace/.agents/skills/mockcase/tests/*.test.mjs",
+    "test:architecture": "node --test templates/workspace/.agents/skills/architecture-design/tests/*.test.mjs",
+    "test:domain": "npm run test:product && npm run test:mockcase && npm run test:architecture",
+    "test": "npm run test:python && npm run test:package && npm run test:domain",
+    "check": "npm test && npm run pack:check",
+    "pack:check": "uv run --isolated python tests/package/build_check.py"
   },
   "dependencies": {
     "@playwright/test": "^1.61.1",
@@ -47,5 +29,6 @@
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
     "yaml": "^2.9.0"
-  }
+  },
+  "project_id": "pre-sdd"
 }

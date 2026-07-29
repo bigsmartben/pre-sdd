@@ -1,90 +1,66 @@
 ---
 name: figma-workflow
-description: 将用户确认的 Figma 页面、Frame（画框）、组件或选区按一个受控工作流完成范围扫描、图层整理、组件与有限 Variant（变体）建模、合并写回、最终节点冻结、设计上下文采集、静态资源导入和来源证据封存。用户要求清理或组件化 Figma、为 Lit + Vite 规范界面准备设计来源、导出标记资源、精准还原 Figma 或补全 Figma 来源证据时使用；本技能止于向 Product Design 返回可登记的证据与组件抽象提案，不实现 Lit 页面。
+description: 将用户指定的 Figma 文件或选区按契约完成来源接收、完整扫描审计、一次获批写回、写回后人工验收、最终冻结、设计上下文采集、静态资源导入和来源登记。用户要求检查或整理 Figma 页面、Group、图片归组、组件、状态、Variant，或为 Canonical UI 精确实现准备可验证 Figma 来源时使用；本技能只返回 Figma 来源事实与登记包，不创建产品状态、Lit 接口或 HTML/CSS 实现。
 ---
 
 # Figma 工作流
 
 ## 职责边界
 
-把本技能作为 Figma Source Workflow Adapter（Figma 来源工作流适配器）使用。开始前加载 `$product-design` 与 `$apply-repository-harness`：
+本技能只拥有 Figma 来源处理：
 
-- Product Design 拥有 `sourceId`、业务范围、`visualPolicy.mode`、Canonical UI Area、两次人工确认、来源与组件契约登记以及 readiness（就绪）。
-- 本技能拥有 Figma 范围扫描、获批写回、最终冻结、来源采集、资源 Ingest（导入）和 Registration Packet（登记包）。
-- `$implement-canonical-ui` 独立拥有已登记事实对应的 Lit 组件与页面正常实现，以及路由和运行验证；本技能不得写 Lit、HTML、CSS、路由或运行状态。
-- `$repair-canonical-ui` 独立消费 Repair Packet；本技能不得执行实现修复。
-- Harness 拥有路径、Operation（操作）、验证顺序和 blocker code（阻断码）。
+- 扫描并审计用户指定的文件或选区。
+- 执行一次人工批准的有限写回。
+- 在写回后取得最终人工验收。
+- 冻结、采集、导入 Asset（静态资源）并形成 Registration Packet（登记包）。
 
-不得创建 Screen、Control、State、Use Case 或 Interaction Flow，不得从图层名和视觉外观推断业务规则，不得选择或改变视觉策略，不得直接编辑 `canonical-ui.ts`，也不得判定正式就绪或执行 Handoff（移交）。
+Product Design 提供 `sourceId`、业务 Screen、预期 Page、State、Variant、Viewport 和 Scenario；本技能只验证这些事实在 Figma 中的覆盖，不从名称或外观推断业务语义，也不得选择或改变视觉策略。Product Design 独立建立 Figma → Lit Mapping；`$implement-canonical-ui` 独立拥有 Lit 组件与页面正常实现。本技能不得输出 Lit Property、Attribute、Slot、Event，不得写 HTML、CSS、路由或 `canonical-ui.ts`。
 
-## Figma 工具路由
+## 关键原则
 
-- 直接读取或写入 Figma 文件前加载 `$figma:figma-use`。
-- 创建或修改 Component、Component Set、Variant 或 Variable 前同时加载 `$figma:figma-generate-library`。
-- 正式采集时，调用 `get_design_context` 前必须先加载 `$figma:figma-design-to-code`；不得用截图、`get_metadata` 或 `use_figma` 代替设计上下文。
-- 连接器、权限、节点或可比较的来源版本不可用时停止，报告 `AIH_SOURCE_CAPTURE_BLOCKED`，不得猜测缺失内容。
+1. **Source-first（来源优先）**：所有视觉内容必须使用正式 Figma Asset；禁止用 CSS、伪元素、内联 SVG、Canvas 或多层 DOM 重绘。
+2. **CSS 只做布局与文字排版**：允许尺寸、位置、Flex/Grid、间距、层级、溢出、字体、字号、字重、行高、字距、对齐和文字颜色；禁止背景、非透明边框、阴影、渐变、滤镜、遮罩和 CSS 图形。`background:none`、`border:0` 等中性重置不算绘制。
+3. **Group 是 Asset Boundary（资产边界）**：含视觉内容的 Group 必须整体导出；禁止导出其子节点后在 HTML 中重新拼接。
+4. **不推断业务事实**：预期 Page、State 和 Variant 必须来自 Product Design 输入；缺失时报告 gap。
+5. **两道人工门禁**：写回前批准完整审计与操作清单；写回后验收最终 Figma。第二道门禁未通过时不得冻结或采集。
+6. **冻结后只读**：冻结后的节点、Group、Variable、Component 或 Variant 发生变化时，废弃本次采集并返回扫描审计。
 
-## 资源路由
+## 工具路由
 
-- 范围扫描、图层整理、组件抽象、有限写回或 Detach Instance（分离实例）时，完整读取 `references/figma-writeback.md`。
-- 最终写回完成并准备冻结、采集、导出或封存证据时，完整读取 `references/source-capture.md`。
-- Lit 实现与视觉运行验证只由 `$implement-canonical-ui` 处理，不在本技能复制。
+- 本任务首次调用 `use_figma` 前加载一次 `$figma:figma-use`，后续调用复用已加载上下文；普通元数据或截图读取不要求加载该 Skill。
+- 本任务首次创建或修改 Component、Component Set、Variant 或 Variable 前加载一次 `$figma:figma-generate-library`。
+- 本任务首次正式采集前加载一次 `$figma:figma-design-to-code`，并以 `get_design_context` 取得 Design Context；截图或元数据不能替代它。
+- 扫描、审计和写回时读取 `references/figma-writeback.md`。
+- 冻结、分类、采集、导入和登记时读取 `references/source-capture.md`。
+
+## 契约索引
+
+| 产物 | 结构契约 |
+|---|---|
+| Capture Plan | `capture-plan.schema.json` |
+| Design Context | `figma-design-context.schema.json` |
+| Acquisition Packet | `acquisition-packet.schema.json` |
+| Ingest Receipt | `ingest-receipt.schema.json` |
+| Evidence | `../product-design/canonical-ui-prototype/design-source-evidence.schema.json` |
+| Registration Packet | `source-registration.schema.json` |
+
+结构由上述 Schema 定义；跨文件闭包由 `scripts/ingest-assets.mjs` 定义。Workflow Request 是 Step 1 到 Step 2 之间不落盘的输入检查表，不创建额外 Schema 或文件。
 
 ## 固定工作流
 
-1. **接收输入并只读扫描**
-   - 只接受带 `node-id` 的 `https://www.figma.com/design/...` 链接。
-   - 从 Product Design 取得 `sourceId`、Canonical UI Area、目标 Screen、Viewport、Scenario、State 和证据覆盖；不得自行扩大。
-   - 只扫描 Page、Component、Instance 和候选视觉节点，形成 Scope Confirmation（范围确认）候选，不执行写入或 Detach。
+| Step | 输入 | 动作 | 输出 | 门禁与返回 |
+|---|---|---|---|---|
+| 1. Intake（接收） | Figma 链接、`sourceId`、`scopeMode`、预期 Page/State/Variant、Screen Binding | 校验权限、根节点和可比较 `sourceVersion` | 标准化 Workflow Request | 输入缺失或来源不可读：`AIH_SOURCE_CAPTURE_BLOCKED`，停止 |
+| 2. Scan & Audit（扫描审计） | Workflow Request | 一次遍历盘点 Page、Frame、Group、Component Set、Component、Instance、Image 和视觉节点；检查页面、归组、图片、状态和 Variant；形成唯一写回计划 | `scopeAudit`、内容寻址的前置截图与节点清单、`writebackPlan` | 未解决项：`AIH_FIGMA_AUDIT_INCOMPLETE`；用户确认后形成 `writebackApproval` |
+| 3. Writeback & Acceptance（写回验收） | 带内容哈希的 `writebackApproval` 与 Step 2 前置证据 | 复用前置证据；一次批量执行获批操作；一次重新扫描并保存后置证据 | `writebackReceipt`、后置截图、最终节点清单 | 前置版本变化时返回 Step 2；操作越界：`AIH_FIGMA_WRITEBACK_UNAPPROVED`；用户验收后形成 `finalFigmaAcceptance`，拒绝则返回 Step 2 |
+| 4. Freeze, Capture & Ingest（冻结采集） | `finalFigmaAcceptance` 与最终 `sourceVersion` | 冻结；正式采集；按 `asset/layout/dynamic/ignored` 分类；导出并受控导入 Asset | Capture Plan、Design Context、Acquisition Packet、Ingest Receipt、Evidence | 缺少验收：`AIH_FIGMA_FINAL_ACCEPTANCE_REQUIRED`；视觉节点误标 `layout`：`AIH_FIGMA_VISUAL_POLICY_VIOLATION` |
+| 5. Register（登记） | 同版本的 Capture、Context、Receipt 和 Evidence | 校验 Asset Boundary、组件、Variant Definition、Instance Usage 与 Screen Binding 双向闭包 | Figma-only Registration Packet | Schema、哈希、版本或覆盖不闭合时停止；通过后只交回 Product Design |
 
-2. **取得第一次人工确认**
-   - 向 Product Design 返回 `scanInventory`、包含项、排除项、数量、名称、Node ID，以及把 Figma Root 与 Screen、Viewport、Scenario、State 相连的 `screenBindings`。
-   - Product Design 记录扫描时的 `sourceVersion`，并对移除自身 `sha256` 后的完整确认记录执行 RFC 8785 规范化 SHA-256；随后冻结范围。
-   - `includedNodes` 与 `excludedNodes` 必须按 `kind + nodeId` 互斥且精确分区 `scanInventory.nodes`；每个 `screenId + figmaRootNodeId` 的 `screenBindings` 分组必须恰好覆盖全部已确认 `Viewport × Scenario` 组合，且整体覆盖全部已确认 State。
-   - `includedNodes[kind=visual]` 与候选视觉节点形成双向闭包；组件提案的 `nodeIds` 分组互斥且并集精确等于 `includedNodes[kind=component]`。新增或遗漏节点必须重新确认。
+## 失效与重试
 
-3. **形成有限写回并取得第二次人工确认**
-   - 读取 `references/figma-writeback.md`，提出图层整理、组件抽象、有限 State / Variant 轴、资源分类歧义、复用来源和具体写回影响。
-   - 默认不 Detach Instance。只有逐个记录阻断原因且经用户批准的 Instance 才能进入 `detachApprovals`。
-   - Product Design 重新读取同一种 `sourceVersion`，记录引用 Scope ID 与 `scopeConfirmationSha256` 的 `highImpactConfirmation`；空写回和空 Detach 也必须显式记录。
-   - High-impact Confirmation 同样对移除自身 `sha256` 后的完整记录执行 RFC 8785 规范化 SHA-256。
+- Step 2 的未解决审计项不得被人工确认掩盖。
+- Step 3 每次只执行一个获批批次；人工拒绝最终结果时，以新的 `sourceVersion` 返回 Step 2。
+- Step 4 开始后禁止任何 Figma 写回。发现仍需编辑时废弃 Capture Plan、证据和候选 Registration Packet。
+- 连接器、权限、节点或可比较版本不可用时，保留原始 blocker code，不猜测、补写或伪造证据。
 
-4. **执行一个合并写回批次**
-   - 只执行第二次确认中的操作；把重命名、分组、已有组件替换、获批 Detach、变量和组件创建合并为一个批次。
-   - 保存同范围写入前后截图和节点盘点，核对预期外差异。
-   - 完成后登记 `writebackBoundary`，其操作 ID 必须与确认清单一一对应，并用 `highImpactConfirmationSha256` 绑定获批内容。
-
-5. **冻结并执行唯一一次正式采集**
-   - 写回全部完成后冻结最终节点，读取 `references/source-capture.md`。
-   - 取得可重复比较的 `sourceVersion`，设置 `formalCapture.ordinal: 1` 及开始、完成、前后版本边界，分类全部候选视觉节点，再采集 Raw Capture（原始采集）、规范化上下文、截图、变量、字体和静态资源。
-   - `formalCapture.sourceVersionBefore` 与 `sourceVersionAfter` 必须都等于最终来源版本；Design Context、Asset 下载、Ingest Receipt 与 Evidence 时间必须位于同一正式采集边界内。
-   - Design Context 必须保存 `rawCapture` provenance（来源凭据）及完整 `componentSetCatalog`；每个 Component Set 的轴、有限值和全部 Variant Definition 必须闭合。
-   - 只由 Manifest 登记的 `ingest-figma-assets` Operation 写入正式 Asset、Capture Plan 和 Ingest Receipt。
-
-6. **封存并交回 Product Design**
-   - 输出 Component Abstraction Proposal（组件抽象提案）、正式 Capture Plan、Ingest Receipt、`evidence.json` 与通过 Schema 及只读闭包校验的 Registration Packet。
-   - `componentHandshake` 以 `proposalId` 绑定获批提案，原样携带 `interfaceProposal`，唯一分区正式组件节点，并分别完整列出 Variant Definition 与使用中的 Instance；未使用 Definition 也不能省略。
-   - 每个 Instance 的 `screenRootNodeId` 必须解析到 `screenBindings` 中唯一 Product Screen；`usageBindings` 必须精确覆盖 Instance 集合，`baselineEvidenceItemIds` 必须解析到正式截图或 Design Context。
-   - Product Design 负责把来源、资源、组件清单、Figma ↔ Lit Mapping 和 Variant Coverage 登记到 Canonical UI；本技能不得代写。
-
-## 确定性失效规则
-
-在冻结或正式采集后发生任何 Figma 节点、图层、变量、组件、Variant 或来源版本变化时：
-
-1. 立即把 Capture Plan、来源证据和下游登记视为失效。
-2. 丢弃本次会话拥有的临时候选。
-3. 返回只读扫描，重新完成两次人工确认、合并写回和唯一一次正式采集。
-
-不得追加第二次正式采集、混合不同版本证据或沿用旧 `capturedAt`、哈希、截图和组件身份。
-
-## 完成条件
-
-- 两次人工确认的 RFC 8785 内容哈希、来源版本、有限写回、冻结和正式采集顺序可由 Capture Plan 机器校验。
-- 实际写回没有越出确认范围，所有 Detach 都逐个获得批准。
-- 最终来源上下文、截图、变量、字体、组件身份、资源和哈希来自同一 `sourceVersion`。
-- 范围内每个 Visual Node 只有一种 `asset`、`dom-css`、`dynamic` 或 `ignored` strategy，范围内每个 Component Node 只有一个抽象决定。
-- 每个组件提案明确组件边界、尺寸行为及 Lit Property / Attribute / Slot / Event 接口；Variant Property 与有限 Variant Axis 的名称和值完全闭合。
-- 所有正式 Asset 都通过受控 Ingest，并在 Ingest Receipt、`evidence.json` 和 Registration Packet 中闭合。
-- Raw Capture、Design Context、Component Set Catalog、Component Abstraction Proposal 与最终重新采集的组件身份闭合后一起交回 Product Design。
-- Registration Packet 同时证明 Variant Definition Coverage（定义覆盖）与 Instance Usage Coverage（使用覆盖）。
-- 没有修改产品事实、`canonical-ui.ts`、Lit 实现、视觉基线、容差、readiness 或 Handoff 状态。
+Step 5 的 Figma-only Registration Packet 及其引用产物是本技能的最终输出。正式就绪、Review、Repair、Publish 和下游执行不属于本技能。

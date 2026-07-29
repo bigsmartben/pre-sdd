@@ -1,10 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import {
+  artifactDefinition,
+  artifactDefinitions,
   artifactPaths,
   readStructured,
   repositoryFile,
-} from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../../runtime/project.mjs';
 
 function text(value) {
   return value === null || value === undefined || value === ''
@@ -115,18 +117,18 @@ function renderInteractionFlow(flow, useCase, statesById) {
     '- 完成状态：' + flow.completionStates.join('、'),
     '- 覆盖场景（由 Transition 推导）：' + [...new Set(flow.transitions.map((transition) => transition.scenarioRef))].join('、'),
     '',
+    '##### Interaction States（交互状态）',
+    '',
+    table(['状态', '名称', '类型', '描述', '终态'], [...referenced].map((stateId) => {
+      const state = statesById.get(stateId);
+      return [stateId, state?.name, state?.type, state?.description || '—', state?.terminal ? '是' : '否'];
+    })),
+    '',
     '##### Flow 图',
     '',
     mermaidFlow(graph),
     '',
-    '##### 失败、重试、恢复与返回',
-    '',
-    '<details>',
-    '<summary>查看 Transition 与 UC 步骤追溯</summary>',
-    '',
     table(['迁移', '场景', 'UC 步骤', 'Guard', '分支', '重试', '恢复', '返回状态'], transitionRows),
-    '',
-    '</details>',
   ].join('\n');
 }
 
@@ -265,19 +267,6 @@ function renderCapabilities(data) {
       ),
     );
   }
-  lines.push(
-    '## Interaction State Catalog（交互状态目录）',
-    '',
-    '<details>',
-    '<summary>查看完整状态定义</summary>',
-    '',
-    table(['状态', '名称', '类型', '描述', '终态'], data.interactionStates.map((state) => [
-      state.id, state.name, state.type, state.description || '—', state.terminal ? '是' : '否',
-    ])),
-    '',
-    '</details>',
-    '',
-  );
   lines.push('## Low-Fi UI Blueprints', '');
   if (data.lowFiUiBlueprints.length === 0) {
     if (data.useCases.length === 0) lines.push('- 尚未判断 UI 适用性。', '');
@@ -427,18 +416,18 @@ function outputsForArtifact(registry, paths, data) {
   });
 }
 
-export async function preparedArtifactOutputs(root, project, manifest, stageId, artifactId, data) {
-  const registry = manifest.artifactRegistry.find((item) => item.id === artifactId && item.stage === stageId);
+export async function preparedArtifactOutputs(root, project, stageId, artifactId, data) {
+  const registry = artifactDefinition(project, artifactId, stageId);
   if (!registry || registry.authorityKind !== 'internal-model') throw new Error('未知内部模型 artifact：' + artifactId);
   const paths = artifactPaths(project, artifactId, stageId);
   if (!paths) throw new Error('项目未绑定 artifact：' + artifactId);
   return outputsForArtifact(registry, paths, data);
 }
 
-export async function expectedOutputs(root, project, manifest, stageId, artifactIds = null) {
+export async function expectedOutputs(root, project, stageId, artifactIds = null) {
   const selected = artifactIds ? new Set(artifactIds) : null;
   const outputs = [];
-  for (const registry of manifest.artifactRegistry.filter((item) => item.stage === stageId && item.authorityKind === 'internal-model')) {
+  for (const registry of artifactDefinitions(project, stageId).filter((item) => item.authorityKind === 'internal-model')) {
     if (selected && !selected.has(registry.id)) continue;
     const paths = artifactPaths(project, registry.id, stageId);
     if (!paths) continue;
@@ -448,9 +437,9 @@ export async function expectedOutputs(root, project, manifest, stageId, artifact
   return outputs;
 }
 
-export async function outputDrift(root, project, manifest, stageId, artifactIds = null) {
+export async function outputDrift(root, project, stageId, artifactIds = null) {
   const results = [];
-  for (const output of await expectedOutputs(root, project, manifest, stageId, artifactIds)) {
+  for (const output of await expectedOutputs(root, project, stageId, artifactIds)) {
     let actual = null;
     try { actual = await readFile(repositoryFile(root, output.output), 'utf8'); } catch { /* missing output is drift */ }
     if (actual !== output.content) results.push(output);
@@ -458,8 +447,8 @@ export async function outputDrift(root, project, manifest, stageId, artifactIds 
   return results;
 }
 
-export async function writeExpectedOutputs(root, project, manifest, stageId) {
-  const outputs = await expectedOutputs(root, project, manifest, stageId);
+export async function writeExpectedOutputs(root, project, stageId) {
+  const outputs = await expectedOutputs(root, project, stageId);
   for (const output of outputs) {
     const absolute = repositoryFile(root, output.output);
     await mkdir(dirname(absolute), { recursive: true });

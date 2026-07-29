@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
-import { repositoryFile } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { repositoryFile } from '../../../../runtime/project.mjs';
 
 function maskQuotedStrings(value) {
   let quote = null;

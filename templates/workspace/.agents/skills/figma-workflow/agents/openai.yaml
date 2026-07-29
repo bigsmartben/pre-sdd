@@ -1,4 +1,4 @@
 interface:
   display_name: "Figma 工作流"
-  short_description: "统一整理、组件化并封存可登记的 Figma 设计来源证据"
-  default_prompt: "Use $figma-workflow to scan and confirm a Figma scope, execute one approved writeback batch, freeze the final nodes, capture and ingest source evidence, and return the registration packet to Product Design without editing Lit code."
+  short_description: "审计、受控写回并封存可验证的 Figma 来源"
+  default_prompt: "Use $figma-workflow to audit the requested Figma scope, execute one approved writeback batch, obtain final human acceptance, freeze and capture the source, and return a Figma-only registration packet."

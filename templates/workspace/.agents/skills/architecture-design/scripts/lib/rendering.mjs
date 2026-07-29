@@ -1,12 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, posix } from 'node:path';
 import {
+  artifactDefinition,
+  artifactDefinitions,
   artifactPaths,
   joinRepositoryPath,
   readStructured,
   repositoryFile,
   stringifyStructured,
-} from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../../runtime/project.mjs';
 
 const LABELS = {
   capabilities: 'UC Specification',
@@ -114,7 +116,7 @@ function renderArchitecturePackage(data, context) {
     '2. 从系统边界读取 Actor/UC 到子系统、能力输入输出及做/不做范围的映射。',
     '3. 从概念建模读取对象字段、唯一键、约束、归一/继承关系和跨 UC 生命周期。',
     '4. 从技术验证读取关键能力到技术选型结论及真实代码测试通过结论的映射。',
-    '5. Product Design 引用不形成 readiness、handoff 或回写权限；发现差异只记录 Architecture gap。',
+    '5. Product Design 引用不形成 readiness、下游生命周期或回写权限；发现差异只记录 Architecture gap。',
     '',
     ...gates(data),
     ...gaps(data),
@@ -389,9 +391,9 @@ function outputsForArtifact(registry, paths, data, allArtifacts, project) {
   });
 }
 
-export function preparedArtifactOutputs(project, manifest, stageId, artifactId, data) {
-  const registries = manifest.artifactRegistry.filter((registry) => registry.stage === stageId);
-  const registry = registries.find((item) => item.id === artifactId);
+export function preparedArtifactOutputs(project, stageId, artifactId, data) {
+  const registries = artifactDefinitions(project, stageId);
+  const registry = artifactDefinition(project, artifactId, stageId);
   if (!registry || registry.authorityKind !== 'internal-model') throw new Error('未知内部模型 artifact：' + artifactId);
   const allArtifacts = {};
   for (const item of registries) {
@@ -409,10 +411,10 @@ export function preparedArtifactOutputs(project, manifest, stageId, artifactId, 
   );
 }
 
-export async function expectedOutputs(root, project, manifest, stageId, artifactIds = null) {
+export async function expectedOutputs(root, project, stageId, artifactIds = null) {
   const stageRegistries = stageId
-    ? manifest.artifactRegistry.filter((registry) => registry.stage === stageId)
-    : manifest.artifactRegistry;
+    ? artifactDefinitions(project, stageId)
+    : artifactDefinitions(project);
   const selectedArtifacts = artifactIds ? new Set(artifactIds) : null;
   const registries = selectedArtifacts
     ? stageRegistries.filter((registry) => selectedArtifacts.has(registry.id))
@@ -440,9 +442,9 @@ export async function expectedOutputs(root, project, manifest, stageId, artifact
   return outputs;
 }
 
-export async function outputDrift(root, project, manifest, stageId, artifactIds = null) {
+export async function outputDrift(root, project, stageId, artifactIds = null) {
   const results = [];
-  for (const output of await expectedOutputs(root, project, manifest, stageId, artifactIds)) {
+  for (const output of await expectedOutputs(root, project, stageId, artifactIds)) {
     let actual = null;
     try {
       actual = await readFile(repositoryFile(root, output.output), 'utf8');
@@ -454,8 +456,8 @@ export async function outputDrift(root, project, manifest, stageId, artifactIds 
   return results;
 }
 
-export async function writeExpectedOutputs(root, project, manifest, stageId) {
-  const outputs = await expectedOutputs(root, project, manifest, stageId);
+export async function writeExpectedOutputs(root, project, stageId) {
+  const outputs = await expectedOutputs(root, project, stageId);
   for (const output of outputs) {
     const absolute = repositoryFile(root, output.output);
     await mkdir(dirname(absolute), { recursive: true });

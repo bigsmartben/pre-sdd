@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["version", "sourceId", "sourceVersion", "capturePlanSha256", "downloadedAt", "downloadOperation", "files"],
   "properties": {
-    "version": {"const": "1.0.0"},
+    "version": {"const": "2.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
     "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
     "capturePlanSha256": {"$ref": "#/$defs/sha256"},
@@ -48,9 +48,10 @@
     "file": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sourceNodeId", "path", "targetPath", "assetKind", "captureScope", "containsDynamicContent", "format", "scale", "cropBounds", "transparentPadding", "dimensions", "sha256"],
+      "required": ["sourceNodeId", "assetBoundaryNodeId", "path", "targetPath", "assetKind", "captureScope", "containsDynamicContent", "format", "scale", "cropBounds", "transparentPadding", "dimensions", "sha256"],
       "properties": {
         "sourceNodeId": {"$ref": "#/$defs/nodeId"},
+        "assetBoundaryNodeId": {"$ref": "#/$defs/nodeId"},
         "path": {"$ref": "#/$defs/path"},
         "targetPath": {"type": "string", "pattern": "^public/assets/[^/]+/[^/]+\\.(?:png|svg)$"},
         "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},

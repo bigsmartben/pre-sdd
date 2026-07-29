@@ -1,11 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { commitManagedWrites } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
-import { inspectReceipt } from '../../../../.psp/harness/scripts/run-handoff.mjs';
-import { repositoryFile } from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
+import { repositoryFile } from '../../../runtime/project.mjs';
 import {
   actorArgument,
-  argument,
   emptyMockCases,
   emptyMockData,
   failure,
@@ -23,14 +21,10 @@ try {
   if (context.stage.status !== 'uninitialized') {
     throw Object.assign(new Error('mockcase Stage 已初始化。'), { code: 'AIH_STAGE_ALREADY_INITIALIZED' });
   }
-  const receiptPath = argument('--receipt');
-  if (receiptPath) {
-    const receipt = await inspectReceipt(context.root, receiptPath);
-    if (receipt.from !== 'canonical-ui-prototype' || receipt.to !== 'mockcase' || receipt.receipt?.status !== 'VALID') {
-      throw Object.assign(new Error('可选 Handoff Receipt 必须是 canonical-ui-prototype -> mockcase 的当前 VALID Receipt。'), {
-        code: receipt.receipt?.status === 'STALE' ? 'AIH_RECEIPT_STATE_INVALID' : 'AIH_HANDOFF_CONFIRMATION_INVALID',
-      });
-    }
+  if (process.argv.includes('--receipt')) {
+    throw Object.assign(new Error('MockCase 不再支持跨领域移交收据。'), {
+      code: 'AIH_COMMAND_INVALID',
+    });
   }
   const mockdata = emptyMockData(actor);
   const mockcases = emptyMockCases(actor);

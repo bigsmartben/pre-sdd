@@ -11,6 +11,7 @@ import { cleanupTemporaryRepositories, codes, runScript, temporaryRepository } f
 import { completeProductFixture, fixtureProject, readArtifact, writeArtifact } from './helpers/product-fixture.mjs';
 import { migrateLegacyWireflowDirectory } from '../scripts/lib/migrate-legacy-wireflow.mjs';
 import { canonicalLocks, reviewEvidenceDirectory } from '../canonical-ui-prototype/scripts/integrity.mjs';
+import { findFigmaVisualBypasses } from '../canonical-ui-prototype/scripts/lib/figma-css-policy.mjs';
 import { loadReviewFeedback, reviewIdentity } from '../canonical-ui-prototype/scripts/review.mjs';
 import { verifyVisualAcceptance, visualAcceptanceRecordPath } from '../canonical-ui-prototype/scripts/visual-acceptance.mjs';
 
@@ -51,34 +52,31 @@ async function writeCanonical(path, model) {
 }
 
 function removeFigmaComponentBindings(model) {
+  const mappings = new Map(model.componentMappings.map((item) => [item.id, item]));
+  for (const contract of model.componentContracts) {
+    const mapping = mappings.get(contract.mappingId);
+    for (const axis of model.stateAxes.filter((item) => item.componentContractId === contract.id && item.kind === 'variant')) {
+      const property = mapping?.propertyMappings.find(
+        (item) => item.kind === 'variant' && item.figmaProperty === axis.name,
+      );
+      const bindingName = property?.litAttribute || property?.litProperty;
+      axis.renderBinding = {
+        kind: property?.litAttribute ? 'lit-attribute' : 'lit-property',
+        name: bindingName,
+      };
+      for (const value of axis.values) {
+        value.renderValue = property?.values.find((item) => item.figmaValue === value.value)?.litValue;
+      }
+    }
+  }
   model.componentInventory = [];
   model.componentMappings = [];
   model.componentVariantDefinitions = [];
   model.componentVariantCoverage = [];
   model.componentSourceParityAssertions = [];
-  const removedAxisIds = new Set(model.stateAxes.filter((axis) => axis.kind === 'variant').map((axis) => axis.id));
-  model.stateAxes = model.stateAxes.filter((axis) => !removedAxisIds.has(axis.id));
-  const remainingEntries = new Map();
-  for (const entry of model.stateMatrix) {
-    const migrated = structuredClone(entry);
-    for (const axisId of removedAxisIds) delete migrated.values[axisId];
-    const key = migrated.componentContractId + '/' + JSON.stringify(
-      Object.entries(migrated.values).sort(([left], [right]) => left.localeCompare(right)),
-    );
-    const previous = remainingEntries.get(key);
-    if (!previous || (previous.id.includes('-BUSY') && !migrated.id.includes('-BUSY'))) {
-      remainingEntries.set(key, migrated);
-    }
-  }
-  model.stateMatrix = [...remainingEntries.values()];
   for (const contract of model.componentContracts) {
     delete contract.mappingId;
     contract.figmaInstanceNodeIds = [];
-    const variantCoverage = contract.stateAxisCoverage.find((item) => item.kind === 'variant');
-    Object.assign(variantCoverage, {
-      status: 'not-applicable',
-      reason: 'Provider-neutral fixture has no Figma Variant axis.',
-    });
     for (const instance of contract.pageInstances) {
       instance.origin = 'local';
       delete instance.figmaInstanceNodeId;
@@ -224,15 +222,23 @@ function reviewFeedback(actor, draftVersion, issueType, markerId = 1) {
   };
 }
 
+function exactFigmaImplementation(source) {
+  const visualDeclaration = /\b(background(?:-color|-image|-clip|-origin|-position|-repeat|-size)?|border(?:-(?:top|right|bottom|left))?(?:-(?:color|style|width|radius))?|box-shadow|text-shadow|filter|backdrop-filter|mask(?:-[a-z-]+)?|clip-path|outline|opacity|mix-blend-mode)\s*:\s*([^;}\n]+);?/gi;
+  return source.replace(visualDeclaration, '');
+}
+
 async function prepareExactFixture(root) {
   const { areaPath, path, model } = await canonicalFixture(root);
   const appPath = resolve(areaPath, 'src/psp-app.ts');
-  const app = await readFile(appPath, 'utf8');
+  const app = exactFigmaImplementation(await readFile(appPath, 'utf8'));
+  await writeFile(appPath, app);
   const legalComponentMatrixEntries = model.stateMatrix.filter((item) => (
     item.componentContractId === 'COMPONENT-CONTRACT-001'
     && item.classification === 'legal'
   ));
   const guidedCaptureModel = structuredClone(model);
+  guidedCaptureModel.tokens = [];
+  guidedCaptureModel.sourceParityAssertions = [];
   guidedCaptureModel.componentSourceParityAssertions = legalComponentMatrixEntries.map((item) => ({
     id: 'COMPONENT-PARITY-CAPTURE-' + item.id + '-DESKTOP',
     sourceId: 'DESIGN-SOURCE-001',
@@ -322,6 +328,7 @@ async function prepareExactFixture(root) {
   await writeFile(registrationPath, registrationText);
 
   const exact = structuredClone(model);
+  exact.tokens = [];
   exact.visualPolicy = {
     mode: 'exact',
     selectedBy: 'user-explicit',
@@ -347,6 +354,7 @@ async function prepareExactFixture(root) {
     ...capturedScenarioBaselines.map((item) => item.evidenceItemId),
   );
   exact.viewports = exact.viewports.filter((item) => item.id === 'VIEWPORT-DESKTOP');
+  exact.uiCases = exact.uiCases.map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.scenarios = exact.scenarios.map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.renderAssertions = exact.renderAssertions.map((item) => ({ ...item, viewportIds: ['VIEWPORT-DESKTOP'] }));
   exact.sourceParityAssertions = [
@@ -357,10 +365,7 @@ async function prepareExactFixture(root) {
       viewportId: 'VIEWPORT-DESKTOP',
       baselineEvidenceItemId: 'EVIDENCE-EXACT-DESKTOP',
       aspects: exact.visualPolicy.aspects,
-      checks: [
-        { kind: 'screenshot-match' },
-        { kind: 'computed-style', targetId: 'CONTROL-001', property: 'background-color', expected: 'rgb(200, 243, 106)' },
-      ],
+      checks: [{ kind: 'screenshot-match' }],
     },
     ...capturedScenarioBaselines.map((item) => ({
       id: 'PARITY-EXACT-' + item.scenarioId + '-DESKTOP',
@@ -402,7 +407,7 @@ test('uninitialized product stage is a valid empty scaffold but cannot pass read
 
 test('generic initialization creates atomic UC and provider-neutral Visual Spec models without an independent interaction collection', async () => {
   const root = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+  const initialized = runScript('.agents/skills/product-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
@@ -438,8 +443,8 @@ test('generic initialization creates atomic UC and provider-neutral Visual Spec 
   assert.doesNotMatch(annotator, /annotate|psp-case|psp-cases|flow-review/);
   assert.match(annotator, /document\.body\.append\(document\.createElement\('inconsistency-annotator'\)\)/);
   assert.match(annotator, /position: fixed; z-index: 2147483600; top: 20px; right: 20px;/);
-  assert.match(annotator, /const image = this\.captureViewport\(markers\);/);
-  assert.equal((annotator.match(/navigator\.clipboard\.write/g) || []).length, 1);
+  assert.match(annotator, /const snapshot = this\.captureSnapshot\(\);[\s\S]*const image = this\.captureViewport\(markers, snapshot\);/);
+  assert.equal((annotator.match(/navigator\.clipboard\.write/g) || []).length, 2);
   assert.match(annotator, /data-action="download"/);
   assert.match(annotator, /data-action="feedback"/);
   assert.match(annotator, /CanonicalUiReviewFeedbackPacket/);
@@ -463,8 +468,6 @@ test('generic initialization creates atomic UC and provider-neutral Visual Spec 
   assert.doesNotMatch(runtime, /annotate|flow-review/);
   assert.doesNotMatch(runtime, /runRepairGate|runReviewReadiness|executeRegisteredCommand/);
   assert.match(runtime, /独立应用正式预览地址/);
-  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  assert.equal(manifest.validationProfiles.some((item) => item.id === 'canonical-ui-review-readiness'), true);
   const skill = await readFile(resolve(root, '.agents/skills/product-design/SKILL.md'), 'utf8');
   assert.match(skill, /AIH_CANONICAL_UI_SERVER_FAILED/);
   assert.match(skill, /不得根据默认端口猜测或伪造地址/);
@@ -494,11 +497,11 @@ test('browser validator keeps 17 product pages clean in review=0 and loads all R
   }).join('\n');
   const expanded = original
     .replace(
-      /  routes: \[\n[\s\S]*?\n  \],\n  screens:/,
+      /  routes: \[\r?\n[\s\S]*?\r?\n  \],\r?\n  screens:/,
       `  routes: [\n${routes}\n  ],\n  screens:`,
     )
     .replace(
-      /  scenarios: \[\n[\s\S]*?\n  \],\n  viewports:/,
+      /  scenarios: \[\r?\n[\s\S]*?\r?\n  \],\r?\n  viewports:/,
       `  scenarios: [\n${scenarios}\n  ],\n  viewports:`,
     );
   assert.notEqual(expanded, original);
@@ -525,9 +528,9 @@ test('browser validator keeps 17 product pages clean in review=0 and loads all R
     const base = `http://127.0.0.1:${address.port}`;
     browser = await playwright.chromium.launch({ headless: true });
     const context = await browser.newContext();
-    const extensionCode = "export default {async activate(){const node=document.createElement('div');node.dataset.reviewTool='mockcase';document.body.append(node);return {dispose(){node.remove()}}}}";
+    const extensionCode = "export default {async activate(){const node=document.createElement('div');node.dataset.reviewTool='ui-case-mock';document.body.append(node);return {dispose(){node.remove()}}}}";
     const descriptor = {
-      id: 'mockcase',
+      id: 'ui-case-mock',
       apiVersion: 'psp.review-extension/v1',
       moduleUrl: `data:text/javascript;base64,${Buffer.from(extensionCode).toString('base64')}`,
       integrity: sha256(Buffer.from(extensionCode)),
@@ -607,7 +610,7 @@ test('Use Cases readiness detects drift in UC.md', async () => {
 
 test('Visual Spec has independent apply, readiness, UC references, Variant coverage, asset integrity, and deterministic projection', async () => {
   const blockedRoot = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', blockedRoot, ['--operation', 'initialize-product', '--json']);
+  const initialized = runScript('.agents/skills/product-design/scripts/initialize.mjs', blockedRoot, ['--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const blockedProject = await fixtureProject(blockedRoot);
   const blockedStage = blockedProject.stages['product-design'];
@@ -636,7 +639,7 @@ test('Visual Spec has independent apply, readiness, UC references, Variant cover
   const markdownPath = resolve(root, stage.root, binding.outputs[0].path);
   const markdown = await readFile(markdownPath, 'utf8');
   assert.match(markdown, /Pages 与 Renderings/);
-  assert.match(markdown, /emphasis=primary\/secondary/);
+  assert.match(markdown, /Mode=Default\/Busy/);
   assert.match(markdown, /assets\/status\.svg/);
 
   visual.data.pages[0].useCaseRefs = ['UC-999'];
@@ -651,8 +654,8 @@ test('Visual Spec has independent apply, readiness, UC references, Variant cover
   assert.ok(codes(incomplete).has('AIH_ARTIFACT_INCOMPLETE'));
 
   visual.data.components[0].visualCases.push({
-    id: 'VISUAL-CASE-006', name: 'INT-STATE-003 secondary', interactionStateRef: 'INT-STATE-003',
-    variants: [{ name: 'emphasis', value: 'secondary' }], visual: structuredClone(visual.data.components[0].visualCases[0].visual),
+    id: 'VISUAL-CASE-006', name: 'INT-STATE-003 Busy', interactionStateRef: 'INT-STATE-003',
+    variants: [{ name: 'Mode', value: 'Busy' }], visual: structuredClone(visual.data.components[0].visualCases[0].visual),
   });
   await writeArtifact(visual);
   await appendFile(resolve(root, stage.root, 'assets/status.svg'), '<!-- drift -->\n');
@@ -673,14 +676,15 @@ test('atomic UC readiness covers behavior, flow, Low-Fi, failure recovery, and d
   assert.match(markdown, /Product Behavior（产品行为）/);
   assert.match(markdown, /Interaction Flow（正式交互流程）/);
   assert.match(markdown, /Low-Fi UI Blueprints/);
-  assert.match(markdown, /失败、重试、恢复与返回/);
+  assert.match(markdown, /Interaction States（交互状态）/);
+  assert.doesNotMatch(markdown, /##### 失败、重试、恢复与返回/);
   assert.match(markdown, /UC-001-EXC-01-STEP-01/);
   assert.match(markdown, /LF-SCREEN-001/);
   assert.match(markdown, /IF-001-TRANS-01、IF-001-TRANS-02/);
   assert.match(markdown, /规格引用无效；Package 中存在无法解析的引用/);
-  assert.match(markdown, /<summary>查看 Transition 与 UC 步骤追溯<\/summary>/);
-  assert.match(markdown, /Interaction State Catalog（交互状态目录）/);
-  assert.match(markdown, /<summary>查看完整状态定义<\/summary>/);
+  assert.doesNotMatch(markdown, /<summary>查看 Transition 与 UC 步骤追溯<\/summary>/);
+  assert.doesNotMatch(markdown, /Interaction State Catalog（交互状态目录）/);
+  assert.doesNotMatch(markdown, /<summary>查看完整状态定义<\/summary>/);
   assert.doesNotMatch(markdown, /派生行为摘要/);
   assert.doesNotMatch(markdown, /#### Business Rules（业务规则）/);
   assert.doesNotMatch(markdown, /\| 用户动作 \| 系统响应 \|/);
@@ -1103,8 +1107,10 @@ test('Canonical UI input gate Review evidence binds a real address to the frozen
 test('Review Feedback Packets validate, reject stale or misrouted input, and normalize CLI order', async () => {
   const root = await temporaryRepository();
   const locks = [{ actor: 'ACTOR-001', draftVersion: '1.0.0' }];
-  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-review');
+  const operation = {
+    evidenceVersion: '2.0.0',
+    feedbackPacketSchema: '.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json',
+  };
   const firstPath = resolve(root, 'feedback-first.json');
   const equivalentFirstPath = resolve(root, 'feedback-first-minified.json');
   const secondPath = resolve(root, 'feedback-second.json');
@@ -1156,75 +1162,6 @@ test('Review Feedback Packets validate, reject stale or misrouted input, and nor
   );
 });
 
-test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form one lifecycle', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const packagePath = resolve(root, 'package.json');
-  const packageJson = JSON.parse(await readFile(packagePath, 'utf8'));
-  packageJson.scripts['fixture:pass'] = 'node -e "process.exit(0)"';
-  await writeFile(packagePath, JSON.stringify(packageJson, null, 2) + '\n');
-  const manifestPath = resolve(root, '.psp/harness/harness.manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  manifest.commands.push({
-    id: 'fixture-pass', npmScript: 'fixture:pass', run: 'npm run fixture:pass', purpose: 'fixture', blocking: true,
-    executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' },
-  });
-  manifest.validationProfiles.find((item) => item.id === 'canonical-ui-review-readiness').commands = ['fixture-pass'];
-  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-
-  let project = await fixtureProject(root);
-  await writeReviewEvidence(root, await canonicalLocks(root, project));
-  const published = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
-    '--operation', 'publish-product-design', '--json',
-  ]);
-  assert.equal(published.exitCode, 0, JSON.stringify(published.output, null, 2));
-  assert.equal(published.output.downstreamAction, 'NOT_RUN');
-  project = await fixtureProject(root);
-  assert.equal(project.stages['product-design'].status, 'published');
-  assert.equal(project.stages['architecture-design'].status, 'uninitialized');
-  const ledger = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
-  assert.equal(ledger.version, '3.0.0');
-  assert.ok(ledger.current.credential.startsWith('sha256:'));
-  assert.equal(ledger.current.inputLocks.visualAssets.length, 1);
-  assert.equal(ledger.current.visualAcceptance, null);
-
-  const stage = project.stages['product-design'];
-  const appPath = resolve(root, stage.root, stage.areas['canonical-ui-prototypes'].root, 'ACTOR-001', 'src/psp-app.ts');
-  await appendFile(appPath, '\n// manual published drift\n');
-  const stale = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json']);
-  assert.ok(codes(stale).has('AIH_PUBLISH_CREDENTIAL_STALE'));
-  const locked = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact', '--artifact', 'capabilities', '--input', resolve(root, stage.root, stage.artifacts.capabilities.internalModel), '--dry-run', '--json',
-  ]);
-  assert.ok(codes(locked).has('AIH_STAGE_LOCKED'));
-  const repairLocked = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.ok(codes(repairLocked).has('AIH_STAGE_LOCKED'), JSON.stringify(repairLocked.output, null, 2));
-  const refreshLocked = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
-    '--operation', 'refresh-canonical-ui-projections', '--json',
-  ]);
-  assert.ok(codes(refreshLocked).has('AIH_STAGE_LOCKED'), JSON.stringify(refreshLocked.output, null, 2));
-
-  const reopened = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
-    '--operation', 'reopen-product-design', '--json',
-  ]);
-  assert.equal(reopened.exitCode, 0, JSON.stringify(reopened.output, null, 2));
-  project = await fixtureProject(root);
-  assert.equal(project.stages['product-design'].status, 'active');
-  const history = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
-  assert.equal(history.current, null);
-  assert.equal(history.history.length, 1);
-  const refreshReopened = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
-    '--operation', 'refresh-canonical-ui-projections', '--json',
-  ]);
-  assert.equal(refreshReopened.exitCode, 0, JSON.stringify(refreshReopened.output, null, 2));
-
-  await writeReviewEvidence(root, await canonicalLocks(root, project));
-  const sameVersion = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
-    '--operation', 'publish-product-design', '--json',
-  ]);
-  assert.ok(codes(sameVersion).has('AIH_PUBLISH_VERSION_NOT_ADVANCED'));
-});
-
 test('exact Human Visual Acceptance requires explicit user confirmation and becomes stale after scope drift', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
@@ -1241,13 +1178,12 @@ test('exact Human Visual Acceptance requires explicit user confirmation and beco
   assert.equal(accepted.exitCode, 0, JSON.stringify(accepted.output, null, 2));
   assert.equal(accepted.output.acceptance, 'accepted');
 
-  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  assert.deepEqual(await verifyVisualAcceptance(root, project, manifest), []);
+  assert.deepEqual(await verifyVisualAcceptance(root, project), []);
 
   exact.model.componentContracts[0].properties[0].defaultValue = 'scope-drift';
   await writeCanonical(exact.path, exact.model);
   project = await fixtureProject(root);
-  const stale = await verifyVisualAcceptance(root, project, manifest, { markStale: true });
+  const stale = await verifyVisualAcceptance(root, project, { markStale: true });
   assert.equal(stale[0].code, 'AIH_HUMAN_VISUAL_ACCEPTANCE_STALE');
   const record = JSON.parse(await readFile(visualAcceptanceRecordPath(root), 'utf8'));
   assert.equal(record.status, 'stale');
@@ -1261,7 +1197,7 @@ test('Figma source registration packet validates adapter output without owning C
   ));
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
   const packet = {
-    version: '2.0.0',
+    version: '3.0.0',
     sourceId: 'DESIGN-SOURCE-001',
     sourceVersion: { kind: 'figma-file-version', value: 'fixture-version-20260715' },
     evidencePath: 'design-sources/DESIGN-SOURCE-001/evidence.json',
@@ -1272,21 +1208,15 @@ test('Figma source registration packet validates adapter output without owning C
     componentHandshake: [{
       proposalId: 'COMPONENT-PROPOSAL-001',
       decision: 'shared-component',
-      semanticRole: '展示验证状态',
-      reason: '共同语义与结构支持复用。',
-      counterexample: '仅颜色相同但职责不同的卡片不能复用。',
       finalNodeIds: ['2:1', '2:2', '1:2'],
       structureSignatures: ['sha256:' + 'f'.repeat(64)],
-      interfaceProposal: {
-        properties: [{
-          kind: 'variant',
-          figmaProperty: 'Mode',
-          litProperty: 'mode',
-          litAttribute: 'mode',
-          values: [{ figmaValue: 'Default', litValue: 'default' }],
-        }],
-        slots: [],
-        events: [],
+      figmaComponentContract: {
+        name: 'StatusCard',
+        properties: [{ name: 'Mode', kind: 'variant', values: ['Default'] }],
+        variantAxes: [{ name: 'Mode', values: ['Default'] }],
+        contentRegions: [],
+        nestedComponentNodeIds: [],
+        sizeBehavior: { width: 'fill', height: 'hug', wrap: 'content' },
       },
       usageBindings: [{ instanceNodeId: '1:2', screenId: 'SCREEN-001' }],
       baselineEvidenceItemIds: ['EVIDENCE-SCREENSHOT-001'],
@@ -1297,6 +1227,7 @@ test('Figma source registration packet validates adapter output without owning C
     assets: [{
       path: 'public/assets/DESIGN-SOURCE-001/source.svg',
       sourceNodeId: '1:3',
+      assetBoundaryNodeId: '1:3',
       assetKind: 'icon',
       captureScope: 'layer',
       containsDynamicContent: false,
@@ -1319,6 +1250,43 @@ test('Figma source registration packet validates adapter output without owning C
   assert.equal(validate(packet), false);
 });
 
+test('exact Figma CSS policy allows layout and typography but rejects visual drawing bypasses', () => {
+  const allowed = `
+    :host {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      position: relative;
+      overflow: hidden;
+      font: 600 16px/24px Inter;
+      letter-spacing: 0.02em;
+      text-align: center;
+      color: #15210f;
+      background: none;
+      border: 0;
+      box-shadow: none;
+    }
+  `;
+  assert.deepEqual(findFigmaVisualBypasses(allowed), []);
+
+  const forbidden = findFigmaVisualBypasses(`
+    .card {
+      background: linear-gradient(#fff, #eee);
+      border: 1px solid #000;
+      box-shadow: 0 4px 12px #0004;
+      filter: blur(2px);
+    }
+    .card::before { content: "★"; }
+    const icon = html\`<svg viewBox="0 0 10 10"><path d="M0 0h10v10z"/></svg>\`;
+    const canvas = document.createElement('canvas');
+  `);
+  assert.ok(forbidden.some((item) => item.kind === 'css-property' && item.property === 'background'));
+  assert.ok(forbidden.some((item) => item.kind === 'css-property' && item.property === 'border'));
+  assert.ok(forbidden.some((item) => item.kind === 'css-property' && item.property === 'box-shadow'));
+  assert.ok(forbidden.some((item) => item.kind === 'pseudo-element'));
+  assert.ok(forbidden.some((item) => item.kind === 'svg-or-canvas'));
+});
+
 test('controlled Figma Asset Ingest validates temporary acquisition before formal writes', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
@@ -1330,17 +1298,21 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   const formalAssetPath = resolve(areaPath, 'public/assets/DESIGN-SOURCE-001/source.svg');
   const plan = JSON.parse(await readFile(formalPlanPath, 'utf8'));
   const now = Date.now();
-  plan.scopeConfirmation.scanInventory.scannedAt = new Date(now - 60_000).toISOString();
-  plan.scopeConfirmation.confirmedAt = new Date(now - 50_000).toISOString();
-  plan.highImpactConfirmation.confirmedAt = new Date(now - 40_000).toISOString();
-  plan.writebackBoundary.completedAt = new Date(now - 30_000).toISOString();
+  plan.scopeAudit.scanInventory.scannedAt = new Date(now - 60_000).toISOString();
+  plan.writebackApproval.confirmedAt = new Date(now - 50_000).toISOString();
+  plan.writebackReceipt.postWriteAudit.scanInventory.scannedAt = new Date(now - 45_000).toISOString();
+  plan.writebackReceipt.completedAt = new Date(now - 40_000).toISOString();
+  plan.finalFigmaAcceptance.confirmedAt = new Date(now - 30_000).toISOString();
   plan.frozenAt = new Date(now - 20_000).toISOString();
   plan.formalCapture.startedAt = new Date(now - 10_000).toISOString();
   plan.formalCapture.completedAt = new Date(now + 60_000).toISOString();
-  plan.scopeConfirmation.sha256 = confirmationSha256(plan.scopeConfirmation);
-  plan.highImpactConfirmation.scopeConfirmationSha256 = plan.scopeConfirmation.sha256;
-  plan.highImpactConfirmation.sha256 = confirmationSha256(plan.highImpactConfirmation);
-  plan.writebackBoundary.highImpactConfirmationSha256 = plan.highImpactConfirmation.sha256;
+  plan.scopeAudit.sha256 = confirmationSha256(plan.scopeAudit);
+  plan.writebackApproval.scopeAuditSha256 = plan.scopeAudit.sha256;
+  plan.writebackApproval.sha256 = confirmationSha256(plan.writebackApproval);
+  plan.writebackReceipt.writebackApprovalSha256 = plan.writebackApproval.sha256;
+  plan.writebackReceipt.sha256 = confirmationSha256(plan.writebackReceipt);
+  plan.finalFigmaAcceptance.writebackReceiptSha256 = plan.writebackReceipt.sha256;
+  plan.finalFigmaAcceptance.sha256 = confirmationSha256(plan.finalFigmaAcceptance);
   const planContent = Buffer.from(JSON.stringify(plan, null, 2) + '\n');
   const assetContent = await readFile(formalAssetPath);
   const planPath = resolve(session, 'capture-plan.json');
@@ -1348,7 +1320,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   await Promise.all([writeFile(planPath, planContent), writeFile(downloadPath, assetContent)]);
   const assetPlan = plan.candidateVisualNodes.find((item) => item.strategy === 'asset');
   const acquisition = {
-    version: '1.0.0',
+    version: '2.0.0',
     sourceId: plan.sourceId,
     sourceVersion: plan.sourceVersion,
     capturePlanSha256: sha256(planContent),
@@ -1356,6 +1328,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
     downloadOperation: assetPlan.assetExport.downloadOperation,
     files: [{
       sourceNodeId: assetPlan.nodeId,
+      assetBoundaryNodeId: assetPlan.assetBoundaryNodeId,
       path: 'downloads/source.svg',
       targetPath: assetPlan.assetExport.targetPath,
       assetKind: assetPlan.assetKind,
@@ -1390,6 +1363,7 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
     nodeId: assetPlan.nodeId,
     name: 'Conflicting classification',
     strategy: 'ignored',
+    assetBoundaryNodeId: assetPlan.assetBoundaryNodeId,
     reason: 'fixture conflict',
   });
   const ambiguousPlanContent = Buffer.from(JSON.stringify(ambiguousPlan, null, 2) + '\n');
@@ -1406,7 +1380,8 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   expandedPlan.candidateVisualNodes.push({
     nodeId: '1:99',
     name: 'Agent-expanded visual node',
-    strategy: 'dom-css',
+    strategy: 'layout',
+    assetBoundaryNodeId: null,
   });
   const expandedPlanContent = Buffer.from(JSON.stringify(expandedPlan, null, 2) + '\n');
   await writeFile(planPath, expandedPlanContent);
@@ -1415,16 +1390,23 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   const expanded = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
-  assert.ok(codes(expanded).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(expanded.output, null, 2));
+  assert.ok(codes(expanded).has('AIH_ASSET_CLASSIFICATION_INCOMPLETE'), JSON.stringify(expanded.output, null, 2));
 
   const unapprovedDetachPlan = structuredClone(plan);
-  unapprovedDetachPlan.highImpactConfirmation.writebackOperations = [{
+  unapprovedDetachPlan.scopeAudit.writebackPlan = [{
     id: 'WRITEBACK-001',
     kind: 'detach-instance',
     targetNodeIds: ['1:2'],
     reason: 'Fixture detach request.',
   }];
-  unapprovedDetachPlan.writebackBoundary.operationIds = ['WRITEBACK-001'];
+  unapprovedDetachPlan.scopeAudit.sha256 = confirmationSha256(unapprovedDetachPlan.scopeAudit);
+  unapprovedDetachPlan.writebackApproval.scopeAuditSha256 = unapprovedDetachPlan.scopeAudit.sha256;
+  unapprovedDetachPlan.writebackApproval.sha256 = confirmationSha256(unapprovedDetachPlan.writebackApproval);
+  unapprovedDetachPlan.writebackReceipt.writebackApprovalSha256 = unapprovedDetachPlan.writebackApproval.sha256;
+  unapprovedDetachPlan.writebackReceipt.operationIds = ['WRITEBACK-001'];
+  unapprovedDetachPlan.writebackReceipt.sha256 = confirmationSha256(unapprovedDetachPlan.writebackReceipt);
+  unapprovedDetachPlan.finalFigmaAcceptance.writebackReceiptSha256 = unapprovedDetachPlan.writebackReceipt.sha256;
+  unapprovedDetachPlan.finalFigmaAcceptance.sha256 = confirmationSha256(unapprovedDetachPlan.finalFigmaAcceptance);
   const unapprovedDetachContent = Buffer.from(JSON.stringify(unapprovedDetachPlan, null, 2) + '\n');
   await writeFile(planPath, unapprovedDetachContent);
   acquisition.capturePlanSha256 = sha256(unapprovedDetachContent);
@@ -1432,21 +1414,21 @@ test('controlled Figma Asset Ingest validates temporary acquisition before forma
   const unapprovedDetach = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
-  assert.ok(codes(unapprovedDetach).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(unapprovedDetach.output, null, 2));
+  assert.ok(codes(unapprovedDetach).has('AIH_FIGMA_WRITEBACK_UNAPPROVED'), JSON.stringify(unapprovedDetach.output, null, 2));
 
-  const missingSecondConfirmation = structuredClone(plan);
-  delete missingSecondConfirmation.highImpactConfirmation;
-  const missingSecondConfirmationContent = Buffer.from(JSON.stringify(missingSecondConfirmation, null, 2) + '\n');
-  await writeFile(planPath, missingSecondConfirmationContent);
-  acquisition.capturePlanSha256 = sha256(missingSecondConfirmationContent);
+  const missingFinalAcceptance = structuredClone(plan);
+  delete missingFinalAcceptance.finalFigmaAcceptance;
+  const missingFinalAcceptanceContent = Buffer.from(JSON.stringify(missingFinalAcceptance, null, 2) + '\n');
+  await writeFile(planPath, missingFinalAcceptanceContent);
+  acquisition.capturePlanSha256 = sha256(missingFinalAcceptanceContent);
   await writeFile(acquisitionPath, JSON.stringify(acquisition, null, 2) + '\n');
   const missingConfirmation = runScript('.agents/skills/figma-workflow/scripts/ingest-assets.mjs', root, [
     '--actor', 'ACTOR-001', '--capture-plan', planPath, '--acquisition', acquisitionPath, '--json',
   ]);
-  assert.ok(codes(missingConfirmation).has('AIH_SOURCE_CAPTURE_BLOCKED'), JSON.stringify(missingConfirmation.output, null, 2));
+  assert.ok(codes(missingConfirmation).has('AIH_FIGMA_FINAL_ACCEPTANCE_REQUIRED'), JSON.stringify(missingConfirmation.output, null, 2));
 });
 
-test('Canonical UI 11.0 rejects legacy structures and incomplete public Lit projection contracts', async () => {
+test('Canonical UI 12.0 rejects legacy structures and incomplete public Lit projection contracts', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { path, model } = await canonicalFixture(root);
@@ -1718,7 +1700,7 @@ test('Figma evidence requires normalized parameters and layer-scoped static asse
   const assetFixture = await canonicalFixture(assetRoot);
   const assetEvidencePath = resolve(assetFixture.areaPath, assetFixture.model.designSources[0].evidence.path);
   const assetEvidence = JSON.parse(await readFile(assetEvidencePath, 'utf8'));
-  assetEvidence.items.find((item) => item.role === 'asset').captureScope = 'artwork-subtree';
+  assetEvidence.items.find((item) => item.role === 'asset').captureScope = 'layer';
   const assetEvidenceText = JSON.stringify(assetEvidence, null, 2) + '\n';
   await writeFile(assetEvidencePath, assetEvidenceText);
   const assetModel = structuredClone(assetFixture.model);
@@ -1759,19 +1741,25 @@ test('Figma asset closure blocks missing files, hash drift, and manifest drift',
 test('browser validator executes declared routes, interactions and viewports with temporary evidence', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
-  const { areaPath } = await canonicalFixture(root);
+  const { areaPath, model } = await canonicalFixture(root);
   const result = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.equal(result.exitCode, 0, JSON.stringify(result.output, null, 2));
   assert.equal(result.output.evidence.filter((item) => item.kind === 'route').length, 2);
   assert.equal(result.output.evidence.filter((item) => item.kind === 'scenario').length, 6);
-  assert.equal(result.output.evidence.filter((item) => item.kind === 'component').length, 8);
+  assert.equal(
+    result.output.evidence.filter((item) => item.kind === 'component').length,
+    model.stateMatrix.filter((item) => item.classification === 'legal' && item.renderInGallery).length,
+  );
   assert.deepEqual(new Set(result.output.evidence.filter((item) => item.kind === 'scenario').map((item) => item.viewportId)), new Set(['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP']));
   for (const item of result.output.evidence.filter((entry) => entry.kind === 'scenario')) {
     const expected = item.scenarioId === 'SCENARIO-001'
-      ? [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS']]
+      ? [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'INT-STATE-002']]
       : item.scenarioId === 'SCENARIO-002'
-        ? [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR']]
-        : [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'], ['COMPONENT-STATE-DEFAULT']];
+        ? [['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR', 'INT-STATE-003']]
+        : [
+            ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR', 'INT-STATE-003'],
+            ['COMPONENT-STATE-DEFAULT', 'INT-STATE-001', 'COMPONENT-STATE-DEFAULT'],
+          ];
     assert.deepEqual(item.actionStateTraces.map((trace) => trace.stateIds), expected);
   }
   assert.ok(result.output.evidence.filter((item) => item.screenshot).every((item) => !item.screenshot.startsWith(root)));
@@ -1868,16 +1856,16 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   assert.ok(guidedRepair.output.failures.some((item) => item.defectClass === 'source-parity'));
   await writeFile(appPath, app);
 
-  const exact = (await prepareExactFixture(root)).model;
+  const exactFixture = await prepareExactFixture(root);
+  const exact = exactFixture.model;
 
-  await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
+  await writeFile(exactFixture.appPath, exactFixture.app.replace('max-width: 850px;', 'max-width: 300px;'));
   const exactMismatch = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', root, ['--json']);
   assert.ok(codes(exactMismatch).has('AIH_VISUAL_SOURCE_PARITY_FAILED'), JSON.stringify(exactMismatch.output, null, 2));
   assert.ok(exactMismatch.output.evidence.some((item) => item.kind === 'repair-diagnostic' && item.defectClass === 'source-parity'));
 
-  const localManifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  const defaultProfile = localManifest.validationProfiles.find((item) => item.id === 'canonical-ui-prototype');
-  assert.ok(defaultProfile.commands.includes('product-strict'));
+  const skill = await readFile(resolve(root, '.agents/skills/product-design/SKILL.md'), 'utf8');
+  assert.match(skill, /当前领域 Validator/);
 });
 
 test('provider-neutral implementation inputs accept guided screenshots and exact screenshot or export evidence without Figma closure', async () => {
@@ -1922,7 +1910,7 @@ test('exact visual repair emits a complete packet and passes after an allowed im
   const root = await temporaryRepository();
   await completeProductFixture(root);
   const { appPath, app } = await prepareExactFixture(root);
-  await writeFile(appPath, app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
+  await writeFile(appPath, app.replace('max-width: 850px;', 'max-width: 300px;'));
   await assert.rejects(stat(resolve(root, '.psp/handoffs/receipts')), (error) => error.code === 'ENOENT');
   await assert.rejects(stat(visualAcceptanceRecordPath(root)), (error) => error.code === 'ENOENT');
 
@@ -1943,10 +1931,8 @@ test('exact visual repair emits a complete packet and passes after an allowed im
     stableComparisonEnvironment: true,
     fixOrder: ['structure', 'geometry', 'typography', 'paint', 'effects', 'assets'],
   });
-  const styleFailure = packet.failures.find((failure) => failure.check.kind === 'computed-style');
-  assert.deepEqual(styleFailure.scope.targetIds, ['CONTROL-001']);
-  assert.equal(styleFailure.check.property, 'background-color');
-  assert.equal(styleFailure.check.expected, 'rgb(200, 243, 106)');
+  const styleFailure = packet.failures.find((failure) => failure.check.kind === 'screenshot-match');
+  assert.ok(styleFailure);
 
   await writeFile(appPath, app);
   const repaired = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--session', requested.output.repairSessionId, '--json']);
@@ -1963,7 +1949,7 @@ test('exact visual repair emits a complete packet and passes after an allowed im
   assert.ok(actionReport.validationGates.every((gate) => gate.status === 'PASS'));
 });
 
-test('repair entry does not depend on Handoff Receipt or Human Visual Acceptance', async () => {
+test('repair entry does not depend on cross-domain control state or Human Visual Acceptance', async () => {
   const source = await readFile(resolve(
     import.meta.dirname,
     '../canonical-ui-prototype/scripts/repair.mjs',
@@ -2018,7 +2004,7 @@ test('exact visual repair keeps external evidence hashes but does not hash-gate 
   const changedRoot = await temporaryRepository();
   await completeProductFixture(changedRoot);
   const changed = await prepareExactFixture(changedRoot);
-  await writeFile(changed.appPath, changed.app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
+  await writeFile(changed.appPath, changed.app.replace('max-width: 850px;', 'max-width: 300px;'));
   const requested = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', changedRoot, ['--new-session', '--json']);
   assert.equal(requested.output.status, 'REPAIR_REQUIRED', JSON.stringify(requested.output, null, 2));
   await appendFile(changed.baselinePath, 'baseline-mutated');
@@ -2041,7 +2027,7 @@ test('canonical UI repair blocks non-repairable failures and permits one Agent i
   const nonVisual = await prepareExactFixture(nonVisualRoot);
   await writeFile(
     nonVisual.appPath,
-    nonVisual.app.replace('--accent: #c8f36a;', '--accent: #ff00ff;') + "\nconsole.error('repair-nonvisual');\n",
+    nonVisual.app.replace('max-width: 850px;', 'max-width: 300px;') + "\nconsole.error('repair-nonvisual');\n",
   );
   const nonVisualResult = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', nonVisualRoot, ['--new-session', '--json']);
   assert.equal(nonVisualResult.output.status, 'BLOCKED');
@@ -2051,7 +2037,7 @@ test('canonical UI repair blocks non-repairable failures and permits one Agent i
   const exhaustedRoot = await temporaryRepository();
   await completeProductFixture(exhaustedRoot);
   const exhausted = await prepareExactFixture(exhaustedRoot);
-  await writeFile(exhausted.appPath, exhausted.app.replace('--accent: #c8f36a;', '--accent: #ff00ff;'));
+  await writeFile(exhausted.appPath, exhausted.app.replace('max-width: 850px;', 'max-width: 300px;'));
   const first = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--new-session', '--json']);
   assert.equal(first.output.attempt, 1, JSON.stringify(first.output, null, 2));
   await appendFile(exhausted.appPath, '\n// single Agent repair attempt\n');
@@ -2060,7 +2046,7 @@ test('canonical UI repair blocks non-repairable failures and permits one Agent i
   assert.match(result.stderr, /AIH_UI_REPAIR_EXHAUSTED/);
   const exhaustedPacket = JSON.parse(await readFile(result.output.repairPacket, 'utf8'));
   assert.equal(exhaustedPacket.attempts.length, 1);
-  assert.ok(exhaustedPacket.attempts[0].failures.some((failure) => failure.check.kind === 'computed-style'));
+  assert.ok(exhaustedPacket.attempts[0].failures.some((failure) => failure.check.kind === 'screenshot-match'));
   const reused = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', exhaustedRoot, ['--session', first.output.repairSessionId, '--json']);
   assert.ok(codes(reused).has('AIH_UI_REPAIR_SESSION_INVALID'));
 });
@@ -2089,7 +2075,7 @@ test('Component Contract runner generates isolated Playwright checks from the sh
   const appPath = resolve(areaPath, 'src/psp-app.ts');
   const app = await readFile(appPath, 'utf8');
 
-  await writeFile(appPath, app.replace('    mode: { type: String, reflect: true },\n', ''));
+  await writeFile(appPath, app.replace('    mode: { type: String, reflect: true },', ''));
   const ignoredVariant = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
   assert.ok(codes(ignoredVariant).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(ignoredVariant.output, null, 2));
   assert.ok(ignoredVariant.output.blockers.some((item) => item.message.includes('Variant 未通过声明的 Lit Attribute 实际渲染')));
@@ -2113,25 +2099,16 @@ test('Matrix Mount preserves Lit Boolean attribute semantics and requires visibl
   const contract = model.componentContracts[0];
   contract.properties.push({ name: 'compact', type: 'boolean', required: false, defaultValue: false });
   contract.attributes.push({ name: 'compact', propertyName: 'compact' });
-  contract.slots.push('label');
-  model.stateAxes.push(
-    {
-      id: 'STATE-AXIS-COMPACT',
-      componentContractId: contract.id,
-      kind: 'content-override',
-      name: 'compact',
-      renderBinding: { kind: 'lit-attribute', name: 'compact' },
-      values: [{ id: 'AXIS-VALUE-COMPACT-FALSE', value: 'false', renderValue: false }],
-    },
-    {
-      id: 'STATE-AXIS-LABEL',
-      componentContractId: contract.id,
-      kind: 'content-override',
-      name: 'label',
-      renderBinding: { kind: 'slot-text', name: 'label' },
-      values: [{ id: 'AXIS-VALUE-LABEL-FIXTURE', value: 'fixture', renderValue: 'Slotted fixture' }],
-    },
-  );
+  model.stateAxes.push({
+    id: 'STATE-AXIS-COMPACT',
+    componentContractId: contract.id,
+    kind: 'content-override',
+    name: 'compact',
+    renderBinding: { kind: 'lit-attribute', name: 'compact' },
+    values: [{ id: 'AXIS-VALUE-COMPACT-FALSE', value: 'false', renderValue: false }],
+  });
+  const labelAxis = model.stateAxes.find((item) => item.id === 'STATE-AXIS-LABEL');
+  labelAxis.values = [{ id: 'AXIS-VALUE-LABEL-FIXTURE', value: 'fixture', renderValue: 'Slotted fixture' }];
   for (const entry of model.stateMatrix) {
     entry.values['STATE-AXIS-COMPACT'] = 'AXIS-VALUE-COMPACT-FALSE';
     entry.values['STATE-AXIS-LABEL'] = 'AXIS-VALUE-LABEL-FIXTURE';
@@ -2143,8 +2120,7 @@ test('Matrix Mount preserves Lit Boolean attribute semantics and requires visibl
   const withBindings = app
     .replace('    message: { type: String },', '    message: { type: String },\n    compact: { type: Boolean, reflect: true },')
     .replace('  declare message: string;', '  declare message: string;\n  declare compact: boolean;')
-    .replace("    this.message = '';", "    this.message = '';\n    this.compact = false;")
-    .replace('<p>${this.message || this.feedback}</p>', '<p>${this.message || this.feedback}</p>\n                <slot name="label"></slot>');
+    .replace("    this.message = '';", "    this.message = '';\n    this.compact = false;");
   await writeFile(appPath, withBindings);
 
   const ready = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
@@ -2161,7 +2137,7 @@ test('Matrix Mount preserves Lit Boolean attribute semantics and requires visibl
   assert.ok(falseAsPresent.output.blockers.some((item) => item.message.includes('Lit Attribute 未实际渲染')));
 
   await writeFile(mountPath, mount);
-  await writeFile(appPath, withBindings.replace('<slot name="label"></slot>', ''));
+  await writeFile(appPath, withBindings.replace('<slot name="label">交互状态实验台</slot>', '交互状态实验台'));
   const unassignedSlot = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', root, ['--json']);
   assert.ok(codes(unassignedSlot).has('AIH_COMPONENT_CONTRACT_TEST_FAILED'), JSON.stringify(unassignedSlot.output, null, 2));
   assert.ok(unassignedSlot.output.blockers.some((item) => item.message.includes('Slot 文本未实际渲染')));

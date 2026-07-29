@@ -1,13 +1,18 @@
+import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { executeRegisteredCommand } from '../../../../../.psp/harness/scripts/lib/execute-command.mjs';
-import { loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { loadProject, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import { canonicalLocks, reviewEvidenceDirectory, sha256 } from './integrity.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const json = process.argv.includes('--json');
+const REVIEW_ACTION = {
+  stage: 'product-design',
+  evidenceVersion: '2.0.0',
+  feedbackPacketSchema: '.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json',
+};
 
 function argumentValues(name) {
   const values = [];
@@ -123,30 +128,57 @@ export function reviewIdentity(version, actors, feedback) {
 }
 
 async function main() {
-  const { project, manifest } = await loadProjectAndManifest(root);
-  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-review' && item.kind === 'review');
-  const stage = project.stages?.[operation?.stage];
-  if (!operation) throw Object.assign(new Error('Manifest 未声明 canonical-ui-review operation。'), { code: 'AIH_CONTRACT_INVALID' });
+  const project = await loadProject(root);
+  const operation = REVIEW_ACTION;
+  const stage = project.stages?.[operation.stage];
   if (stage?.status === 'published') throw Object.assign(new Error('已发布 UI HTML 只能查看冻结凭证；新 Review 前必须 Reopen。'), { code: 'AIH_STAGE_LOCKED' });
   if (stage?.status !== 'active') throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
-  const profile = manifest.validationProfiles.find((item) => item.id === operation.profile);
-  if (!profile) throw Object.assign(new Error('Review 引用未知 Profile：' + operation.profile), { code: 'AIH_PROFILE_INVALID' });
   const locks = await canonicalLocks(root, project);
   const feedback = await loadReviewFeedback(root, operation, locks);
-  const selected = new Set(profile.commands);
-  const commands = manifest.commands.filter((item) => selected.has(item.id));
+  const commands = [
+    ['product-structure', '.agents/skills/product-design/scripts/validate.mjs', ['--json']],
+    ['canonical-ui-input', '.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs', ['--json']],
+    ['canonical-ui-typecheck', '.agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs', ['--capability', 'typecheck', '--json']],
+    ['canonical-ui-build', '.agents/skills/product-design/canonical-ui-prototype/scripts/runtime.mjs', ['--capability', 'build', '--json']],
+    ['canonical-ui-contract-tests', '.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs', ['--json']],
+    ['canonical-ui-runtime', '.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs', ['--json']],
+    ['ui-case-verify', '.agents/skills/ui-case-mock/scripts/verify.mjs', ['--json']],
+    ['product-strict', '.agents/skills/product-design/scripts/validate.mjs', ['--strict', '--json']],
+  ];
   const validation = [];
   let failed = false;
   let runtime = null;
-  for (const command of commands) {
+  for (const [id, path, args] of commands) {
     if (failed) {
-      validation.push({ id: command.id, status: 'NOT_RUN', blockers: [] });
+      validation.push({ id, status: 'NOT_RUN', blockers: [] });
       continue;
     }
-    const result = executeRegisteredCommand(root, command, { arguments: command.executor.kind === 'module' ? ['--json'] : [], timeout: 240_000 });
-    validation.push({ id: command.id, status: result.status, blockers: result.blockers || [] });
-    if (command.id === 'canonical-ui-runtime') runtime = parseJsonOutput(result.stdout);
-    if (result.status !== 'PASS') failed = true;
+    const execution = spawnSync(process.execPath, [repositoryFile(root, path), ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PSP_REPOSITORY_ROOT: root },
+      timeout: 240_000,
+      windowsHide: true,
+    });
+    const status = execution.status === 0 ? 'PASS' : 'FAIL';
+    const parsed = parseJsonOutput(execution.stdout);
+    validation.push({
+      id,
+      status,
+      blockers: status === 'PASS' ? [] : ['AIH_CANONICAL_UI_REVIEW_FAILED'],
+      ...(status !== 'PASS' ? {
+        details: {
+          parsed,
+          stdout: execution.stdout,
+          stderr: execution.stderr,
+          exitCode: execution.status,
+          signal: execution.signal,
+          error: execution.error ? { code: execution.error.code, message: execution.error.message } : null,
+        },
+      } : {}),
+    });
+    if (id === 'canonical-ui-runtime') runtime = parsed;
+    if (status !== 'PASS') failed = true;
   }
   if (failed) {
     return { status: 'BLOCKED', blockers: validation.flatMap((item) => item.blockers).map((code) => ({ code })), validation };

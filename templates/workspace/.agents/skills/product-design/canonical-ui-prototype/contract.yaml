@@ -2,18 +2,20 @@ apiVersion: psp.dev/v1
 kind: ArtifactContract
 metadata:
   id: canonical-ui-prototype
-  version: 11.0.0
+  version: 12.0.0
 spec:
   stage: product-design
   internalModelFormat: typescript
   outputRole: user-artifact
-  purpose: 按关键参与者交付彼此独立且可执行的 UI HTML；每个 ACTOR-ID 应用固定 ready UC 与 Visual Spec 的版本和内容哈希，运行全部正式状态、分支与恢复路径。可执行 HTML/CSS/组件/资源是用户 Artifact，canonical-ui.ts 只是应用内部的机器索引与实现映射，不是独立用户 Artifact。
+  purpose: 按关键参与者交付彼此独立且可执行的 UI HTML；每个 ACTOR-ID 应用固定 ready UC 与 Visual Spec 的版本和内容哈希，分别以 UI Interaction Scenario 验证行为路径、以 UI ViewModel 与 UI Case 验证页面组件视觉组合态。可执行 HTML/CSS/组件/资源是用户 Artifact，canonical-ui.ts 只是应用内部的机器索引与实现映射，不是独立用户 Artifact。
   owns:
     - 可执行界面、路由、交互与状态
     - UI HTML Draft 版本以及 ready UC、ready Visual Spec 的版本与内容哈希绑定
     - Screen、Component、Control、Event、Action 语义
     - Use Case 与正式 Interaction Flow 到可执行界面的追溯
     - Component Inventory（组件清单）、Figma ↔ Lit Component Mapping（组件映射）、Variant Definition（变体定义）、Usage（使用实例）、Component Contract（组件契约）、State Matrix（状态矩阵）与 `/__review/components` State Gallery（状态画廊）
+    - Component Contract 到 Visual Spec Component 的显式引用，以及 Component Visual Case 到合法 State Matrix Entry 的可解析关系
+    - UI ViewModel（界面视图模型）、UI Case（界面视觉用例）、Route 与 Viewport 的组合关系及轴值覆盖策略
     - Component Contract 驱动的组件、App/Feature Shell、页面实例、实现路径与 Token 复用边界
     - 设计来源采集、本地证据、Registration Packet（登记包）、内容哈希与覆盖关系
     - Capture Plan、Acquisition Packet、受控 Asset Ingest、来源版本、导出参数与消费目标双向闭包
@@ -32,7 +34,7 @@ spec:
     - 对 Low-Fi UI Blueprint 的结构或像素复刻
     - 用户未确认的多设备、响应式、横竖屏或无障碍范围
     - Validator 直接修改实现代码、自动放宽视觉容差或修改设计来源与业务语义
-    - 可选 Review Extension 的领域模型、运行事务、工具 UI、证据与生命周期；Review Shell 只提供中性宿主
+    - UI Case Mock 的 Review Tool 呈现、临时运行事务与临时截图证据；这些由 `$ui-case-mock` 子能力管理且不形成独立生命周期
     - 可重新生成的 dist 构建输出、会话级 HTTP 评审地址与临时运行证据；这些由运行器和 Validator 管理
   domainRules:
     - canonical-semantic-entry
@@ -55,6 +57,7 @@ spec:
     - mapped-component-single-implementation-owner
     - component-contract-interface-complete
     - component-contract-screen-closure
+    - component-contract-visual-spec-reference-complete
     - component-reuse-decision-explicit
     - application-shell-single-root
     - existing-lit-component-priority
@@ -66,6 +69,9 @@ spec:
     - finite-state-axis-coverage-disposition-complete
     - finite-state-axis-render-binding-complete
     - state-matrix-combination-classification-complete
+    - ui-view-model-state-matrix-only
+    - ui-case-route-viewport-closure
+    - ui-case-axis-value-coverage-complete
     - component-source-parity-registered
     - exact-component-source-parity-matrix-complete
     - component-state-gallery-generated

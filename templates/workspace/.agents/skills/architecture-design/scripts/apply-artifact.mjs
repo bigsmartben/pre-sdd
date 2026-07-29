@@ -1,9 +1,10 @@
-import { executeArtifactTransaction } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
+import { executeArtifactTransaction } from '../../../runtime/artifact-transaction.mjs';
 import { preparedArtifactOutputs } from './lib/rendering.mjs';
 
 await executeArtifactTransaction({
   stageId: 'architecture-design',
-  prepareOutputs({ project, manifest, stageId, artifactId, data }) {
-    return preparedArtifactOutputs(project, manifest, stageId, artifactId, data);
+  allowedArtifacts: ['architecture-package', 'system-boundary', 'conceptual-model', 'technical-validation'],
+  prepareOutputs({ project, stageId, artifactId, data }) {
+    return preparedArtifactOutputs(project, stageId, artifactId, data);
   },
 });

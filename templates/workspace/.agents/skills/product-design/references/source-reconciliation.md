@@ -7,4 +7,4 @@
 
 来源冲突时保留证据并写入 `gaps`，不静默裁决。`blocked` 来源必须由 `gaps[].sourceIds` 关联；`guided` 可把预期的局部来源登记为 `partial` 并只约束明确覆盖，`exact` 不接受 `partial`。不可访问的来源不得凭链接、图层名或相邻页面猜测，可继续完成不依赖该来源的范围。
 
-本地资源必须通过 Manifest 登记的受控 Ingest operation 写入绑定 Area 的 `public/`，并由 `assets[].path` 引用。Figma 资源还必须形成“Capture Plan 候选节点 → Ingest Receipt → `evidence.json` 证据项 → 正式 Asset → `consumerTargets` 实际代码消费”的双向闭包；任一已分类 asset 只用 DOM/CSS 近似而未加载正式文件时以 `AIH_ASSET_CSS_BYPASS` 阻断。浏览器截图属于临时运行证据，不是设计来源或正式产物。
+本地资源必须通过 `$figma-workflow` 随附的 Ingest 脚本写入项目绑定 Area 的 `public/`，并由 `assets[].path` 引用。Figma 资源还必须形成“Capture Plan 候选节点 → Ingest Receipt → `evidence.json` 证据项 → 正式 Asset → `consumerTargets` 实际代码消费”的双向闭包；任一已分类 asset 只用 DOM/CSS 近似而未加载正式文件时以 `AIH_ASSET_CSS_BYPASS` 阻断。浏览器截图属于临时运行证据，不是设计来源或正式产物。

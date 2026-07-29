@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { artifactMemberPath, artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactMemberPath, artifactPaths, loadProject, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
@@ -92,7 +92,7 @@ if (!actor || changedPaths.length === 0) {
   process.exit(1);
 }
 
-const { project } = await loadProjectAndManifest(root);
+const project = await loadProject(root);
 const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
 const authorityPath = artifactMemberPath(paths, actor);
 const model = await extractCanonicalUi(root, authorityPath);

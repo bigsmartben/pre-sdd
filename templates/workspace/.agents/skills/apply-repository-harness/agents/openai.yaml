@@ -1,4 +1,0 @@
-interface:
-  display_name: "Apply Repository Harness"
-  short_description: "Resolve changes and run repository validation gates"
-  default_prompt: "Use $apply-repository-harness to resolve changed paths, run every required gate, and report manifest-shaped evidence."

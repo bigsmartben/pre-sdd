@@ -50,7 +50,7 @@ function confirmationSha256(confirmation) {
 }
 
 export async function completeProductFixture(root) {
-  const initialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+  const initialization = runScript('.agents/skills/product-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
@@ -238,11 +238,11 @@ export async function completeProductFixture(root) {
   visualSpec.data.components = [{
     id: 'VISUAL-COMPONENT-001', name: '验证状态卡片', role: '展示验证状态和操作结果', useCaseRefs: ['UC-001'],
     interactionStateRefs: ['INT-STATE-001', 'INT-STATE-002', 'INT-STATE-003'],
-    variantAxes: [{ name: 'emphasis', values: ['primary', 'secondary'] }],
+    variantAxes: [{ name: 'Mode', values: ['Default', 'Busy'] }],
     visualCases: ['INT-STATE-001', 'INT-STATE-002', 'INT-STATE-003'].flatMap((stateId, stateIndex) => (
-      ['primary', 'secondary'].map((emphasis, variantIndex) => ({
-        id: 'VISUAL-CASE-00' + (stateIndex * 2 + variantIndex + 1), name: stateId + ' ' + emphasis,
-        interactionStateRef: stateId, variants: [{ name: 'emphasis', value: emphasis }], visual: structuredClone(visualStyle),
+      ['Default', 'Busy'].map((mode, variantIndex) => ({
+        id: 'VISUAL-CASE-00' + (stateIndex * 2 + variantIndex + 1), name: stateId + ' ' + mode,
+        interactionStateRef: stateId, variants: [{ name: 'Mode', value: mode }], visual: structuredClone(visualStyle),
       }))
     )),
   }];
@@ -265,7 +265,7 @@ export async function completeProductFixture(root) {
   const capturedAt = '2026-07-15T10:00:01Z';
   const sourceVersion = { kind: 'figma-file-version', value: 'fixture-version-20260715' };
   const designContextDocument = {
-    version: '3.0.0',
+    version: '4.0.0',
     sourceId,
     nodeId: '1:2',
     capturedAt,
@@ -288,14 +288,34 @@ export async function completeProductFixture(root) {
       letterSpacing: 0,
       wrapping: 'word',
     }],
-    paints: [{
-      nodeId: '1:2',
-      opacity: 1,
-      fills: ['#fffdf7'],
-      strokes: [],
-      cornerRadii: [0, 0, 0, 0],
-    }],
+    paints: [],
     effects: [],
+    visualNodeCatalog: [
+      {
+        nodeId: '1:3',
+        parentNodeId: '1:2',
+        visible: true,
+        hasPaint: true,
+        hasStroke: false,
+        hasEffect: false,
+        hasMask: false,
+        hasRaster: false,
+        isText: false,
+        assetBoundaryNodeId: '1:3',
+      },
+      {
+        nodeId: '1:5',
+        parentNodeId: '1:3',
+        visible: true,
+        hasPaint: false,
+        hasStroke: false,
+        hasEffect: false,
+        hasMask: false,
+        hasRaster: true,
+        isText: false,
+        assetBoundaryNodeId: '1:3',
+      },
+    ],
     components: [
       {
         nodeId: '2:1',
@@ -346,8 +366,9 @@ export async function completeProductFixture(root) {
     }],
     assets: [{
       nodeId: '1:3',
+      assetBoundaryNodeId: '1:3',
       assetKind: 'icon',
-      captureScope: 'layer',
+      captureScope: 'artwork-subtree',
       containsDynamicContent: false,
       recommendedFormat: 'svg',
     }],
@@ -357,9 +378,10 @@ export async function completeProductFixture(root) {
   const asset = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="8" fill="#c8f36a"/><path d="M10 21l6 6 14-15" fill="none" stroke="#15210f" stroke-width="4"/></svg>\n';
   const assetFacts = {
     sourceNodeId: '1:3',
+    assetBoundaryNodeId: '1:3',
     strategy: 'asset',
     assetKind: 'icon',
-    captureScope: 'layer',
+    captureScope: 'artwork-subtree',
     containsDynamicContent: false,
     format: 'svg',
     scale: 1,
@@ -371,151 +393,176 @@ export async function completeProductFixture(root) {
     consumerTargets: ['COMPONENT-001'],
     status: 'verified',
   };
+  const scanInventory = {
+    scannedAt: '2026-07-15T09:54:00Z',
+    sourceVersion,
+    rootNodeId: '1:2',
+    nodes: [
+      { kind: 'page', nodeId: '1:1', name: 'Fixture Page', visible: true },
+      { kind: 'instance', nodeId: '1:2', name: 'Prototype App Shell Instance', visible: true, parentNodeId: '1:1' },
+      { kind: 'component-set', nodeId: '2:1', name: 'Prototype App Shell', visible: true, parentNodeId: '1:1' },
+      { kind: 'component', nodeId: '2:2', name: 'Mode=Default', visible: true, parentNodeId: '2:1' },
+      { kind: 'component', nodeId: '2:3', name: 'Mode=Busy', visible: true, parentNodeId: '2:1' },
+      { kind: 'group', nodeId: '1:3', name: 'Fixture source icon', visible: true, parentNodeId: '1:2' },
+      { kind: 'image', nodeId: '1:5', name: 'Fixture source bitmap', visible: true, parentNodeId: '1:3' },
+      { kind: 'visual', nodeId: '1:4', name: 'Unrelated artwork', visible: true, parentNodeId: '1:1' },
+    ],
+  };
+  const pageCoverage = [{ expectedPageId: 'PAGE-FIXTURE', figmaPageNodeId: '1:1', status: 'PASS' }];
+  const groupIntegrity = [{
+    groupNodeId: '1:3',
+    memberNodeIds: ['1:5'],
+    containsVisualContent: true,
+    assetBoundaryNodeId: '1:3',
+    status: 'PASS',
+  }];
+  const imageGroupCoverage = [{
+    imageNodeId: '1:5',
+    ownerGroupNodeId: '1:3',
+    expectedGroupNodeId: '1:3',
+    status: 'PASS',
+  }];
+  const stateCoverage = [{
+    screenId: 'SCREEN-001',
+    stateId: 'INT-STATE-001',
+    figmaNodeIds: ['1:2'],
+    status: 'PASS',
+  }];
+  const variantCoverage = [{
+    proposalId: 'COMPONENT-PROPOSAL-001',
+    axisName: 'Mode',
+    expectedValues: ['Default', 'Busy'],
+    observedValues: ['Default', 'Busy'],
+    definitionNodeIds: ['2:2', '2:3'],
+    status: 'PASS',
+  }];
+  const figmaComponentContract = {
+    name: 'FixtureStatus',
+    properties: [
+      { name: 'Mode', kind: 'variant', values: ['Default', 'Busy'] },
+      { name: 'Message', kind: 'text', values: [] },
+    ],
+    variantAxes: [{ name: 'Mode', values: ['Default', 'Busy'] }],
+    contentRegions: [{ name: 'Label', role: 'status-title' }],
+    nestedComponentNodeIds: [],
+    sizeBehavior: { width: 'fill', height: 'hug', wrap: 'content' },
+  };
+  const componentProposal = {
+    id: 'COMPONENT-PROPOSAL-001',
+    nodeIds: ['2:1', '2:2', '2:3', '1:2'],
+    decision: 'shared-component',
+    structureSignatures: [
+      'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+      'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+      'sha256:3333333333333333333333333333333333333333333333333333333333333333',
+    ],
+    componentBoundary: {
+      kind: 'component-set',
+      rootNodeId: '2:1',
+      nestedComponentNodeIds: ['2:2', '2:3', '1:2'],
+    },
+    figmaComponentContract,
+  };
+  const screenBindings = [
+    ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
+      screenId: 'SCREEN-001',
+      figmaRootNodeId: '1:2',
+      viewportId,
+      scenarioId: 'SCENARIO-001',
+      stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS'],
+    })),
+    ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
+      screenId: 'SCREEN-001',
+      figmaRootNodeId: '1:2',
+      viewportId,
+      scenarioId: 'SCENARIO-002',
+      stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'],
+    })),
+    ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
+      screenId: 'SCREEN-001',
+      figmaRootNodeId: '1:2',
+      viewportId,
+      scenarioId: 'SCENARIO-003',
+      stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'],
+    })),
+  ];
+  const scopeAudit = {
+    id: 'SCOPE-AUDIT-001',
+    sha256: 'sha256:' + '0'.repeat(64),
+    scopeMode: 'file',
+    sourceVersion,
+    rootNodeId: '1:2',
+    scanInventory,
+    screenBindings,
+    includedNodes: scanInventory.nodes
+      .filter((node) => node.nodeId !== '1:4')
+      .map(({ kind, nodeId, name }) => ({ kind, nodeId, name })),
+    excludedNodes: [{ kind: 'visual', nodeId: '1:4', name: 'Unrelated artwork', reason: 'Not used by the approved scope.' }],
+    pageCoverage,
+    groupIntegrity,
+    imageGroupCoverage,
+    stateCoverage,
+    variantCoverage,
+    findings: [],
+    writebackPlan: [],
+    componentProposals: [componentProposal],
+  };
+  scopeAudit.sha256 = confirmationSha256(scopeAudit);
+  const writebackApproval = {
+    id: 'WRITEBACK-APPROVAL-001',
+    sha256: 'sha256:' + '0'.repeat(64),
+    confirmedBy: 'user:fixture-reviewer',
+    confirmedAt: '2026-07-15T09:55:00Z',
+    sourceVersion,
+    scopeAuditId: scopeAudit.id,
+    scopeAuditSha256: scopeAudit.sha256,
+    operationIds: [],
+    detachApprovals: [],
+  };
+  writebackApproval.sha256 = confirmationSha256(writebackApproval);
+  const writebackReceipt = {
+    id: 'WRITEBACK-RECEIPT-001',
+    sha256: 'sha256:' + '0'.repeat(64),
+    writebackApprovalId: writebackApproval.id,
+    writebackApprovalSha256: writebackApproval.sha256,
+    sourceVersionBefore: sourceVersion,
+    sourceVersionAfter: sourceVersion,
+    operationIds: [],
+    beforeInventorySha256: 'sha256:' + '4'.repeat(64),
+    afterInventorySha256: 'sha256:' + '4'.repeat(64),
+    screenshotEvidenceItemIds: ['EVIDENCE-BEFORE-001', 'EVIDENCE-AFTER-001'],
+    postWriteAudit: {
+      scanInventory: { ...scanInventory, scannedAt: '2026-07-15T09:56:00Z' },
+      pageCoverage,
+      groupIntegrity,
+      imageGroupCoverage,
+      stateCoverage,
+      variantCoverage,
+      findings: [],
+    },
+    completedAt: '2026-07-15T09:57:00Z',
+  };
+  writebackReceipt.sha256 = confirmationSha256(writebackReceipt);
+  const finalFigmaAcceptance = {
+    id: 'FINAL-FIGMA-ACCEPTANCE-001',
+    sha256: 'sha256:' + '0'.repeat(64),
+    confirmedBy: 'user:fixture-reviewer',
+    confirmedAt: '2026-07-15T09:58:00Z',
+    sourceVersion,
+    writebackReceiptId: writebackReceipt.id,
+    writebackReceiptSha256: writebackReceipt.sha256,
+    result: 'accepted',
+  };
+  finalFigmaAcceptance.sha256 = confirmationSha256(finalFigmaAcceptance);
   const capturePlan = {
-    version: '2.0.0',
+    version: '3.0.0',
     sourceId,
     rootNodeId: '1:2',
     sourceVersion,
-    scopeConfirmation: {
-      id: 'SCOPE-CONFIRMATION-001',
-      sha256: 'sha256:' + '0'.repeat(64),
-      confirmedBy: 'user:fixture-reviewer',
-      confirmedAt: '2026-07-15T09:55:00Z',
-      sourceVersion,
-      rootNodeId: '1:2',
-      scanInventory: {
-        scannedAt: '2026-07-15T09:54:00Z',
-        sourceVersion,
-        rootNodeId: '1:2',
-        nodes: [
-          { kind: 'page', nodeId: '1:1', name: 'Fixture Page' },
-          { kind: 'component', nodeId: '2:1', name: 'Prototype App Shell' },
-          { kind: 'component', nodeId: '2:2', name: 'Mode=Default', parentNodeId: '2:1' },
-          { kind: 'component', nodeId: '2:3', name: 'Mode=Busy', parentNodeId: '2:1' },
-          { kind: 'component', nodeId: '1:2', name: 'Prototype App Shell Instance', parentNodeId: '1:1' },
-          { kind: 'visual', nodeId: '1:2', name: 'Prototype App Shell Instance', parentNodeId: '1:1' },
-          { kind: 'visual', nodeId: '1:3', name: 'Fixture source icon', parentNodeId: '1:2' },
-          { kind: 'visual', nodeId: '1:4', name: 'Unrelated artwork', parentNodeId: '1:1' },
-        ],
-      },
-      screenBindings: [
-        ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
-          screenId: 'SCREEN-001',
-          figmaRootNodeId: '1:2',
-          viewportId,
-          scenarioId: 'SCENARIO-001',
-          stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS'],
-        })),
-        ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
-          screenId: 'SCREEN-001',
-          figmaRootNodeId: '1:2',
-          viewportId,
-          scenarioId: 'SCENARIO-002',
-          stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'],
-        })),
-        ...['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'].map((viewportId) => ({
-          screenId: 'SCREEN-001',
-          figmaRootNodeId: '1:2',
-          viewportId,
-          scenarioId: 'SCENARIO-003',
-          stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'],
-        })),
-      ],
-      includedNodes: [
-        { kind: 'page', nodeId: '1:1', name: 'Fixture Page' },
-        { kind: 'component', nodeId: '2:1', name: 'Prototype App Shell' },
-        { kind: 'component', nodeId: '2:2', name: 'Mode=Default' },
-        { kind: 'component', nodeId: '2:3', name: 'Mode=Busy' },
-        { kind: 'component', nodeId: '1:2', name: 'Prototype App Shell Instance' },
-        { kind: 'visual', nodeId: '1:2', name: 'Prototype App Shell Instance' },
-        { kind: 'visual', nodeId: '1:3', name: 'Fixture source icon' },
-      ],
-      excludedNodes: [{ kind: 'visual', nodeId: '1:4', name: 'Unrelated artwork', reason: 'Not used by the confirmed scenario.' }],
-      viewportIds: ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'],
-      scenarioIds: ['SCENARIO-001', 'SCENARIO-002', 'SCENARIO-003'],
-      stateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'],
-      counts: { pages: 1, components: 4, visualNodes: 2, viewports: 2, scenarios: 3, states: 5 },
-    },
-    highImpactConfirmation: {
-      id: 'HIGH-IMPACT-CONFIRMATION-001',
-      sha256: 'sha256:' + '0'.repeat(64),
-      confirmedBy: 'user:fixture-reviewer',
-      confirmedAt: '2026-07-15T09:57:00Z',
-      sourceVersion,
-      scopeConfirmationId: 'SCOPE-CONFIRMATION-001',
-      scopeConfirmationSha256: 'sha256:' + '0'.repeat(64),
-      componentProposals: [{
-        id: 'COMPONENT-PROPOSAL-001',
-        nodeIds: ['2:1', '2:2', '2:3', '1:2'],
-        decision: 'shared-component',
-        componentName: 'FixtureStatus',
-        semanticRole: '展示规格验证状态并承载验证动作',
-        structureSignatures: [
-          'sha256:1111111111111111111111111111111111111111111111111111111111111111',
-          'sha256:2222222222222222222222222222222222222222222222222222222222222222',
-          'sha256:3333333333333333333333333333333333333333333333333333333333333333',
-        ],
-        reason: 'Component Set、Definition 与页面 Instance 共享语义、结构及运行职责。',
-        counterexample: '仅颜色相似、但没有共同状态与接口职责的卡片不应并入此抽象。',
-        componentBoundary: {
-          kind: 'component-set',
-          rootNodeId: '2:1',
-          nestedComponentNodeIds: ['2:2', '2:3', '1:2'],
-        },
-        sizeBehavior: {
-          width: { mode: 'fill', min: 280, max: null },
-          height: { mode: 'hug', min: 0, max: null },
-          wrap: 'content',
-        },
-        interfaceProposal: {
-          properties: [
-            {
-              kind: 'variant',
-              figmaProperty: 'Mode',
-              litProperty: 'mode',
-              litAttribute: 'mode',
-              values: [
-                { figmaValue: 'Default', litValue: 'default' },
-                { figmaValue: 'Busy', litValue: 'busy' },
-              ],
-            },
-            {
-              kind: 'text',
-              figmaProperty: 'Message',
-              litProperty: 'message',
-              litAttribute: null,
-              values: [],
-            },
-          ],
-          slots: [],
-          events: [
-            { name: 'submit-success', trigger: '点击成功动作', litEvent: 'submit-success' },
-            { name: 'submit-error', trigger: '点击错误动作', litEvent: 'submit-error' },
-            { name: 'return-retry', trigger: '点击返回动作', litEvent: 'return-retry' },
-          ],
-        },
-      }],
-      stateAxes: [
-        { id: 'FIGMA-AXIS-VARIANT', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'variant', name: 'Mode', values: ['Default', 'Busy'] },
-        { id: 'FIGMA-AXIS-RUNTIME', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'runtime-state', name: 'status', values: ['default', 'loading', 'success', 'error'] },
-        { id: 'FIGMA-AXIS-INTERACTION', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'interaction-state', name: 'workflow', values: ['ready'] },
-        { id: 'FIGMA-AXIS-CONTENT', proposalId: 'COMPONENT-PROPOSAL-001', kind: 'content-override', name: 'message', values: ['default'] },
-      ],
-      resourceAmbiguities: [{ nodeId: '1:3', decision: 'asset', reason: 'Static source icon with no dynamic content.' }],
-      writebackOperations: [],
-      detachApprovals: [],
-    },
-    writebackBoundary: {
-      scopeConfirmationId: 'SCOPE-CONFIRMATION-001',
-      highImpactConfirmationId: 'HIGH-IMPACT-CONFIRMATION-001',
-      highImpactConfirmationSha256: 'sha256:' + '0'.repeat(64),
-      sourceVersionBefore: sourceVersion,
-      sourceVersionAfter: sourceVersion,
-      operationIds: [],
-      completedAt: '2026-07-15T09:58:00Z',
-      formalCaptureOrdinal: 1,
-      recaptureTriggers: ['scope-change', 'source-version-change', 'post-freeze-writeback'],
-    },
+    scopeAudit,
+    writebackApproval,
+    writebackReceipt,
+    finalFigmaAcceptance,
     frozenAt: '2026-07-15T09:59:00Z',
     formalCapture: {
       ordinal: 1,
@@ -525,11 +572,11 @@ export async function completeProductFixture(root) {
       sourceVersionAfter: sourceVersion,
     },
     candidateVisualNodes: [
-      { nodeId: '1:2', name: 'Prototype App Shell Instance', strategy: 'dom-css' },
       {
         nodeId: '1:3',
         name: 'Fixture source icon',
         strategy: 'asset',
+        assetBoundaryNodeId: assetFacts.assetBoundaryNodeId,
         assetKind: assetFacts.assetKind,
         captureScope: assetFacts.captureScope,
         containsDynamicContent: assetFacts.containsDynamicContent,
@@ -544,12 +591,15 @@ export async function completeProductFixture(root) {
           downloadOperation: assetFacts.downloadOperation,
         },
       },
+      {
+        nodeId: '1:5',
+        name: 'Fixture source bitmap',
+        strategy: 'ignored',
+        assetBoundaryNodeId: '1:3',
+        reason: 'covered-by-asset-boundary:1:3',
+      },
     ],
   };
-  capturePlan.scopeConfirmation.sha256 = confirmationSha256(capturePlan.scopeConfirmation);
-  capturePlan.highImpactConfirmation.scopeConfirmationSha256 = capturePlan.scopeConfirmation.sha256;
-  capturePlan.highImpactConfirmation.sha256 = confirmationSha256(capturePlan.highImpactConfirmation);
-  capturePlan.writebackBoundary.highImpactConfirmationSha256 = capturePlan.highImpactConfirmation.sha256;
   const capturePlanText = JSON.stringify(capturePlan, null, 2) + '\n';
   const rawDesignContext = JSON.stringify({
     provider: 'figma',
@@ -573,7 +623,7 @@ export async function completeProductFixture(root) {
     },
   }, null, 2) + '\n';
   const ingestReceipt = {
-    version: '1.0.0',
+    version: '2.0.0',
     sourceId,
     sourceVersion,
     capturePlan: {
@@ -584,6 +634,7 @@ export async function completeProductFixture(root) {
     ingestedAt: '2026-07-15T10:00:03Z',
     assets: [{
       sourceNodeId: assetFacts.sourceNodeId,
+      assetBoundaryNodeId: assetFacts.assetBoundaryNodeId,
       path: 'public/assets/DESIGN-SOURCE-001/source.svg',
       assetKind: assetFacts.assetKind,
       captureScope: assetFacts.captureScope,
@@ -649,7 +700,7 @@ export async function completeProductFixture(root) {
         role: 'capture-plan',
         path: 'design-sources/DESIGN-SOURCE-001/capture-plan.json',
         sha256: sha256(capturePlanText),
-        schema: 'https://psp.dev/adapters/figma/capture-plan.schema.json',
+        schema: 'https://psp.dev/skills/figma-workflow/capture-plan.schema.json',
       },
       {
         id: 'EVIDENCE-INGEST-RECEIPT-001',
@@ -664,6 +715,7 @@ export async function completeProductFixture(root) {
         path: 'public/assets/DESIGN-SOURCE-001/source.svg',
         sha256: sha256(asset),
         sourceNodeId: '1:3',
+        assetBoundaryNodeId: '1:3',
         assetKind: assetFacts.assetKind,
         captureScope: assetFacts.captureScope,
         containsDynamicContent: assetFacts.containsDynamicContent,
@@ -681,9 +733,9 @@ export async function completeProductFixture(root) {
   };
   const evidenceText = JSON.stringify(evidence, null, 2) + '\n';
   await writeFile(resolve(sourceRoot, 'evidence.json'), evidenceText);
-  const approvedProposal = capturePlan.highImpactConfirmation.componentProposals[0];
+  const approvedProposal = capturePlan.scopeAudit.componentProposals[0];
   const registration = {
-    version: '2.0.0',
+    version: '3.0.0',
     sourceId,
     sourceVersion,
     evidencePath: 'design-sources/DESIGN-SOURCE-001/evidence.json',
@@ -703,12 +755,9 @@ export async function completeProductFixture(root) {
     componentHandshake: [{
       proposalId: approvedProposal.id,
       decision: approvedProposal.decision,
-      semanticRole: approvedProposal.semanticRole,
-      reason: approvedProposal.reason,
-      counterexample: approvedProposal.counterexample,
       finalNodeIds: approvedProposal.nodeIds,
       structureSignatures: approvedProposal.structureSignatures,
-      interfaceProposal: approvedProposal.interfaceProposal,
+      figmaComponentContract: approvedProposal.figmaComponentContract,
       usageBindings: [{ instanceNodeId: '1:2', screenId: 'SCREEN-001' }],
       baselineEvidenceItemIds: ['EVIDENCE-SCREENSHOT-001'],
       figmaComponentNodeId: '2:1',
@@ -718,6 +767,7 @@ export async function completeProductFixture(root) {
     assets: [{
       path: 'public/assets/DESIGN-SOURCE-001/source.svg',
       sourceNodeId: assetFacts.sourceNodeId,
+      assetBoundaryNodeId: assetFacts.assetBoundaryNodeId,
       assetKind: assetFacts.assetKind,
       captureScope: assetFacts.captureScope,
       containsDynamicContent: assetFacts.containsDynamicContent,
@@ -736,10 +786,45 @@ export async function completeProductFixture(root) {
   };
   const registrationText = JSON.stringify(registration, null, 2) + '\n';
   await writeFile(resolve(sourceRoot, 'source-registration.json'), registrationText);
-  const allStateIds = ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
+  const allStateIds = ['INT-STATE-001', 'INT-STATE-002', 'INT-STATE-003', 'COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'];
   const allViewportIds = ['VIEWPORT-MOBILE', 'VIEWPORT-DESKTOP'];
+  const stateMatrix = [];
+  for (const [runtimeName, runtimeValueId] of [
+    ['DEFAULT', 'AXIS-VALUE-RUNTIME-DEFAULT'],
+    ['LOADING', 'AXIS-VALUE-RUNTIME-LOADING'],
+    ['SUCCESS', 'AXIS-VALUE-RUNTIME-SUCCESS'],
+    ['ERROR', 'AXIS-VALUE-RUNTIME-ERROR'],
+  ]) {
+    for (const [variantName, variantValueId] of [
+      ['DEFAULT', 'AXIS-VALUE-MODE-DEFAULT'],
+      ['BUSY', 'AXIS-VALUE-MODE-BUSY'],
+    ]) {
+      for (const [interactionName, interactionValueId] of [
+        ['READY', 'AXIS-VALUE-INTERACTION-READY'],
+        ['SUCCESS', 'AXIS-VALUE-INTERACTION-SUCCESS'],
+        ['FAILURE', 'AXIS-VALUE-INTERACTION-FAILURE'],
+      ]) {
+        stateMatrix.push({
+          id: 'STATE-MATRIX-' + runtimeName
+            + (variantName === 'DEFAULT' ? '' : '-' + variantName)
+            + (interactionName === 'READY' ? '' : '-INTERACTION-' + interactionName),
+          componentContractId: 'COMPONENT-CONTRACT-001',
+          values: {
+            'STATE-AXIS-VARIANT': variantValueId,
+            'STATE-AXIS-RUNTIME': runtimeValueId,
+            'STATE-AXIS-INTERACTION': interactionValueId,
+            'STATE-AXIS-CONTENT': 'AXIS-VALUE-CONTENT-DEFAULT',
+            'STATE-AXIS-FLAG': 'AXIS-VALUE-FLAG-TRUE',
+            'STATE-AXIS-LABEL': 'AXIS-VALUE-LABEL-DEFAULT',
+          },
+          classification: 'legal',
+          renderInGallery: true,
+        });
+      }
+    }
+  }
   const canonical = {
-    version: '11.0.0',
+    version: '12.0.0',
     actor: 'ACTOR-001',
     draft: {
       version: '1.0.0',
@@ -772,7 +857,7 @@ export async function completeProductFixture(root) {
       },
       tools: [
         { id: 'REVIEW-TOOL-INCONSISTENCY-ANNOTATOR', kind: 'inconsistency-annotator', delivery: 'built-in' },
-        { id: 'REVIEW-TOOL-MOCKCASE-SWITCHER', kind: 'mockcase-switcher', delivery: 'review-extension' },
+        { id: 'REVIEW-TOOL-UI-CASE-SWITCHER', kind: 'ui-case-switcher', delivery: 'review-extension' },
         { id: 'REVIEW-TOOL-INTERACTION-BRANCH-DRIVER', kind: 'interaction-branch-driver', delivery: 'built-in' },
       ],
     },
@@ -816,6 +901,7 @@ export async function completeProductFixture(root) {
       kind: 'image',
       sourceIds: [sourceId],
       sourceNodeId: assetFacts.sourceNodeId,
+      assetBoundaryNodeId: assetFacts.assetBoundaryNodeId,
       sourceVersion,
       strategy: assetFacts.strategy,
       format: assetFacts.format,
@@ -831,20 +917,20 @@ export async function completeProductFixture(root) {
     }],
     tokens: [{ id: 'TOKEN-COLOR-ACCENT', type: 'color', value: '#c8f36a', sourceIds: [sourceId], targetIds: ['CONTROL-001'], cssProperty: '--accent' }],
     routes: [{ id: 'ROUTE-001', path: '/', screenId: 'SCREEN-001' }],
-    screens: [{ id: 'SCREEN-001', title: '规格验证', routeId: 'ROUTE-001', stateIds: ['INT-STATE-001'], componentIds: ['COMPONENT-001'] }],
+    screens: [{ id: 'SCREEN-001', title: '规格验证', routeId: 'ROUTE-001', stateIds: ['INT-STATE-001', 'INT-STATE-002', 'INT-STATE-003'], componentIds: ['COMPONENT-001'] }],
     components: [{ id: 'COMPONENT-001', name: '验证状态', controlIds: ['CONTROL-001', 'CONTROL-002', 'CONTROL-003'], stateIds: ['COMPONENT-STATE-DEFAULT', 'COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS', 'COMPONENT-STATE-ERROR'] }],
     componentInventory: [{
       id: 'COMPONENT-INVENTORY-001',
       sourceId,
       nodeIds: ['2:1', '2:2', '2:3', '1:2'],
-      semanticRole: approvedProposal.semanticRole,
+      semanticRole: '展示规格验证状态并承载验证动作',
       structureSignatures: [
         'sha256:1111111111111111111111111111111111111111111111111111111111111111',
         'sha256:2222222222222222222222222222222222222222222222222222222222222222',
         'sha256:3333333333333333333333333333333333333333333333333333333333333333',
       ],
       decision: 'shared-component',
-      rationale: approvedProposal.reason,
+      rationale: 'Product Design 基于业务语义确认该组件为共享组件。',
       componentId: 'COMPONENT-001',
     }],
     componentMappings: [{
@@ -873,7 +959,7 @@ export async function completeProductFixture(root) {
           values: [],
         },
       ],
-      slotMappings: [],
+      slotMappings: [{ figmaProperty: 'Label', litSlot: 'label' }],
       eventIds: ['EVENT-001', 'EVENT-002', 'EVENT-003'],
     }],
     componentVariantDefinitions: [
@@ -911,17 +997,23 @@ export async function completeProductFixture(root) {
     componentContracts: [{
       id: 'COMPONENT-CONTRACT-001',
       componentId: 'COMPONENT-001',
+      visualComponentId: 'VISUAL-COMPONENT-001',
       implementationRole: 'app-shell',
       mappingId: 'COMPONENT-MAPPING-001',
       figmaInstanceNodeIds: ['1:2'],
       litTagName: 'psp-app',
-      slots: [],
+      slots: ['label'],
       properties: [
         { name: 'mode', type: 'string', required: false, defaultValue: 'default' },
         { name: 'message', type: 'string', required: false, defaultValue: '' },
         { name: 'previewState', type: 'string', required: false, defaultValue: 'COMPONENT-STATE-DEFAULT' },
+        { name: 'previewInteractionState', type: 'string', required: false, defaultValue: 'INT-STATE-001' },
+        { name: 'caseFlag', type: 'boolean', required: false, defaultValue: false },
       ],
-      attributes: [{ name: 'mode', propertyName: 'mode' }],
+      attributes: [
+        { name: 'mode', propertyName: 'mode' },
+        { name: 'data-case-flag', propertyName: 'caseFlag' },
+      ],
       eventIds: ['EVENT-001', 'EVENT-002', 'EVENT-003'],
       stateAxisCoverage: [
         { kind: 'variant', status: 'modeled' },
@@ -974,8 +1066,12 @@ export async function completeProductFixture(root) {
         componentContractId: 'COMPONENT-CONTRACT-001',
         kind: 'interaction-state',
         name: 'workflow',
-        renderBinding: { kind: 'workflow-state' },
-        values: [{ id: 'AXIS-VALUE-INTERACTION-READY', value: 'ready', stateId: 'INT-STATE-001' }],
+        renderBinding: { kind: 'workflow-state', name: 'previewInteractionState' },
+        values: [
+          { id: 'AXIS-VALUE-INTERACTION-READY', value: 'ready', stateId: 'INT-STATE-001' },
+          { id: 'AXIS-VALUE-INTERACTION-SUCCESS', value: 'success', stateId: 'INT-STATE-002' },
+          { id: 'AXIS-VALUE-INTERACTION-FAILURE', value: 'failure', stateId: 'INT-STATE-003' },
+        ],
       },
       {
         id: 'STATE-AXIS-CONTENT',
@@ -985,30 +1081,59 @@ export async function completeProductFixture(root) {
         renderBinding: { kind: 'lit-property', name: 'message' },
         values: [{ id: 'AXIS-VALUE-CONTENT-DEFAULT', value: 'default', renderValue: 'Fixture component content' }],
       },
-    ],
-    stateMatrix: [
-      ['DEFAULT', 'AXIS-VALUE-RUNTIME-DEFAULT'],
-      ['LOADING', 'AXIS-VALUE-RUNTIME-LOADING'],
-      ['SUCCESS', 'AXIS-VALUE-RUNTIME-SUCCESS'],
-      ['ERROR', 'AXIS-VALUE-RUNTIME-ERROR'],
-    ].flatMap(([runtimeName, runtimeValueId]) => ([
-      ['DEFAULT', 'AXIS-VALUE-MODE-DEFAULT'],
-      ['BUSY', 'AXIS-VALUE-MODE-BUSY'],
-    ].map(([variantName, variantValueId]) => ({
-      id: 'STATE-MATRIX-' + runtimeName + (variantName === 'DEFAULT' ? '' : '-' + variantName),
-      componentContractId: 'COMPONENT-CONTRACT-001',
-      values: {
-        'STATE-AXIS-VARIANT': variantValueId,
-        'STATE-AXIS-RUNTIME': runtimeValueId,
-        'STATE-AXIS-INTERACTION': 'AXIS-VALUE-INTERACTION-READY',
-        'STATE-AXIS-CONTENT': 'AXIS-VALUE-CONTENT-DEFAULT',
+      {
+        id: 'STATE-AXIS-FLAG',
+        componentContractId: 'COMPONENT-CONTRACT-001',
+        kind: 'content-override',
+        name: 'data-case-flag',
+        renderBinding: { kind: 'lit-attribute', name: 'data-case-flag' },
+        values: [{ id: 'AXIS-VALUE-FLAG-TRUE', value: 'flagged', renderValue: true }],
       },
-      classification: 'legal',
-      renderInGallery: true,
-    })))),
+      {
+        id: 'STATE-AXIS-LABEL',
+        componentContractId: 'COMPONENT-CONTRACT-001',
+        kind: 'content-override',
+        name: 'label',
+        renderBinding: { kind: 'slot-text', name: 'label' },
+        values: [{ id: 'AXIS-VALUE-LABEL-DEFAULT', value: 'default', renderValue: '验证状态' }],
+      },
+    ],
+    stateMatrix,
+    uiViewModels: [
+      { id: 'UI-VM-001', name: '默认页面', routeId: 'ROUTE-001', base: 'component-contract-defaults', overrides: [] },
+      {
+        id: 'UI-VM-002',
+        name: '加载中的 Busy 页面',
+        routeId: 'ROUTE-001',
+        base: 'component-contract-defaults',
+        overrides: [{ pageInstanceId: 'REVIEW-PRIMARY-INSTANCE', stateMatrixEntryId: 'STATE-MATRIX-LOADING-BUSY' }],
+      },
+      {
+        id: 'UI-VM-003',
+        name: '成功页面',
+        routeId: 'ROUTE-001',
+        base: 'component-contract-defaults',
+        overrides: [{ pageInstanceId: 'REVIEW-PRIMARY-INSTANCE', stateMatrixEntryId: 'STATE-MATRIX-SUCCESS-INTERACTION-SUCCESS' }],
+      },
+      {
+        id: 'UI-VM-004',
+        name: '错误页面',
+        routeId: 'ROUTE-001',
+        base: 'component-contract-defaults',
+        overrides: [{ pageInstanceId: 'REVIEW-PRIMARY-INSTANCE', stateMatrixEntryId: 'STATE-MATRIX-ERROR-INTERACTION-FAILURE' }],
+      },
+    ],
+    uiCases: [
+      { id: 'UI-CASE-001', name: '桌面与移动默认页', viewModelId: 'UI-VM-001', viewportIds: allViewportIds },
+      { id: 'UI-CASE-002', name: '桌面加载页', viewModelId: 'UI-VM-002', viewportIds: ['VIEWPORT-DESKTOP'] },
+      { id: 'UI-CASE-003', name: '桌面成功页', viewModelId: 'UI-VM-003', viewportIds: ['VIEWPORT-DESKTOP'] },
+      { id: 'UI-CASE-004', name: '桌面错误页', viewModelId: 'UI-VM-004', viewportIds: ['VIEWPORT-DESKTOP'] },
+    ],
     controls: [{ id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' }, { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' }, { id: 'CONTROL-003', componentId: 'COMPONENT-001', label: '返回重试' }],
     states: [
       { id: 'INT-STATE-001', scope: 'workflow', ownerId: 'SCREEN-001', label: '等待验证' },
+      { id: 'INT-STATE-002', scope: 'workflow', ownerId: 'SCREEN-001', label: '验证通过' },
+      { id: 'INT-STATE-003', scope: 'workflow', ownerId: 'SCREEN-001', label: '验证失败' },
       { id: 'COMPONENT-STATE-DEFAULT', scope: 'component', ownerId: 'COMPONENT-001', label: '默认' },
       { id: 'COMPONENT-STATE-LOADING', scope: 'component', ownerId: 'COMPONENT-001', label: '加载' },
       { id: 'COMPONENT-STATE-SUCCESS', scope: 'component', ownerId: 'COMPONENT-001', label: '成功' },
@@ -1017,8 +1142,8 @@ export async function completeProductFixture(root) {
     events: [{ id: 'EVENT-001', name: 'submit-success', controlId: 'CONTROL-001' }, { id: 'EVENT-002', name: 'submit-error', controlId: 'CONTROL-002' }, { id: 'EVENT-003', name: 'return-retry', controlId: 'CONTROL-003' }],
     actions: [{ id: 'ACTION-001', name: 'request-success', eventId: 'EVENT-001', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-SUCCESS'] }, { id: 'ACTION-002', name: 'request-error', eventId: 'EVENT-002', resultingStateIds: ['COMPONENT-STATE-LOADING', 'COMPONENT-STATE-ERROR'] }, { id: 'ACTION-003', name: 'return-to-entry', eventId: 'EVENT-003', resultingStateIds: ['COMPONENT-STATE-DEFAULT'] }],
     scenarios: [
-      { id: 'SCENARIO-001', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-01'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS'], viewportIds: allViewportIds },
-      { id: 'SCENARIO-002', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR'], viewportIds: allViewportIds },
+      { id: 'SCENARIO-001', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-01'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-001'], expectedStateIds: ['COMPONENT-STATE-SUCCESS', 'INT-STATE-002'], viewportIds: allViewportIds },
+      { id: 'SCENARIO-002', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: [], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002'], expectedStateIds: ['COMPONENT-STATE-ERROR', 'INT-STATE-003'], viewportIds: allViewportIds },
       { id: 'SCENARIO-003', useCaseId: 'UC-001', interactionFlowIds: ['IF-001'], transitionIds: ['IF-001-TRANS-02'], recoveryStateIds: ['INT-STATE-001'], routeId: 'ROUTE-001', initialStateIds: ['INT-STATE-001', 'COMPONENT-STATE-DEFAULT'], eventIds: ['EVENT-002', 'EVENT-003'], expectedStateIds: ['COMPONENT-STATE-DEFAULT', 'INT-STATE-001'], viewportIds: allViewportIds },
     ],
     viewports: [{ id: 'VIEWPORT-MOBILE', width: 390, height: 844 }, { id: 'VIEWPORT-DESKTOP', width: 1440, height: 1000 }],
@@ -1069,7 +1194,10 @@ export async function completeProductFixture(root) {
   await writeFile(appPath, app
     .replaceAll('UC-NNN', 'UC-001')
     .replaceAll('INT-STATE-NNN', 'INT-STATE-001')
-    .replace('<h2>交互状态实验台</h2>', '<h2>交互状态实验台</h2>\n            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />'));
+    .replace(
+      '<h2><slot name="label">交互状态实验台</slot></h2>',
+      '<h2><slot name="label">交互状态实验台</slot></h2>\n            <img src="/assets/DESIGN-SOURCE-001/source.svg" alt="Fixture source" width="40" height="40" />',
+    ));
 
   await writeArtifact(capabilities);
   await writeArtifact(visualSpec);

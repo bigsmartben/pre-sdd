@@ -21,7 +21,7 @@ spec:
     - 对 UI HTML 页面结构或像素布局的约束
     - HTML、CSS、JavaScript 与生产实现细节
     - 系统、子系统或软件架构边界
-    - 独立 Wireflow 权威模型、投影、readiness 与 handoff
+    - 独立 Wireflow 权威模型、投影、readiness 与下游生命周期
   domainRules:
     - unique-identifiers
     - capability-actor-references

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { build, createServer } from 'vite';
-import { artifactCollectionMembers, artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactPaths, loadProject, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const require = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || process.env.PRE_SDD_RUNTIME_ENTRY || import.meta.url);
@@ -49,10 +49,10 @@ function dependencyRoot(specifier) {
 }
 
 async function prototypeRoots() {
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const stage = project.stages?.['product-design'];
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
-  if (!['active', 'published'].includes(stage?.status) && process.env.AI_HARNESS_INITIALIZING !== 'product-design') {
+  if (!['active', 'published'].includes(stage?.status) && process.env.PSP_STAGE_INITIALIZING !== 'product-design') {
     throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   }
   if (!paths?.area) throw Object.assign(new Error('项目未绑定 Canonical UI Prototype Area。'), { code: 'AIH_PROJECT_BINDING_INVALID' });

@@ -5,11 +5,12 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import {
   artifactCollectionMembers,
   artifactPaths,
-  loadProjectAndManifest,
+  artifactDefinition,
+  loadProject,
   readStructured,
   repositoryFile,
   repositoryRootFrom,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../runtime/project.mjs';
 import { extractCanonicalUi } from '../../product-design/canonical-ui-prototype/scripts/extract.mjs';
 
 export const MODEL_VERSION = '2.0.0';
@@ -108,10 +109,10 @@ async function exists(path) {
 
 export async function workspaceContext(actor, { allowMissingSuite = true } = {}) {
   const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   if (project.kind !== 'PSPProject') fail('AIH_PROJECT_BINDING_INVALID', 'MockCase 只能在生成工作区 PSPProject 中运行。');
   const stage = project.stages?.mockcase;
-  const registry = manifest.artifactRegistry?.find((item) => item.id === 'mockcase-suite' && item.domain === 'mockcase');
+  const registry = artifactDefinition(project, 'mockcase-suite', 'mockcase');
   const paths = artifactPaths(project, 'mockcase-suite', 'mockcase');
   if (!stage || !registry || !paths || paths.authorityKind !== 'area-set') {
     fail('AIH_PROJECT_BINDING_INVALID', '项目未完整绑定 mockcase Stage 与 mockcase-suite。');
@@ -155,7 +156,6 @@ export async function workspaceContext(actor, { allowMissingSuite = true } = {})
   return {
     root,
     project,
-    manifest,
     stage,
     registry,
     paths,
@@ -268,6 +268,7 @@ export function compileProjectionEffect(context, effect) {
     const source = { kind: 'state-matrix', axisId: axis.id, valueId: selected.id };
     if (axis.renderBinding.kind === 'workflow-state') continue;
     if (axis.renderBinding.kind === 'slot-text') {
+      if (selected.value === 'default') continue;
       fail('AIH_MOCKCASE_PROJECTION_UNSUPPORTED', '当前页 MockCase 不允许通过 Slot 修改正式 DOM：' + axis.id);
     }
     if (axis.renderBinding.kind === 'mapped-variant') {
@@ -313,6 +314,8 @@ export function compileProjectionEffect(context, effect) {
     targetInstanceId: effect.targetInstanceId,
     componentContractId: contract.id,
     stateMatrixEntryId: matrix.id,
+    behaviorIds: [...effect.behaviorIds].sort(),
+    activation: effect.activation,
     assignments: [...assignments.values()]
       .map((item) => ({ ...item, sources: item.sources.sort((left, right) => stableJson(left).localeCompare(stableJson(right))) }))
       .sort((left, right) => left.propertyName.localeCompare(right.propertyName)),
@@ -380,8 +383,14 @@ export async function validateSuiteData(
     caseIds.add(item.id);
     if (item.kind === 'business') scenarioIds.add(item.scenarioId);
     for (const effect of item.effects) {
-      if (effect.dataBindings.some((binding) => !behaviorIds.has(binding.behaviorId))) {
+      if (
+        effect.dataBindings.some((binding) => !behaviorIds.has(binding.behaviorId))
+        || effect.behaviorIds.some((behaviorId) => !behaviorIds.has(behaviorId))
+      ) {
         fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Effect Data Binding 引用不存在 Behavior：' + item.id);
+      }
+      if (effect.dataBindings.some((binding) => !effect.behaviorIds.includes(binding.behaviorId))) {
+        fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Data Binding 的 Behavior 必须由同一 Effect 激活：' + item.id);
       }
       if (requireCurrentReferences) {
         const route = context.canonicalUi.routes.find((entry) => entry.id === item.routeId);
@@ -397,13 +406,20 @@ export async function validateSuiteData(
         if (!contract || !matrix || matrix.componentContractId !== contract.id) {
           fail('AIH_MOCKCASE_TARGET_MISSING', 'Effect 目标实例或 State Matrix 引用无效：' + item.id);
         }
+        if (
+          effect.activation.controlId
+          && !context.canonicalUi.controls.some((control) =>
+            control.id === effect.activation.controlId && control.componentId === contract.componentId)
+        ) {
+          fail('AIH_MOCKCASE_TARGET_MISSING', 'Activation Control 不属于目标组件：' + effect.activation.controlId);
+        }
         compileProjectionEffect(context, effect);
       }
     }
   }
   for (const behaviorId of behaviorIds) {
     if (!context.mockcases.cases.some((item) =>
-      item.effects.some((effect) => effect.dataBindings.some((binding) => binding.behaviorId === behaviorId)))) {
+      item.effects.some((effect) => effect.behaviorIds.includes(behaviorId)))) {
       fail('AIH_MOCKCASE_CONTRACT_INVALID', 'Behavior 未被任何 Case 使用：' + behaviorId);
     }
   }
@@ -504,6 +520,8 @@ function generateCase(context, scenario, binding) {
         targetInstanceId: instance.id,
         stateMatrixEntryId: matrix.id,
         dataBindings: binding?.dataBindings ?? [],
+        behaviorIds: [...new Set((binding?.dataBindings ?? []).map((item) => item.behaviorId))].sort(),
+        activation: binding?.activation ?? { kind: 'request' },
       }],
       isDefault: false,
     },
@@ -542,6 +560,7 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
   const seed = await seedPacket(context, seedPath ?? argument('--mockdata', argv));
   const bindings = new Map(seed.bindings.map((item) => [item.scenarioId, {
     ...(item.stateMatrixEntryId ? { stateMatrixEntryId: item.stateMatrixEntryId } : {}),
+    ...(item.activation ? { activation: item.activation } : {}),
     dataBindings: [...item.dataBindings].sort((left, right) => stableJson(left).localeCompare(stableJson(right))),
   }]));
   if (bindings.size !== seed.bindings.length) fail('AIH_MOCKCASE_CONTRACT_INVALID', 'MockData Packet 的 Scenario Binding 必须唯一。');
@@ -559,6 +578,7 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
     if (!existing) continue;
     bindings.set(scenario.id, {
       stateMatrixEntryId: existing.effects[0]?.stateMatrixEntryId,
+      activation: existing.effects[0]?.activation,
       dataBindings: existing.effects.flatMap((effect) => effect.dataBindings)
         .sort((left, right) => stableJson(left).localeCompare(stableJson(right))),
     });
@@ -641,7 +661,7 @@ export async function buildCandidate(actor, { argv = process.argv, scope = null,
   const nextBehaviorsById = new Map(context.mockdata.behaviors.map((item) => [item.id, item]));
   for (const item of seed.behaviors) nextBehaviorsById.set(item.id, item);
   const referencedBehaviorIds = new Set(normalizedCases.flatMap((item) =>
-    item.effects.flatMap((effect) => effect.dataBindings.map((binding) => binding.behaviorId))));
+    item.effects.flatMap((effect) => effect.behaviorIds)));
   for (const id of nextBehaviorsById.keys()) {
     if (!referencedBehaviorIds.has(id)) nextBehaviorsById.delete(id);
   }

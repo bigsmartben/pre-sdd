@@ -67,6 +67,12 @@ export async function verifyMatrixMount({
   const preview = surface.locator(
     '[data-component-preview][data-component-contract-id="' + contract.id + '"][data-state-matrix-id="' + entry.id + '"]',
   );
+  try {
+    await preview.first().waitFor({ state: 'attached', timeout: 60000 });
+  } catch {
+    block(code, 'Matrix Mount 缺少唯一的隔离预览根：' + contract.id + ' / ' + entry.id, location);
+    return null;
+  }
   if (await preview.count() !== 1) {
     block(code, 'Matrix Mount 缺少唯一的隔离预览根：' + contract.id + ' / ' + entry.id, location);
     return null;
@@ -154,8 +160,10 @@ export async function verifyMatrixMount({
     if (axis.renderBinding.kind === 'lit-property') {
       const observed = await host.evaluate((node, name) => node[name], axis.renderBinding.name);
       if (comparable(observed) !== comparable(selected.renderValue)) {
-        block(code, 'Content Override 的 Lit Property 未实际渲染：' + entry.id + ' / ' + axis.renderBinding.name, location);
+        block(code, (axis.kind === 'variant' ? 'Variant' : 'Content Override') + ' 的 Lit Property 未实际渲染：' + entry.id + ' / ' + axis.renderBinding.name, location);
       } else if (
+        axis.kind === 'content-override'
+        &&
         ['string', 'number'].includes(typeof selected.renderValue)
         && !(await visibleComposedText(host)).includes(String(selected.renderValue))
       ) {
@@ -179,8 +187,10 @@ export async function verifyMatrixMount({
         || !attribute
         || comparable(observedProperty) !== comparable(expectedProperty)
       ) {
-        block(code, 'Content Override 的 Lit Attribute 未实际渲染：' + entry.id + ' / ' + axis.renderBinding.name, location);
+        block(code, (axis.kind === 'variant' ? 'Variant' : 'Content Override') + ' 的 Lit Attribute 未实际渲染：' + entry.id + ' / ' + axis.renderBinding.name, location);
       } else if (
+        axis.kind === 'content-override'
+        &&
         ['string', 'number'].includes(typeof selected.renderValue)
         && !(await visibleComposedText(host)).includes(String(selected.renderValue))
       ) {

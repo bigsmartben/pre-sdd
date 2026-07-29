@@ -16,6 +16,15 @@ type SelectionRect = {
   height: number;
 };
 
+type CaptureSnapshot = {
+  href: string;
+  scale: number;
+  scrollX: number;
+  scrollY: number;
+  viewportHeight: number;
+  viewportWidth: number;
+};
+
 type Marker = {
   id: number;
   pageKey: string;
@@ -111,18 +120,18 @@ class InconsistencyAnnotator extends HTMLElement {
   private readonly handlePointerDown = (event: PointerEvent): void => {
     if (!this.selecting || !this.captureLayer) return;
     this.captureLayer.setPointerCapture(event.pointerId);
-    this.dragStart = { x: event.clientX, y: event.clientY };
+    this.dragStart = this.pagePoint(event);
     this.updateDraftBox(this.dragStart, this.dragStart);
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
     if (!this.dragStart) return;
-    this.updateDraftBox(this.dragStart, { x: event.clientX, y: event.clientY });
+    this.updateDraftBox(this.dragStart, this.pagePoint(event));
   };
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
     if (!this.dragStart || !this.captureLayer) return;
-    const rect = this.normalizedRect(this.dragStart, { x: event.clientX, y: event.clientY });
+    const rect = this.normalizedRect(this.dragStart, this.pagePoint(event));
     this.captureLayer.releasePointerCapture(event.pointerId);
     this.dragStart = undefined;
     this.hideDraftBox();
@@ -132,13 +141,13 @@ class InconsistencyAnnotator extends HTMLElement {
       return;
     }
 
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
+    const centerX = rect.left + rect.width / 2 - window.scrollX;
+    const centerY = rect.top + rect.height / 2 - window.scrollY;
     const marker: Marker = {
       id: this.nextMarkerId,
       pageKey: this.currentPageKey,
-      pageX: rect.left + window.scrollX,
-      pageY: rect.top + window.scrollY,
+      pageX: rect.left,
+      pageY: rect.top,
       width: rect.width,
       height: rect.height,
       target: this.describeTarget(centerX, centerY),
@@ -216,15 +225,21 @@ class InconsistencyAnnotator extends HTMLElement {
     this.copyButton.textContent = '复制中…';
     this.setStatus('正在生成带标记的当前页面截图。');
 
-    const image = this.captureViewport(markers);
+    const snapshot = this.captureSnapshot();
+    const image = this.captureViewport(markers, snapshot);
     void image.catch(() => undefined);
     try {
-      const text = this.buildPlainText(markers);
+      const text = this.buildPlainText(markers, snapshot);
       const clipboardData = {
         'image/png': image,
         'text/plain': Promise.resolve(new Blob([text], { type: 'text/plain' })),
       };
-      await navigator.clipboard.write([new ClipboardItem(clipboardData)]);
+      try {
+        await navigator.clipboard.write([new ClipboardItem(clipboardData)]);
+      } catch (error: unknown) {
+        if (error instanceof DOMException && error.name === 'NotAllowedError') throw error;
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]);
+      }
 
       this.copyButton.textContent = '已复制';
       this.setStatus('已复制带标记截图，现在可以直接粘贴发送给 AI。');
@@ -253,7 +268,7 @@ class InconsistencyAnnotator extends HTMLElement {
     this.setStatus('正在生成带标记的 PNG 图片。');
 
     try {
-      const image = await this.captureViewport(markers);
+      const image = await this.captureViewport(markers, this.captureSnapshot());
       const href = URL.createObjectURL(image);
       const link = document.createElement('a');
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -527,9 +542,22 @@ class InconsistencyAnnotator extends HTMLElement {
     this.setStatus('可补充具体说明，然后选择这个框选区域的问题类型。');
   }
 
-  private async captureViewport(markers: Array<Marker & { type: IssueType }>): Promise<Blob> {
+  private captureSnapshot(): CaptureSnapshot {
+    return {
+      href: window.location.href,
+      scale: Math.min(Math.max(window.devicePixelRatio, 1), 2),
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  }
+
+  private async captureViewport(
+    markers: Array<Marker & { type: IssueType }>,
+    snapshot: CaptureSnapshot,
+  ): Promise<Blob> {
     const html2canvas = await this.loadScreenshotRenderer();
-    const scale = Math.min(Math.max(window.devicePixelRatio, 1), 2);
     const previousVisibility = this.style.visibility;
     this.style.visibility = 'hidden';
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
@@ -539,24 +567,24 @@ class InconsistencyAnnotator extends HTMLElement {
       screenshot = await html2canvas(document.documentElement, {
         allowTaint: false,
         backgroundColor: '#ffffff',
-        height: window.innerHeight,
+        height: snapshot.viewportHeight,
         ignoreElements: (element) => element.hasAttribute('data-review-tool'),
         logging: false,
-        scale,
-        scrollX: window.scrollX,
-        scrollY: window.scrollY,
+        scale: snapshot.scale,
+        scrollX: snapshot.scrollX,
+        scrollY: snapshot.scrollY,
         useCORS: true,
-        width: window.innerWidth,
-        windowHeight: window.innerHeight,
-        windowWidth: window.innerWidth,
-        x: window.scrollX,
-        y: window.scrollY,
+        width: snapshot.viewportWidth,
+        windowHeight: snapshot.viewportHeight,
+        windowWidth: snapshot.viewportWidth,
+        x: snapshot.scrollX,
+        y: snapshot.scrollY,
       });
     } finally {
       this.style.visibility = previousVisibility;
     }
 
-    const canvasScale = screenshot.width / window.innerWidth;
+    const canvasScale = screenshot.width / snapshot.viewportWidth;
     const legendHeight = 54 + markers.length * 24;
     const output = document.createElement('canvas');
     output.width = screenshot.width;
@@ -568,8 +596,8 @@ class InconsistencyAnnotator extends HTMLElement {
     context.fillRect(0, 0, output.width, output.height);
     context.drawImage(screenshot, 0, 0);
     context.scale(canvasScale, canvasScale);
-    this.drawMarkers(context, markers);
-    this.drawLegend(context, markers, legendHeight);
+    this.drawMarkers(context, markers, snapshot);
+    this.drawLegend(context, markers, legendHeight, snapshot);
 
     return await new Promise<Blob>((resolve, reject) => {
       output.toBlob(
@@ -579,14 +607,18 @@ class InconsistencyAnnotator extends HTMLElement {
     });
   }
 
-  private drawMarkers(context: CanvasRenderingContext2D, markers: Array<Marker & { type: IssueType }>): void {
+  private drawMarkers(
+    context: CanvasRenderingContext2D,
+    markers: Array<Marker & { type: IssueType }>,
+    snapshot: CaptureSnapshot,
+  ): void {
     context.lineWidth = 4;
     context.font = '800 14px "Microsoft YaHei", sans-serif';
     context.textBaseline = 'middle';
 
     for (const marker of markers) {
-      const left = marker.pageX - window.scrollX;
-      const top = marker.pageY - window.scrollY;
+      const left = marker.pageX - snapshot.scrollX;
+      const top = marker.pageY - snapshot.scrollY;
       context.fillStyle = 'rgba(229,72,77,.11)';
       context.fillRect(left, top, marker.width, marker.height);
       context.strokeStyle = '#e5484d';
@@ -607,18 +639,19 @@ class InconsistencyAnnotator extends HTMLElement {
     context: CanvasRenderingContext2D,
     markers: Array<Marker & { type: IssueType }>,
     legendHeight: number,
+    snapshot: CaptureSnapshot,
   ): void {
-    const top = window.innerHeight;
+    const top = snapshot.viewportHeight;
     context.fillStyle = '#202124';
-    context.fillRect(0, top, window.innerWidth, legendHeight);
+    context.fillRect(0, top, snapshot.viewportWidth, legendHeight);
     context.fillStyle = '#fff';
     context.font = '800 14px "Microsoft YaHei", sans-serif';
     context.textBaseline = 'top';
     context.fillText('不一致标记工具', 16, top + 10);
     context.fillStyle = '#c9cbd1';
     context.font = '12px "Microsoft YaHei", sans-serif';
-    const page = `${window.location.href} · ${window.innerWidth} × ${window.innerHeight}`;
-    context.fillText(this.truncateForCanvas(context, page, window.innerWidth - 32), 16, top + 31);
+    const page = `${snapshot.href} · ${snapshot.viewportWidth} × ${snapshot.viewportHeight}`;
+    context.fillText(this.truncateForCanvas(context, page, snapshot.viewportWidth - 32), 16, top + 31);
 
     markers.forEach((marker, index) => {
       const left = Math.round(marker.pageX);
@@ -628,18 +661,21 @@ class InconsistencyAnnotator extends HTMLElement {
       const line = `#${marker.id}  ${ISSUE_LABELS[marker.type]}  ·  ${FEEDBACK_ROUTING[marker.type].label}  ·  ${marker.target}  ·  x=${left}, y=${markerTop}, w=${width}, h=${height}`;
       context.fillStyle = '#fff';
       context.fillText(
-        this.truncateForCanvas(context, line, window.innerWidth - 32),
+        this.truncateForCanvas(context, line, snapshot.viewportWidth - 32),
         16,
         top + 54 + index * 24,
       );
     });
   }
 
-  private buildPlainText(markers: Array<Marker & { type: IssueType }>): string {
+  private buildPlainText(
+    markers: Array<Marker & { type: IssueType }>,
+    snapshot: CaptureSnapshot,
+  ): string {
     const heading = [
       '不一致标记工具',
-      `页面：${window.location.href}`,
-      `视口：${window.innerWidth} × ${window.innerHeight}`,
+      `页面：${snapshot.href}`,
+      `视口：${snapshot.viewportWidth} × ${snapshot.viewportHeight}`,
     ];
     const details = markers.map((marker) => [
       `#${marker.id} ${ISSUE_LABELS[marker.type]}`,
@@ -724,8 +760,8 @@ class InconsistencyAnnotator extends HTMLElement {
     const rect = this.normalizedRect(start, end);
     Object.assign(this.draftBox.style, {
       display: 'block',
-      left: `${rect.left}px`,
-      top: `${rect.top}px`,
+      left: `${rect.left - window.scrollX}px`,
+      top: `${rect.top - window.scrollY}px`,
       width: `${rect.width}px`,
       height: `${rect.height}px`,
     });
@@ -741,6 +777,13 @@ class InconsistencyAnnotator extends HTMLElement {
       top: Math.min(start.y, end.y),
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
+    };
+  }
+
+  private pagePoint(event: PointerEvent): Point {
+    return {
+      x: event.clientX + window.scrollX,
+      y: event.clientY + window.scrollY,
     };
   }
 

@@ -1,12 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { executeArtifactTransaction } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
-import { artifactPaths, readStructured } from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { executeArtifactTransaction } from '../../../runtime/artifact-transaction.mjs';
+import { artifactPaths, readStructured } from '../../../runtime/project.mjs';
 import { preparedArtifactOutputs } from './lib/rendering.mjs';
 import { migrateLegacyWireflowDirectory } from './lib/migrate-legacy-wireflow.mjs';
 
 await executeArtifactTransaction({
   stageId: 'product-design',
+  allowedArtifacts: ['capabilities', 'visual-spec'],
   async prepareCandidate({ root, project, artifactId, data, argumentValue }) {
     const legacyDirectory = argumentValue('--legacy-wireflow-input');
     if (legacyDirectory) {
@@ -61,7 +62,7 @@ await executeArtifactTransaction({
     }
     return data;
   },
-  prepareOutputs({ root, project, manifest, stageId, artifactId, data, members }) {
-    return preparedArtifactOutputs(root, project, manifest, stageId, artifactId, data, members);
+  prepareOutputs({ root, project, stageId, artifactId, data, members }) {
+    return preparedArtifactOutputs(root, project, stageId, artifactId, data, members);
   },
 });
