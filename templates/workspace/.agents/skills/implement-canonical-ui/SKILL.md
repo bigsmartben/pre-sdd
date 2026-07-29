@@ -9,14 +9,14 @@ description: 将已经登记的 Product Design 语义与视觉事实实现为工
 
 本技能拥有 Canonical UI Prototype 的正常实现：首次创建 HTML、CSS、Lit 组件与页面，以及产品事实或视觉事实更新后的规格驱动实现。它不拥有 Validator（校验器）判定后的 Repair（修复）事务，也不生成生产 Web、SwiftUI、Android 映射或下游代码生成规则。
 
-开始前必须加载 `$product-design` 和 `$apply-repository-harness`，按项目绑定确认：
+开始前必须加载 `$product-design`，按 `psp.project.yaml` 与领域契约确认：
 
 - Product Design 阶段允许修改，且上游 Atomic Use Cases（原子用例，含正式 Interaction Flow）与 Visual Spec 已经 ready、无 gap；
 - 用户已经确认主要运行环境；
 - `visualPolicy.mode` 是 `autonomous`、`guided` 或 `exact`，不是 `unresolved`；
 - Product Design 已经在 `canonical-ui.ts` 登记 Route、Screen、Component、Control、Event、Action、Scenario、State、Component Contract、来源和追溯等当前实现所需事实；Figma 来源还必须登记当前 Registration Packet、全部 Variant Definition、Instance Usage Coverage、State Axis Render Binding 和组件来源基线；
 - Product Design 已经用 Component Contract 的 `implementationRole`、`litTagName`、`pageInstances` 与 `implementationPaths` 明确组件、唯一应用外壳和实现所有权，并用 Token 的 `targetIds` 与 `cssProperty` 明确样式绑定；实现者不得自行改写这组上游决定；
-- Resolver（解析器）允许目标实现路径写入。
+- 目标路径属于 Component Contract 登记的 `implementationPaths`。
 
 任何条件返回 `BLOCKED` 时停止对应写入并保留原始 blocker code（阻断码）。`unresolved` 必须以 `AIH_VISUAL_POLICY_UNRESOLVED` 停止，不得先写一个猜测版本。
 
@@ -62,7 +62,7 @@ description: 将已经登记的 Product Design 语义与视觉事实实现为工
    - 对 `exact` 模式中由 Figma 覆盖的实现路径，CSS 只允许尺寸、位置、Flex/Grid、间距、层级、溢出和文字排版；禁止背景、非透明边框、阴影、渐变、滤镜、遮罩、CSS 图形及带视觉内容的 `::before/::after`。`background:none`、`border:0` 等中性重置允许。
    - 修改必须落在能正确拥有该变化的最低层：跨页面共用行为修改组件，跨页面骨架修改 Shell 或 Layout Primitive，单页排布修改页面组合，实例差异只修改 Property、Attribute、Slot 或数据。
    - 完成 Contract 与 State Matrix 声明的默认、加载、成功、失败、空、禁用等合法状态，并实现 `stateAxisCoverage` 中全部 `modeled` 轴；不得为 `not-applicable` 轴制造平行接口。
-   - Matrix Mount 只负责把声明输入送入 Lit Host，不得把 Host 上由 Harness 写入的 Attribute 或 State Marker 当成组件输出。Variant 必须同时进入登记的 Lit Property 与 Attribute；Runtime State 必须由组件内部可见节点呈现；Content Override 必须形成可观察内容。
+   - Matrix Mount 只负责把声明输入送入 Lit Host，不得把 Host 上由测试驱动器写入的 Attribute 或 State Marker 当成组件输出。Variant 必须同时进入登记的 Lit Property 与 Attribute；Runtime State 必须由组件内部可见节点呈现；Content Override 必须形成可观察内容。
    - Boolean Attribute 按 Lit presence semantics（存在语义）实现：`true` 写空 Attribute，`false` 移除 Attribute，不得写成字符串 `"false"`。Slot 内容必须分配到组件 Shadow DOM 中同名且可见的 `<slot>`，不能只把带 `slot` 属性的孤立 Light DOM 节点挂到 Host。
    - 非 Figma 组件不要求 `mappingId`、Figma Instance 身份或 Figma Variant；不得为了通过 Figma 专用检查伪造这些字段。
    - Figma `shared-component` 先消费 Registration Handshake 的来源事实，再逐项消费 Product Design Mapping 登记的 Lit Tag、Property、Attribute、Slot、Event 与全部已定义 Variant；`primitive-only` 只复用低层结构，`local-structure` 留在页面组合中。
@@ -91,14 +91,14 @@ description: 将已经登记的 Product Design 语义与视觉事实实现为工
    - Figma 覆盖区域不得用背景、边框、阴影、渐变、滤镜、遮罩、伪元素、内联 SVG、Canvas 或多层 DOM 图形替代来源视觉；CSS 只负责布局与文字排版。
 
 7. **交付临时预览**
-   - 页面和已确认交互达到可运行状态后，立即按 `$product-design` 调用 Manifest 登记的 `canonical-ui-dev` Preview Operation（预览操作）。
+   - 页面和已确认交互达到可运行状态后，立即按 `$product-design` 调用其本地 `canonical-ui-dev` 预览脚本。
    - 读取命令实际输出的 HTTP 地址，请求确认可访问后把可点击地址提供给用户；不得猜测默认端口。
-   - 命令输出 `?review=0` 正式产品预览地址；这里只是临时预览入口，不产生正式 Review Evidence，也不得等待 Repair、Product strict Profile 或正式 readiness 全部通过。
+   - 命令输出 `?review=0` 正式产品预览地址；这里只是临时预览入口，不产生正式 Review Evidence，也不得等待 Repair 或全部严格检查通过。
    - `canonical-ui.ts.reviewTools` 声明的不一致标记、UI Case 切换器和交互分支驱动器都不属于下游产品实现范围；本技能不得修改、复制或把它们登记成产品页面、控件或功能。
    - 地址交付后停止在实现职责边界；由 `$product-design` 等待、校验并路由 Feedback Packet，不在本技能内开始反馈、Review 或 Publish 生命周期。
 
 8. **执行验证并停止在责任边界**
-   - 地址交付后执行 Resolver 返回的全部命令，并运行当前模式已登记的类型、构建、运行、组件、路由、场景、Asset 与来源一致性门禁。
+   - 地址交付后运行本 Skill 与 `$product-design` 声明的类型、构建、运行、组件、路由、场景、Asset 与来源一致性检查。
    - `autonomous` 不执行来源比较；`guided` 只比较声明的方面和覆盖范围；`exact` 比较全部确认范围。
    - Figma 页面额外验证每个映射 Instance 只出现一次，并使用声明的 Lit Tag、Component ID、Instance ID、Variant Attribute 与 Slot；缺标记、错误 Tag、孤立 Marker 或 Host 外 Control/State 统一以 `AIH_COMPONENT_IMPLEMENTATION_MISMATCH` 返回。
    - 对每条合法 Matrix Entry 验证全部 Variant Attribute 与对应 Lit Property、组件内部呈现且同轴互斥的 Runtime State、正式 Scenario 中可观察的 Interaction State，以及形成可见内容的 Property、Attribute 或已分配 Slot；Exact 模式对每个 Figma Page Instance × Viewport × 合法 Matrix Entry 使用唯一组件基线比较隔离 Lit Host。

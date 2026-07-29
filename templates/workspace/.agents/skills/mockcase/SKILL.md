@@ -1,13 +1,13 @@
 ---
 name: mockcase
-description: 在生成工作区中分析、生成、初始化、应用、评审和验证独立 MockCase Suite。用户显式要求 MockCase，或确认 canonical-ui-prototype 到 mockcase 的 Handoff 后使用；不属于 Product Design 主流程。
+description: 在生成工作区中分析、生成、初始化、应用、评审和验证独立 MockCase Suite。仅在用户显式要求 MockCase 时使用；不属于 Product Design 主流程。
 ---
 
 # MockCase
 
 ## 责任边界
 
-- 只读取当前工作区的 Use Cases、Canonical UI 和可选 Handoff Receipt；不得修改这些上游产物。
+- 只读取当前工作区的 Use Cases 与 Canonical UI；不得修改这些上游产物，也不读取或创建跨领域移交收据。
 - `mockdata.json` 只拥有 Fixture 与可追溯的请求响应行为事实；`mockcases.json` 只拥有场景编排、State Matrix 引用和 Fixture → 公开 Lit Property 的 Data Binding（数据绑定）。
 - Schema 决定 JSON 结构，Validator 决定跨文件引用、覆盖与生命周期；JSON Suite 固定位于 `MockCase/.psp/models/actors/ACTOR-NNN/`，是隐藏 Internal Model Set（内部模型集合），不是用户交付物。
 - Analyze 与 Generate 只读，可在 `mockcase` 未初始化时运行。上游事实不足时返回 `AIH_MOCKCASE_UPSTREAM_GAP`，不得猜测。
@@ -24,7 +24,7 @@ description: 在生成工作区中分析、生成、初始化、应用、评审�
 
 ## 工作流
 
-1. 读取 `.psp/harness/HARNESS.md`、`psp.project.yaml` 和 Manifest，确认 `PSPProject` 与 `mockcase` 注册。
+1. 读取 `.psp/harness/HARNESS.md` 与 `psp.project.yaml`，确认这是当前生成工作区并已绑定 `mockcase`。
 2. 只读分析：
 
    ```text
@@ -38,10 +38,10 @@ description: 在生成工作区中分析、生成、初始化、应用、评审�
    ```
 
 4. 报告 `mockDataChanges`、`mockCaseChanges`、覆盖差量、`inputLock` 和 `candidateHash`。只读请求到此停止；端到端请求不暂停等待重复确认。
-5. `mockcase` 为 `uninitialized` 时自动初始化并继续；已经是 `active` 时跳过。Receipt 可选且只作为来源证明：
+5. `mockcase` 为 `uninitialized` 时自动初始化并继续；已经是 `active` 时跳过。不得请求或消费旧的跨领域移交收据：
 
    ```text
-   npm run init:mockcase -- --actor ACTOR-001 [--receipt <receipt.json>] --json
+   npm run init:mockcase -- --actor ACTOR-001 --json
    ```
 
 6. 将 Candidate 保存到操作系统临时目录并应用：

@@ -7,12 +7,13 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { parse as parseYaml } from 'yaml';
 import {
   artifactCollectionMembers,
+  artifactDefinition,
   artifactMemberPath,
   artifactPaths,
-  loadProjectAndManifest,
+  loadProject,
   repositoryFile,
   repositoryRootFrom,
-} from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../../runtime/project.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
@@ -22,6 +23,24 @@ const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
 const sessionIndex = process.argv.indexOf('--session');
 const requestedSession = sessionIndex >= 0 ? process.argv[sessionIndex + 1] : null;
 const newSession = process.argv.includes('--new-session');
+const REPAIR_ACTION = {
+  prerequisiteCommands: ['canonical-ui-input'],
+  repairCommands: ['canonical-ui-runtime', 'canonical-ui-contract-tests'],
+};
+const REPAIR_CHECKS = {
+  'canonical-ui-input': {
+    path: '.agents/skills/product-design/canonical-ui-prototype/scripts/validate-input.mjs',
+    args: [],
+  },
+  'canonical-ui-runtime': {
+    path: '.agents/skills/product-design/canonical-ui-prototype/scripts/validate-runtime.mjs',
+    args: [],
+  },
+  'canonical-ui-contract-tests': {
+    path: '.agents/skills/product-design/canonical-ui-prototype/scripts/test-components.mjs',
+    args: [],
+  },
+};
 
 async function readState(path) {
   try {
@@ -36,8 +55,8 @@ function fail(code, message) {
   throw Object.assign(new Error(message), { code });
 }
 
-async function loadRepairContract(manifest) {
-  const artifact = manifest.artifactRegistry?.find((item) => item.id === 'canonical-ui-prototype');
+async function loadRepairContract(project) {
+  const artifact = artifactDefinition(project, 'canonical-ui-prototype', 'product-design');
   if (!artifact?.contract) fail('AIH_CONTRACT_INVALID', 'Canonical UI Prototype 未登记 Artifact Contract。');
   const contract = parseYaml(await readFile(repositoryFile(root, artifact.contract), 'utf8'));
   const repair = contract?.spec?.repair;
@@ -51,20 +70,6 @@ async function loadRepairContract(manifest) {
     fail('AIH_CONTRACT_INVALID', 'Canonical UI Artifact Contract 缺少单次 Agent 修复契约。');
   }
   return repair;
-}
-
-function repairOperation(manifest) {
-  const operation = manifest.operations?.find((item) => item.id === 'canonical-ui-repair' && item.kind === 'repair');
-  if (
-    !operation
-    || !Array.isArray(operation.prerequisiteCommands)
-    || operation.prerequisiteCommands.length === 0
-    || !Array.isArray(operation.repairCommands)
-    || operation.repairCommands.length === 0
-  ) {
-    fail('AIH_CONTRACT_INVALID', 'Manifest 未登记 canonical-ui-repair 的统一门禁。');
-  }
-  return operation;
 }
 
 function parseGateOutput(execution, commandId) {
@@ -85,9 +90,9 @@ function parseGateOutput(execution, commandId) {
   }
 }
 
-function runGate(manifest, commandId, actor) {
-  const command = manifest.commands.find((item) => item.id === commandId);
-  if (!command || command.executor?.kind !== 'module') {
+function runGate(commandId, actor) {
+  const command = REPAIR_CHECKS[commandId];
+  if (!command) {
     return {
       gateId: commandId,
       status: 'BLOCKED',
@@ -97,20 +102,20 @@ function runGate(manifest, commandId, actor) {
   }
   const execution = spawnSync(
     process.execPath,
-    [repositoryFile(root, command.executor.path), ...(command.executor.args || []), '--actor', actor, '--json'],
+    [repositoryFile(root, command.path), ...command.args, '--actor', actor, '--json'],
     {
       cwd: root,
-      env: process.env,
+      env: { ...process.env, PSP_REPOSITORY_ROOT: root },
       encoding: 'utf8',
       windowsHide: true,
-      timeout: command.timeoutMs || 600_000,
+      timeout: 600_000,
     },
   );
   return parseGateOutput(execution, commandId);
 }
 
-function runGates(manifest, commandIds, actor) {
-  return commandIds.map((commandId) => runGate(manifest, commandId, actor));
+function runGates(commandIds, actor) {
+  return commandIds.map((commandId) => runGate(commandId, actor));
 }
 
 function blockersFrom(gates) {
@@ -166,7 +171,7 @@ function emit(result, code = null) {
 }
 
 async function main() {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const stage = project.stages?.['product-design'];
   if (stage?.status === 'published') fail('AIH_STAGE_LOCKED', '产品设计阶段已经发布并锁定；Repair 前必须先执行 Reopen。');
@@ -181,11 +186,11 @@ async function main() {
 
   const authorityPath = artifactMemberPath(paths, actor);
   const model = await extractCanonicalUi(root, authorityPath);
-  const repair = await loadRepairContract(manifest);
+  const repair = await loadRepairContract(project);
   if (!repair.allowedVisualModes.includes(model.visualPolicy.mode)) {
     fail('AIH_VISUAL_POLICY_UNRESOLVED', 'Canonical UI 修复只支持 autonomous、guided 或 exact 已解析模式。');
   }
-  const operation = repairOperation(manifest);
+  const operation = REPAIR_ACTION;
 
   const rootKey = Buffer.from(root + ':' + actor).toString('base64url');
   const sessionRoot = resolve(tmpdir(), 'psp-canonical-ui-repair-' + rootKey);
@@ -205,7 +210,7 @@ async function main() {
     fail('AIH_UI_REPAIR_SESSION_INVALID', 'Repair Session 缺失、过期、已终止或与当前 Actor 不一致。');
   }
 
-  const prerequisites = runGates(manifest, operation.prerequisiteCommands, actor);
+  const prerequisites = runGates(operation.prerequisiteCommands, actor);
   const prerequisiteBlockers = blockersFrom(prerequisites);
   if (prerequisiteBlockers.length > 0 || prerequisites.some((gate) => gate.status !== 'PASS')) {
     const code = prerequisiteBlockers[0]?.code || 'AIH_VALIDATION_FAILED';
@@ -213,7 +218,7 @@ async function main() {
     return 1;
   }
 
-  const gates = runGates(manifest, operation.repairCommands, actor);
+  const gates = runGates(operation.repairCommands, actor);
   const allPass = gates.every((gate) => gate.status === 'PASS');
   if (allPass) {
     if (requestedSession) {

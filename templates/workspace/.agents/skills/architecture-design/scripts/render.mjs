@@ -3,7 +3,7 @@ import {
   writeExpectedOutputs,
 } from './lib/rendering.mjs';
 import { resolve } from 'node:path';
-import { loadProjectAndManifest, repositoryRootFrom } from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { loadProject, repositoryRootFrom } from '../../../runtime/project.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
 const stageId = 'architecture-design';
@@ -12,9 +12,9 @@ const json = process.argv.includes('--json');
 let result;
 
 try {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const stage = project.stages?.[stageId];
-  const initializing = process.env.AI_HARNESS_INITIALIZING === stageId;
+  const initializing = process.env.PSP_STAGE_INITIALIZING === stageId;
   if (stage?.status === 'uninitialized' && !initializing) {
     result = check
       ? {
@@ -34,7 +34,7 @@ try {
         state: 'uninitialized',
         blockers: [{
           code: 'AIH_STAGE_UNINITIALIZED',
-          message: '架构设计尚未初始化；产品严格门禁通过后显式运行 npm run init:architecture。',
+          message: '架构设计尚未初始化；请先通过 Architecture Design Skill 独立开始该阶段。',
         }],
       };
   } else if (stage?.status !== 'active' && !initializing) {
@@ -47,7 +47,7 @@ try {
       }],
     };
   } else if (check) {
-    const drift = await outputDrift(root, project, manifest, stageId);
+    const drift = await outputDrift(root, project, stageId);
     result = {
       status: drift.length === 0 ? 'PASS' : 'BLOCKED',
       mode: 'check',
@@ -63,11 +63,11 @@ try {
       mode: 'render',
       blockers: [{
         code: 'AIH_COMMAND_INVALID',
-        message: '日常架构产物更新必须使用 Manifest 登记的 apply-architecture-artifact 事务；render:architecture 只供阶段初始化使用。',
+        message: '日常架构产物更新必须使用 Architecture Design Skill 的受控写入；渲染器只供领域动作调用。',
       }],
     };
   } else {
-    const outputs = await writeExpectedOutputs(root, project, manifest, stageId);
+    const outputs = await writeExpectedOutputs(root, project, stageId);
     result = {
       status: 'PASS',
       mode: 'render',

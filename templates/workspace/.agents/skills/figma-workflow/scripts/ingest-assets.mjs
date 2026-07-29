@@ -6,11 +6,12 @@ import { tmpdir } from 'node:os';
 import { dirname, extname, resolve, sep } from 'node:path';
 import {
   artifactPaths,
-  loadProjectAndManifest,
+  artifactDefinition,
+  loadProject,
   readJson,
   repositoryFile,
   repositoryRootFrom,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../runtime/project.mjs';
 import {
   createSchemaValidatorCache,
   same,
@@ -167,7 +168,7 @@ function validateHandshake(plan, context, registration, evidence) {
 }
 
 async function loadArea(actor) {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   if (project.stages?.['product-design']?.status !== 'active') {
     block('AIH_STAGE_UNINITIALIZED', 'Figma Asset Operation 只允许在 active Product Design 阶段执行。', 'product-design');
   }
@@ -178,7 +179,7 @@ async function loadArea(actor) {
   } catch {
     block('AIH_ASSET_CLOSURE_FAILED', 'Canonical UI 参与者 Area 不存在：' + actor, paths.authorityRoot);
   }
-  const artifact = manifest.artifactRegistry.find((item) => item.id === 'canonical-ui-prototype');
+  const artifact = artifactDefinition(project, 'canonical-ui-prototype', 'product-design');
   if (!artifact || artifact.authorityKind !== 'area-set') {
     block('AIH_ASSET_CLOSURE_FAILED', 'Canonical UI Artifact 未绑定 area-set。', 'canonical-ui-prototype');
   }

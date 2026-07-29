@@ -369,7 +369,6 @@ async function runRegistration(mutator = () => {}) {
   const area = resolve(workspace, '01-product-design/Canonical-UI-Prototypes/ACTOR-001');
   const source = resolve(area, 'design-sources/DESIGN-SOURCE-001');
   await Promise.all([
-    mkdir(resolve(workspace, '.psp/harness'), { recursive: true }),
     mkdir(resolve(workspace, '.agents/skills/figma-workflow'), { recursive: true }),
     mkdir(resolve(workspace, '.agents/skills/product-design/canonical-ui-prototype'), { recursive: true }),
     mkdir(resolve(area, 'public/assets/DESIGN-SOURCE-001'), { recursive: true }),
@@ -379,7 +378,6 @@ async function runRegistration(mutator = () => {}) {
   project.stages['product-design'].status = 'active';
   await Promise.all([
     writeFile(resolve(workspace, 'psp.project.yaml'), stringifyYaml(project)),
-    copyFile(resolve(repositoryRoot, '.psp/harness/harness.manifest.json'), resolve(workspace, '.psp/harness/harness.manifest.json')),
     ...['capture-plan.schema.json', 'figma-design-context.schema.json', 'ingest-receipt.schema.json', 'source-registration.schema.json']
       .map((name) => copyFile(resolve(skillRoot, name), resolve(workspace, '.agents/skills/figma-workflow', name))),
     copyFile(

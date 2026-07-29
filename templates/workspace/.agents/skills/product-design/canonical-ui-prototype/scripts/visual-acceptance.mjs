@@ -3,7 +3,7 @@ import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { artifactCollectionMembers, artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactPaths, loadProject, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import { canonicalLocks, inputLocks, reviewEvidenceDirectory, sha256 } from './integrity.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
@@ -33,10 +33,10 @@ async function acceptanceModels(root, project) {
   return result;
 }
 
-async function snapshot(root, project, manifest) {
+async function snapshot(root, project) {
   const [actors, inputs, models, review] = await Promise.all([
     canonicalLocks(root, project),
-    inputLocks(root, project, manifest),
+    inputLocks(root, project),
     acceptanceModels(root, project),
     readReview(root),
   ]);
@@ -96,7 +96,7 @@ export function visualAcceptanceRecordPath(root) {
   return repositoryFile(root, recordPath);
 }
 
-export async function verifyVisualAcceptance(root, project, manifest, options = {}) {
+export async function verifyVisualAcceptance(root, project, options = {}) {
   const models = await acceptanceModels(root, project);
   if (!models.some(({ model }) => model.visualPolicy.mode === 'exact')) return [];
   const path = visualAcceptanceRecordPath(root);
@@ -104,7 +104,7 @@ export async function verifyVisualAcceptance(root, project, manifest, options = 
     if (!await exists(path)) throw Object.assign(new Error('exact 模式缺少 Human Visual Acceptance。'), { code: 'AIH_HUMAN_VISUAL_ACCEPTANCE_REQUIRED' });
     const record = JSON.parse(await readFile(path, 'utf8'));
     await validateRecord(root, record);
-    const current = await snapshot(root, project, manifest);
+    const current = await snapshot(root, project);
     const stale = record.status !== 'accepted' || ['sourceVersion', 'implementationHash', 'scopeHash', 'reviewEvidenceHash'].some((key) => record[key] !== current[key]);
     if (stale) {
       if (options.markStale && record.status !== 'stale') {
@@ -131,14 +131,14 @@ export async function verifyVisualAcceptance(root, project, manifest, options = 
 }
 
 async function accept(root) {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   if (project.stages?.['product-design']?.status !== 'active') throw Object.assign(new Error('只有 active Product Design 可记录视觉接受。'), { code: 'AIH_STAGE_LOCKED' });
   const acceptedBy = argument('accepted-by');
   const confirmation = argument('confirm');
   if (!acceptedBy?.startsWith('user:') || confirmation !== 'HUMAN_VISUAL_ACCEPTED') {
     throw Object.assign(new Error('必须由用户显式提供 --accepted-by user:<identity> --confirm HUMAN_VISUAL_ACCEPTED；Agent 不得代填。'), { code: 'AIH_HUMAN_VISUAL_ACCEPTANCE_REQUIRED' });
   }
-  const current = await snapshot(root, project, manifest);
+  const current = await snapshot(root, project);
   if (current.coverage.length === 0) return { status: 'PASS', mode: 'not-required', acceptance: 'NOT_REQUIRED' };
   const record = {
     version: '1.0.0',

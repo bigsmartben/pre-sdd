@@ -4,7 +4,7 @@ import {
 } from './lib/rendering.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { loadProject, repositoryFile, repositoryRootFrom } from '../../../runtime/project.mjs';
 import { canonicalExpectedOutputs, canonicalOutputDrift } from '../canonical-ui-prototype/scripts/project.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
@@ -14,9 +14,9 @@ const json = process.argv.includes('--json');
 let result;
 
 try {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const productStage = project.stages?.['product-design'];
-  if (productStage?.status === 'uninitialized' && process.env.AI_HARNESS_INITIALIZING !== stageId) {
+  if (productStage?.status === 'uninitialized' && process.env.PSP_STAGE_INITIALIZING !== stageId) {
     result = check
       ? {
         status: 'PASS',
@@ -35,13 +35,13 @@ try {
         state: 'uninitialized',
         blockers: [{
           code: 'AIH_STAGE_UNINITIALIZED',
-          message: '产品设计尚未初始化；请显式运行 npm run init:product。',
+          message: '产品设计尚未初始化；请先通过 Product Design Skill 开始该阶段。',
         }],
       };
   } else if (check) {
     const drift = [
-      ...await outputDrift(root, project, manifest, stageId),
-      ...await canonicalOutputDrift(root, project, manifest),
+      ...await outputDrift(root, project, stageId),
+      ...await canonicalOutputDrift(root, project),
     ];
     result = {
       status: drift.length === 0 ? 'PASS' : 'BLOCKED',
@@ -52,19 +52,19 @@ try {
         message: 'output 与内部模型不一致：' + item.internalModel,
       })),
     };
-  } else if (process.env.AI_HARNESS_INITIALIZING !== stageId && process.env.NODE_ENV !== 'test') {
+  } else if (process.env.PSP_STAGE_INITIALIZING !== stageId && process.env.NODE_ENV !== 'test') {
     result = {
       status: 'BLOCKED',
       mode: 'render',
       blockers: [{
         code: 'AIH_COMMAND_INVALID',
-        message: '日常产品产物更新必须使用 Manifest 登记的 apply-product-artifact 事务；render:product 只供阶段初始化使用。',
+        message: '日常产品产物更新必须使用 Product Design Skill 的受控写入；渲染器只供领域动作调用。',
       }],
     };
   } else {
     const outputs = [
-      ...await writeExpectedOutputs(root, project, manifest, stageId),
-      ...await canonicalExpectedOutputs(root, project, manifest),
+      ...await writeExpectedOutputs(root, project, stageId),
+      ...await canonicalExpectedOutputs(root, project),
     ];
     for (const output of outputs.filter((item) => item.authorityPath)) {
       const absolute = repositoryFile(root, output.output);

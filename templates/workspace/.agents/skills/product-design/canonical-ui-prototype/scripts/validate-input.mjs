@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
-import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readJson, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactDefinition, artifactMemberPath, artifactPaths, loadProject, readJson, readStructured, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import {
   createSchemaValidatorCache,
   validateFigmaAssetClosure,
@@ -20,7 +20,7 @@ const actorIndex = process.argv.indexOf('--actor');
 const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
 
 if (!requestedActor) {
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const members = await artifactCollectionMembers(root, paths);
   const childBlockers = [];
@@ -127,13 +127,13 @@ function scopeScreenId(screenBindings, figmaRootNodeId) {
 }
 
 try {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const stage = project.stages?.['product-design'];
   if (!['active', 'published'].includes(stage?.status)) throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   const upstreamFacts = {};
   const upstreamModels = {};
   for (const artifactId of ['capabilities', 'visual-spec']) {
-    const registry = manifest.artifactRegistry.find((item) => item.id === artifactId);
+    const registry = artifactDefinition(project, artifactId, 'product-design');
     const paths = artifactPaths(project, artifactId, 'product-design');
     const authorityPath = paths.authorityPath;
     const model = await readStructured(root, authorityPath, registry.format);

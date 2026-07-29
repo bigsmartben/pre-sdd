@@ -63,4 +63,4 @@ Product Design 提供 `sourceId`、业务 Screen、预期 Page、State、Variant
 - Step 4 开始后禁止任何 Figma 写回。发现仍需编辑时废弃 Capture Plan、证据和候选 Registration Packet。
 - 连接器、权限、节点或可比较版本不可用时，保留原始 blocker code，不猜测、补写或伪造证据。
 
-Step 5 的 Figma-only Registration Packet 及其引用产物是本技能的最终输出。正式就绪、Review、Repair、Publish 和 Handoff 不属于本技能。
+Step 5 的 Figma-only Registration Packet 及其引用产物是本技能的最终输出。正式就绪、Review、Repair、Publish 和下游执行不属于本技能。

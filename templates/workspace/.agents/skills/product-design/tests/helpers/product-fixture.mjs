@@ -50,7 +50,7 @@ function confirmationSha256(confirmation) {
 }
 
 export async function completeProductFixture(root) {
-  const initialization = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+  const initialization = runScript('.agents/skills/product-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(initialization.exitCode, 0, JSON.stringify(initialization.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];

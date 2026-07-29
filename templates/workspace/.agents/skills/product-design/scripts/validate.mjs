@@ -4,16 +4,15 @@ import { resolve } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import {
   artifactCollectionMembers,
+  artifactDefinitions,
   artifactPaths,
-  loadProjectAndManifest,
+  loadProject,
   readJson,
   readStructured,
   repositoryFile,
   repositoryRootFrom,
   stageHasUserFiles,
-  workspaceRootMarker,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
-import { collectDependencyArtifactIds } from '../../../../.psp/harness/scripts/lib/project-dag.mjs';
+} from '../../../runtime/project.mjs';
 import { outputDrift } from './lib/rendering.mjs';
 import { extractCanonicalUi } from '../canonical-ui-prototype/scripts/extract.mjs';
 import { canonicalOutputDrift } from '../canonical-ui-prototype/scripts/project.mjs';
@@ -29,6 +28,15 @@ const json = process.argv.includes('--json');
 const validSteps = new Set(['use-cases', 'visual-spec', 'canonical-ui-prototype']);
 const blockers = [];
 const warnings = [];
+
+function selectedProductArtifacts(step) {
+  const dependencies = {
+    'use-cases': ['capabilities'],
+    'visual-spec': ['capabilities', 'visual-spec'],
+    'canonical-ui-prototype': ['capabilities', 'visual-spec', 'canonical-ui-prototype'],
+  };
+  return new Set(dependencies[step] || []);
+}
 
 function block(code, message, location) {
   blockers.push({ code, message, ...(location ? { location } : {}) });
@@ -551,23 +559,23 @@ function validateAtomicUseCases(capabilities, base) {
 if (strict && !validSteps.has(readinessStep)) block('AIH_COMMAND_INVALID', '未知产品步骤：' + readinessStep, 'step');
 
 try {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const stage = project.stages?.['product-design'];
-  const initializing = process.env.AI_HARNESS_INITIALIZING === 'product-design';
+  const initializing = process.env.PSP_STAGE_INITIALIZING === 'product-design';
   if (!stage) throw Object.assign(new Error('项目未绑定 product-design。'), { code: 'AIH_PROJECT_BINDING_INVALID' });
-  for (const item of await verifyPublishedProduct(root, project, manifest)) block(item.code, item.message, stage.publication?.receipt);
+  for (const item of await verifyPublishedProduct(root, project)) block(item.code, item.message, stage.publication?.receipt);
   if (stage.status === 'uninitialized' && !initializing) {
-    const partial = await stageHasUserFiles(root, stage.root, [workspaceRootMarker(manifest)].filter(Boolean));
+    const partial = await stageHasUserFiles(root, stage.root, ['.gitkeep']);
     if (partial) block('AIH_PARTIAL_INITIALIZATION', 'uninitialized 产品阶段包含用户文件。', stage.root);
     else if (strict) block('AIH_STAGE_UNINITIALIZED', '产品设计阶段尚未初始化。', stage.root);
     else warn('AIH_STAGE_UNINITIALIZED', '产品设计阶段尚未初始化，当前只验证空骨架。', stage.root);
   } else {
     const selected = strict
-      ? new Set(collectDependencyArtifactIds(manifest, readinessStep))
-      : new Set(manifest.artifactRegistry.filter((item) => item.stage === 'product-design').map((item) => item.id));
+      ? selectedProductArtifacts(readinessStep)
+      : new Set(artifactDefinitions(project, 'product-design').map((item) => item.id));
     const models = new Map();
     const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-    for (const registry of manifest.artifactRegistry.filter((item) => item.stage === 'product-design')) {
+    for (const registry of artifactDefinitions(project, 'product-design')) {
       if (strict && !selected.has(registry.id)) continue;
       const paths = artifactPaths(project, registry.id, registry.stage);
       if (!paths) {
@@ -959,8 +967,8 @@ try {
 
     try {
       const drift = [
-        ...await outputDrift(root, project, manifest, 'product-design', [...selected].filter((id) => id !== 'canonical-ui-prototype')),
-        ...(selected.has('canonical-ui-prototype') ? await canonicalOutputDrift(root, project, manifest) : []),
+        ...await outputDrift(root, project, 'product-design', [...selected].filter((id) => id !== 'canonical-ui-prototype')),
+        ...(selected.has('canonical-ui-prototype') ? await canonicalOutputDrift(root, project) : []),
       ];
       for (const item of drift) block('AIH_GENERATED_DRIFT', '投影与权威入口不一致。', item.output);
     } catch (error) {

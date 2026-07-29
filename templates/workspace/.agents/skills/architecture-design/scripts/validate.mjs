@@ -5,16 +5,15 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { parse as parseYaml } from 'yaml';
 import { outputDrift } from './lib/rendering.mjs';
 import {
+  artifactDefinitions,
   artifactPaths,
   joinRepositoryPath,
-  loadProjectAndManifest,
+  loadProject,
   readJson,
   repositoryFile,
   repositoryRootFrom,
   stageHasUserFiles,
-  workspaceRootMarker,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
-import { collectDependencyArtifactIds } from '../../../../.psp/harness/scripts/lib/project-dag.mjs';
+} from '../../../runtime/project.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
 const stageId = 'architecture-design';
@@ -26,6 +25,16 @@ const json = process.argv.includes('--json');
 const blockers = [];
 const warnings = [];
 const readinessSteps = new Set(['architecture-package', 'system-boundary', 'conceptual-model', 'technical-validation']);
+
+function selectedArchitectureArtifacts(currentStep) {
+  const dependencies = {
+    'system-boundary': ['system-boundary'],
+    'conceptual-model': ['system-boundary', 'conceptual-model'],
+    'technical-validation': ['system-boundary', 'technical-validation'],
+    'architecture-package': ['system-boundary', 'conceptual-model', 'technical-validation', 'architecture-package'],
+  };
+  return dependencies[currentStep] || [];
+}
 
 if (step && !readinessSteps.has(step)) {
   block('AIH_COMMAND_INVALID', '未知的架构 readiness step：' + step, 'arguments');
@@ -97,19 +106,18 @@ function parseValidatorOutput(validation) {
 }
 
 let project;
-let manifest;
 try {
-  ({ project, manifest } = await loadProjectAndManifest(root));
+  project = await loadProject(root);
 } catch (error) {
   block(error.code || 'AIH_PROJECT_BINDING_INVALID', error.message, 'psp.project.yaml');
 }
 
 const stage = project?.stages?.[stageId];
-const initializing = process.env.AI_HARNESS_INITIALIZING === stageId;
-if (project && manifest && stage?.status === 'uninitialized' && !initializing) {
+const initializing = process.env.PSP_STAGE_INITIALIZING === stageId;
+if (project && stage?.status === 'uninitialized' && !initializing) {
   let partial = false;
   try {
-    partial = await stageHasUserFiles(root, stage.root, [workspaceRootMarker(manifest)].filter(Boolean));
+    partial = await stageHasUserFiles(root, stage.root, ['.gitkeep']);
   } catch (error) {
     block('AIH_PROJECT_BINDING_INVALID', error.message, stage.root);
   }
@@ -153,12 +161,12 @@ if (stage && !['active', 'uninitialized'].includes(stage.status)) {
   block(stage.blockerCode || 'AIH_ARCHITECTURE_UNAVAILABLE', '架构阶段当前不可验证：' + stage.status, stageId);
 }
 
-if (project && manifest && blockers.length === 0) {
+if (project && blockers.length === 0) {
   const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-  const architectureRegistries = manifest.artifactRegistry.filter((item) => item.stage === stageId);
+  const architectureRegistries = artifactDefinitions(project, stageId);
   const architectureArtifactIds = new Set(architectureRegistries.map((item) => item.id));
   const selectedArtifactIds = step
-    ? new Set(collectDependencyArtifactIds(manifest, step).filter((id) => architectureArtifactIds.has(id)))
+    ? new Set(selectedArchitectureArtifacts(step).filter((id) => architectureArtifactIds.has(id)))
     : architectureArtifactIds;
   for (const registry of architectureRegistries.filter((item) => selectedArtifactIds.has(item.id))) {
     const paths = artifactPaths(project, registry.id, registry.stage);
@@ -588,12 +596,12 @@ if (systemBoundary && blockers.every((item) => item.code !== 'AIH_ARTIFACT_SCHEM
   }
 }
 
-if (project && manifest && ['active', 'uninitialized'].includes(stage?.status)) {
+if (project && ['active', 'uninitialized'].includes(stage?.status)) {
   try {
     const selectedOutputs = step
-      ? collectDependencyArtifactIds(manifest, step)
+      ? selectedArchitectureArtifacts(step)
       : null;
-    for (const drift of await outputDrift(root, project, manifest, stageId, selectedOutputs)) {
+    for (const drift of await outputDrift(root, project, stageId, selectedOutputs)) {
       block('AIH_GENERATED_DRIFT', 'Markdown 用户产物与内部模型不一致：' + drift.internalModel, drift.output);
     }
   } catch (error) {

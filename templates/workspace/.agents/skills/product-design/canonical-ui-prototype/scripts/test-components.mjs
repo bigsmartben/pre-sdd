@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import playwright from '@playwright/test';
 import { createServer } from 'vite';
-import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProject, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 import { createRepairDiagnostic } from './lib/repair-diagnostics.mjs';
 import { verifyMatrixMount } from './lib/verify-matrix-mount.mjs';
@@ -20,7 +20,7 @@ const require = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || process.en
 const { chromium } = playwright;
 
 if (!requestedActor) {
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const members = await artifactCollectionMembers(root, paths);
   const blockers = [];
@@ -142,7 +142,7 @@ async function waitForContractTrace(page, expectedStateIds) {
 }
 
 try {
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   if (!['active', 'published'].includes(project.stages?.['product-design']?.status)) {
     throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   }

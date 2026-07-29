@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { commitManagedWrites } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
+import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
 import {
   actorArgument,
   argument,

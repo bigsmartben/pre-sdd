@@ -7,7 +7,7 @@ import test from 'node:test';
 import playwright from '@playwright/test';
 import { createServer } from 'vite';
 import { parse as parseYaml } from 'yaml';
-import { commitManagedWrites } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
+import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
 import {
   cleanupTemporaryRepositories,
   runScript,
@@ -63,28 +63,15 @@ async function workspaceDigest(directory) {
   return stableJson(entries.sort((left, right) => left[0].localeCompare(right[0])));
 }
 
-test('MockCase is one optional stage/domain/artifact with side-path DAG edges', async () => {
-  const manifest = JSON.parse(await readFile(resolve(workspaceRoot, '.psp/harness/harness.manifest.json'), 'utf8'));
+test('MockCase is an optional domain-owned stage and artifact', async () => {
   const project = parseYaml(await readFile(resolve(workspaceRoot, 'psp.project.yaml'), 'utf8'));
   assert.equal(project.stages.mockcase.status, 'uninitialized');
   assert.equal(project.stages.mockcase.root, 'MockCase');
   assert.equal(project.stages.mockcase.areas['mockcase-models'].root, '.psp/models/actors');
-  assert.ok(manifest.domainRegistry.some((item) => item.id === 'mockcase'));
-  assert.ok(manifest.artifactRegistry.some((item) =>
-    item.id === 'mockcase-suite'
-    && item.domain === 'mockcase'
-    && item.authorityKind === 'area-set'));
-  assert.ok(manifest.projectDag.nodes.some((item) => item.id === 'mockcase' && item.kind === 'stage'));
-  assert.ok(manifest.projectDag.edges.some((item) => item.from === 'use-cases' && item.to === 'mockcase' && item.type === 'dependency'));
-  assert.ok(manifest.projectDag.edges.some((item) => item.from === 'canonical-ui-prototype' && item.to === 'mockcase' && item.type === 'dependency'));
-  assert.ok(manifest.projectDag.edges.some((item) => item.from === 'canonical-ui-prototype' && item.to === 'mockcase' && item.type === 'handoff'));
-  assert.ok(!JSON.stringify(manifest).includes('mockcase-coverage'));
-  assert.ok(manifest.validationProfiles.find((item) => item.id === 'mockcase-readiness')
-    ?.commands.includes('mockcase-readiness-check'));
-  assert.ok(manifest.validationProfiles.find((item) => item.id === 'mockcase-runtime')
-    ?.commands.includes('mockcase-runtime-check'));
-  assert.ok(manifest.validationProfiles.find((item) => item.id === 'mockcase-main')
-    ?.commands.includes('mockcase-runtime-check'));
+  const artifact = project.stages.mockcase.artifacts['mockcase-suite'];
+  assert.equal(artifact.authority.kind, 'area-set');
+  assert.equal(artifact.schema, '.agents/skills/mockcase/suite.schema.json');
+  assert.equal(artifact.contract, '.agents/skills/mockcase/contract.yaml');
   assert.deepEqual(
     (await filesBelow(resolve(workspaceRoot, 'MockCase')))
       .map((path) => path.slice(resolve(workspaceRoot, 'MockCase').length + 1).replaceAll('\\', '/')),
@@ -92,23 +79,9 @@ test('MockCase is one optional stage/domain/artifact with side-path DAG edges', 
   );
 });
 
-test('all MockCase operations and blockers are owned by the MockCase domain', async () => {
-  const manifest = JSON.parse(await readFile(resolve(workspaceRoot, '.psp/harness/harness.manifest.json'), 'utf8'));
-  const expected = new Map([
-    ['apply-mockcase-candidate', 'artifact'],
-    ['project-mockcase-runtime', 'projection-refresh'],
-    ['review-mockcase', 'review'],
-    ['verify-mockcase', 'verification'],
-  ]);
-  for (const [id, kind] of expected) {
-    const operation = manifest.operations.find((item) => item.id === id);
-    assert.equal(operation?.kind, kind);
-    assert.equal(operation?.domain, 'mockcase');
-    assert.equal(operation?.stage, 'mockcase');
-  }
-  for (const blocker of manifest.blockers.filter((item) => item.code.startsWith('AIH_MOCKCASE_'))) {
-    assert.equal(blocker.owner, 'mockcase', blocker.code);
-    assert.equal(blocker.domain, 'mockcase', blocker.code);
+test('MockCase actions remain owned by the MockCase Skill', async () => {
+  for (const path of ['apply.mjs', 'project.mjs', 'review.mjs', 'verify.mjs']) {
+    assert.ok((await readFile(resolve(workspaceRoot, '.agents/skills/mockcase/scripts', path), 'utf8')).length > 0);
   }
 });
 
@@ -676,7 +649,6 @@ test('pre-initialization candidate survives normalized initialization and projec
     server: { host: '127.0.0.1', port: 0 },
   });
   const previousRepositoryRoot = process.env.PSP_REPOSITORY_ROOT;
-  const previousHarnessRoot = process.env.AI_HARNESS_ROOT;
   const previousArgv = process.argv;
   try {
     await server.listen();
@@ -727,7 +699,6 @@ test('pre-initialization candidate survives normalized initialization and projec
       await browser.close();
     }
     process.env.PSP_REPOSITORY_ROOT = root;
-    process.env.AI_HARNESS_ROOT = root;
     process.argv = [
       process.execPath,
       'verify.mjs',
@@ -1074,8 +1045,6 @@ test('pre-initialization candidate survives normalized initialization and projec
     process.argv = previousArgv;
     if (previousRepositoryRoot === undefined) delete process.env.PSP_REPOSITORY_ROOT;
     else process.env.PSP_REPOSITORY_ROOT = previousRepositoryRoot;
-    if (previousHarnessRoot === undefined) delete process.env.AI_HARNESS_ROOT;
-    else process.env.AI_HARNESS_ROOT = previousHarnessRoot;
     await server.close();
   }
   assert.deepEqual(await readFile(productAuthority), productBefore);

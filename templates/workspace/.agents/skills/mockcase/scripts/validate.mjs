@@ -2,10 +2,10 @@ import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   artifactPaths,
-  loadProjectAndManifest,
+  loadProject,
   repositoryFile,
   repositoryRootFrom,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../runtime/project.mjs';
 import {
   argument,
   compileSchemas,
@@ -137,7 +137,7 @@ async function lifecycleFor(context, coverage) {
 let result;
 try {
   const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const stage = project.stages?.mockcase;
   if (!stage) throw Object.assign(new Error('项目未绑定 mockcase Stage。'), { code: 'AIH_PROJECT_BINDING_INVALID' });
   const requestedActor = argument('--actor');

@@ -73,4 +73,4 @@
 - Router 仍只有一条已登记实现路径；每个 Screen 使用 Reuse Plan 选择的统一 Shell。
 - 共享模板、状态、Mock、样式根和设计 Token 没有第二份等价实现。
 - 改动位于最低正确层，未修改 `src/spec/**`，未扩大 Component Contract 的公开接口。
-- Component Contract、State Matrix、Route、Scenario、Asset 和视觉门禁全部使用当前 Resolver 返回的命令验证。
+- Component Contract、State Matrix、Route、Scenario、Asset 和视觉检查全部使用当前领域 Skill 随附的本地脚本验证。

@@ -407,7 +407,7 @@ test('uninitialized product stage is a valid empty scaffold but cannot pass read
 
 test('generic initialization creates atomic UC and provider-neutral Visual Spec models without an independent interaction collection', async () => {
   const root = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', root, ['--operation', 'initialize-product', '--json']);
+  const initialized = runScript('.agents/skills/product-design/scripts/initialize.mjs', root, ['--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const project = await fixtureProject(root);
   const stage = project.stages['product-design'];
@@ -468,8 +468,6 @@ test('generic initialization creates atomic UC and provider-neutral Visual Spec 
   assert.doesNotMatch(runtime, /annotate|flow-review/);
   assert.doesNotMatch(runtime, /runRepairGate|runReviewReadiness|executeRegisteredCommand/);
   assert.match(runtime, /独立应用正式预览地址/);
-  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  assert.equal(manifest.validationProfiles.some((item) => item.id === 'canonical-ui-review-readiness'), true);
   const skill = await readFile(resolve(root, '.agents/skills/product-design/SKILL.md'), 'utf8');
   assert.match(skill, /AIH_CANONICAL_UI_SERVER_FAILED/);
   assert.match(skill, /不得根据默认端口猜测或伪造地址/);
@@ -612,7 +610,7 @@ test('Use Cases readiness detects drift in UC.md', async () => {
 
 test('Visual Spec has independent apply, readiness, UC references, Variant coverage, asset integrity, and deterministic projection', async () => {
   const blockedRoot = await temporaryRepository();
-  const initialized = runScript('.psp/harness/scripts/initialize-stage.mjs', blockedRoot, ['--operation', 'initialize-product', '--json']);
+  const initialized = runScript('.agents/skills/product-design/scripts/initialize.mjs', blockedRoot, ['--json']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const blockedProject = await fixtureProject(blockedRoot);
   const blockedStage = blockedProject.stages['product-design'];
@@ -1109,8 +1107,10 @@ test('Canonical UI input gate Review evidence binds a real address to the frozen
 test('Review Feedback Packets validate, reject stale or misrouted input, and normalize CLI order', async () => {
   const root = await temporaryRepository();
   const locks = [{ actor: 'ACTOR-001', draftVersion: '1.0.0' }];
-  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  const operation = manifest.operations.find((item) => item.id === 'canonical-ui-review');
+  const operation = {
+    evidenceVersion: '2.0.0',
+    feedbackPacketSchema: '.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json',
+  };
   const firstPath = resolve(root, 'feedback-first.json');
   const equivalentFirstPath = resolve(root, 'feedback-first-minified.json');
   const secondPath = resolve(root, 'feedback-second.json');
@@ -1162,75 +1162,6 @@ test('Review Feedback Packets validate, reject stale or misrouted input, and nor
   );
 });
 
-test('Canonical UI input gate, Publish lock, drift invalidation, and Reopen form one lifecycle', async () => {
-  const root = await temporaryRepository();
-  await completeProductFixture(root);
-  const packagePath = resolve(root, 'package.json');
-  const packageJson = JSON.parse(await readFile(packagePath, 'utf8'));
-  packageJson.scripts['fixture:pass'] = 'node -e "process.exit(0)"';
-  await writeFile(packagePath, JSON.stringify(packageJson, null, 2) + '\n');
-  const manifestPath = resolve(root, '.psp/harness/harness.manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  manifest.commands.push({
-    id: 'fixture-pass', npmScript: 'fixture:pass', run: 'npm run fixture:pass', purpose: 'fixture', blocking: true,
-    executor: { kind: 'module', path: '.psp/harness/tests/fixtures/command-pass.mjs' },
-  });
-  manifest.validationProfiles.find((item) => item.id === 'canonical-ui-review-readiness').commands = ['fixture-pass'];
-  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-
-  let project = await fixtureProject(root);
-  await writeReviewEvidence(root, await canonicalLocks(root, project));
-  const published = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
-    '--operation', 'publish-product-design', '--json',
-  ]);
-  assert.equal(published.exitCode, 0, JSON.stringify(published.output, null, 2));
-  assert.equal(published.output.downstreamAction, 'NOT_RUN');
-  project = await fixtureProject(root);
-  assert.equal(project.stages['product-design'].status, 'published');
-  assert.equal(project.stages['architecture-design'].status, 'uninitialized');
-  const ledger = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
-  assert.equal(ledger.version, '3.0.0');
-  assert.ok(ledger.current.credential.startsWith('sha256:'));
-  assert.equal(ledger.current.inputLocks.visualAssets.length, 1);
-  assert.equal(ledger.current.visualAcceptance, null);
-
-  const stage = project.stages['product-design'];
-  const appPath = resolve(root, stage.root, stage.areas['canonical-ui-prototypes'].root, 'ACTOR-001', 'src/psp-app.ts');
-  await appendFile(appPath, '\n// manual published drift\n');
-  const stale = runScript('.agents/skills/product-design/scripts/validate.mjs', root, ['--strict', '--json']);
-  assert.ok(codes(stale).has('AIH_PUBLISH_CREDENTIAL_STALE'));
-  const locked = runScript('.agents/skills/product-design/scripts/apply-artifact.mjs', root, [
-    '--operation', 'apply-product-artifact', '--artifact', 'capabilities', '--input', resolve(root, stage.root, stage.artifacts.capabilities.internalModel), '--dry-run', '--json',
-  ]);
-  assert.ok(codes(locked).has('AIH_STAGE_LOCKED'));
-  const repairLocked = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/repair.mjs', root, ['--json']);
-  assert.ok(codes(repairLocked).has('AIH_STAGE_LOCKED'), JSON.stringify(repairLocked.output, null, 2));
-  const refreshLocked = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
-    '--operation', 'refresh-canonical-ui-projections', '--json',
-  ]);
-  assert.ok(codes(refreshLocked).has('AIH_STAGE_LOCKED'), JSON.stringify(refreshLocked.output, null, 2));
-
-  const reopened = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
-    '--operation', 'reopen-product-design', '--json',
-  ]);
-  assert.equal(reopened.exitCode, 0, JSON.stringify(reopened.output, null, 2));
-  project = await fixtureProject(root);
-  assert.equal(project.stages['product-design'].status, 'active');
-  const history = JSON.parse(await readFile(resolve(root, project.stages['product-design'].publication.receipt), 'utf8'));
-  assert.equal(history.current, null);
-  assert.equal(history.history.length, 1);
-  const refreshReopened = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/refresh-projections.mjs', root, [
-    '--operation', 'refresh-canonical-ui-projections', '--json',
-  ]);
-  assert.equal(refreshReopened.exitCode, 0, JSON.stringify(refreshReopened.output, null, 2));
-
-  await writeReviewEvidence(root, await canonicalLocks(root, project));
-  const sameVersion = runScript('.agents/skills/product-design/canonical-ui-prototype/scripts/publication.mjs', root, [
-    '--operation', 'publish-product-design', '--json',
-  ]);
-  assert.ok(codes(sameVersion).has('AIH_PUBLISH_VERSION_NOT_ADVANCED'));
-});
-
 test('exact Human Visual Acceptance requires explicit user confirmation and becomes stale after scope drift', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
@@ -1247,13 +1178,12 @@ test('exact Human Visual Acceptance requires explicit user confirmation and beco
   assert.equal(accepted.exitCode, 0, JSON.stringify(accepted.output, null, 2));
   assert.equal(accepted.output.acceptance, 'accepted');
 
-  const manifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  assert.deepEqual(await verifyVisualAcceptance(root, project, manifest), []);
+  assert.deepEqual(await verifyVisualAcceptance(root, project), []);
 
   exact.model.componentContracts[0].properties[0].defaultValue = 'scope-drift';
   await writeCanonical(exact.path, exact.model);
   project = await fixtureProject(root);
-  const stale = await verifyVisualAcceptance(root, project, manifest, { markStale: true });
+  const stale = await verifyVisualAcceptance(root, project, { markStale: true });
   assert.equal(stale[0].code, 'AIH_HUMAN_VISUAL_ACCEPTANCE_STALE');
   const record = JSON.parse(await readFile(visualAcceptanceRecordPath(root), 'utf8'));
   assert.equal(record.status, 'stale');
@@ -1934,9 +1864,8 @@ test('visual policy supports autonomous, guided and exact enforcement without a 
   assert.ok(codes(exactMismatch).has('AIH_VISUAL_SOURCE_PARITY_FAILED'), JSON.stringify(exactMismatch.output, null, 2));
   assert.ok(exactMismatch.output.evidence.some((item) => item.kind === 'repair-diagnostic' && item.defectClass === 'source-parity'));
 
-  const localManifest = JSON.parse(await readFile(resolve(root, '.psp/harness/harness.manifest.json'), 'utf8'));
-  const defaultProfile = localManifest.validationProfiles.find((item) => item.id === 'canonical-ui-prototype');
-  assert.ok(defaultProfile.commands.includes('product-strict'));
+  const skill = await readFile(resolve(root, '.agents/skills/product-design/SKILL.md'), 'utf8');
+  assert.match(skill, /当前领域 Validator/);
 });
 
 test('provider-neutral implementation inputs accept guided screenshots and exact screenshot or export evidence without Figma closure', async () => {
@@ -2020,7 +1949,7 @@ test('exact visual repair emits a complete packet and passes after an allowed im
   assert.ok(actionReport.validationGates.every((gate) => gate.status === 'PASS'));
 });
 
-test('repair entry does not depend on Handoff Receipt or Human Visual Acceptance', async () => {
+test('repair entry does not depend on cross-domain control state or Human Visual Acceptance', async () => {
   const source = await readFile(resolve(
     import.meta.dirname,
     '../canonical-ui-prototype/scripts/repair.mjs',

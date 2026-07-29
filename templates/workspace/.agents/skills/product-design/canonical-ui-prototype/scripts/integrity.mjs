@@ -5,9 +5,10 @@ import { join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import {
   artifactCollectionMembers,
+  artifactDefinition,
   artifactPaths,
   repositoryFile,
-} from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../../runtime/project.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
 export function sha256(value) {
@@ -42,10 +43,10 @@ export async function treeLock(root, repositoryPath, ignored = ['dist', 'node_mo
   };
 }
 
-export async function inputLocks(root, project, manifest) {
+export async function inputLocks(root, project) {
   const result = {};
   for (const [artifactId, name] of [['capabilities', 'useCases'], ['visual-spec', 'visualSpec']]) {
-    const registry = manifest.artifactRegistry.find((item) => item.id === artifactId);
+    const registry = artifactDefinition(project, artifactId, 'product-design');
     const paths = artifactPaths(project, artifactId, 'product-design');
     const raw = await readFile(repositoryFile(root, paths.authorityPath));
     const model = registry.format === 'json' ? JSON.parse(raw) : parseYaml(raw.toString('utf8'));

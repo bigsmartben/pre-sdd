@@ -37,7 +37,7 @@
 4. 生成规范化 Design Context，包含 geometry、typography、paint、effects、components、assets 和逐节点 `visualNodeCatalog`。
 5. `visualNodeCatalog` 为每个视觉节点记录父节点、可见性、Paint、Stroke、Effect、Mask、Raster、Text 与 Asset Boundary。
 6. 仅下载 `strategy: asset` 的节点；按兼容格式与比例批量导出，写入本次会话的操作系统临时目录。
-7. 调用 Manifest 登记的 `ingest-figma-assets` Operation 生成正式 Asset 和 Ingest Receipt。
+7. 调用本 Skill 随附的 `ingest-assets.mjs` 生成正式 Asset 和 Ingest Receipt。
 
 正式 Capture、下载、Ingest 和 Evidence 必须位于同一时间边界，并绑定同一 `sourceVersion`。
 

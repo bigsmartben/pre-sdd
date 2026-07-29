@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import playwright from '@playwright/test';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { createServer } from 'vite';
-import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactDefinition, artifactMemberPath, artifactPaths, loadProject, readStructured, repositoryFile, repositoryRootFrom } from '../../../../runtime/project.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 import { findFigmaVisualBypasses } from './lib/figma-css-policy.mjs';
 import { createRepairDiagnostic } from './lib/repair-diagnostics.mjs';
@@ -37,7 +37,7 @@ const forwardedFilters = [
 ];
 
 if (!requestedActor) {
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const members = await artifactCollectionMembers(root, paths);
   const aggregateBlockers = [];
@@ -1657,7 +1657,7 @@ async function capture(page, evidenceRoot, item) {
 }
 
 try {
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const stage = project.stages?.['product-design'];
   if (stage?.status !== 'active') throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
@@ -1690,7 +1690,7 @@ try {
   if (model.actor !== requestedActor) block('AIH_REFERENCE_UNRESOLVED', '应用 actor 与目录参与者不一致。', authorityPath);
   const areaPath = repositoryFile(root, paths.authorityRoot + '/' + requestedActor);
   await validateFigmaImplementationPolicy(model, areaPath);
-  const registry = manifest.artifactRegistry.find((item) => item.id === 'canonical-ui-prototype');
+  const registry = artifactDefinition(project, 'canonical-ui-prototype', 'product-design');
   const contract = await readStructured(root, registry.contract, 'yaml');
   const thresholds = contract.spec.visualParity;
   const parityEvidence = await loadParityEvidence(areaPath, model);

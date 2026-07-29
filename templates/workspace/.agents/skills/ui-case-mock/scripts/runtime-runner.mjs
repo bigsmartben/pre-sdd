@@ -10,10 +10,10 @@ import {
   artifactCollectionMembers,
   artifactMemberPath,
   artifactPaths,
-  loadProjectAndManifest,
+  loadProject,
   repositoryFile,
   repositoryRootFrom,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../runtime/project.mjs';
 import { extractCanonicalUi } from '../../product-design/canonical-ui-prototype/scripts/extract.mjs';
 import { analyzeUiCaseCoverage, compileUiCaseRuntime } from './model.mjs';
 
@@ -422,7 +422,7 @@ function browserError(error) {
   const message = error instanceof Error ? error.message : String(error);
   if (/executable.*doesn.t exist|browser.*not found|playwright install/i.test(message)) {
     return Object.assign(
-      new Error('Chromium 未安装。请显式运行 npm run install:browser；UI Case Mock 不会自动安装浏览器。'),
+      new Error('Chromium 未安装。Agent 需在后台准备浏览器依赖后重试，不得要求用户执行安装命令。'),
       { code: 'AIH_UI_CASE_BROWSER_MISSING', cause: error },
     );
   }
@@ -440,7 +440,7 @@ export async function runRuntime(mode, options = {}) {
   }
 
   const root = options.root || repositoryRootFrom(resolve(import.meta.dirname, '..'));
-  const { project } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const authorityPath = artifactMemberPath(paths, actor);
   const model = options.model || await extractCanonicalUi(root, authorityPath);
@@ -615,7 +615,7 @@ export async function runCommand(mode) {
     if (requestedActor || mode === 'review') {
       actors = [requestedActor || actorArgument()];
     } else {
-      const { project } = await loadProjectAndManifest(root);
+      const project = await loadProject(root);
       const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
       actors = (await artifactCollectionMembers(root, paths)).map((item) => item.actor);
       if (actors.length === 0) {

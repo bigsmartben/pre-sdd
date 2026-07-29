@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { parseStructuredText } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { parseStructuredText } from '../../../../runtime/project.mjs';
 
 function fail(message) {
   throw Object.assign(new Error(message), { code: 'AIH_PATH_INVALID' });

@@ -30,7 +30,7 @@ spec:
     - JSON Suite 作为 user-artifact 或正式用户交付物
     - Use Cases、Visual Spec、Canonical UI 与 UI HTML 写入
     - Product Design readiness、review、publish 或 reopen
-    - Handoff 自动初始化、自动 Apply 或业务就绪声明
+    - 自动初始化、自动 Apply、自动开始下游或业务就绪声明
     - 浏览器 Plugin 文件系统写入
     - 私有 DOM、私有组件状态或未登记 Control 修改
   domainRules:

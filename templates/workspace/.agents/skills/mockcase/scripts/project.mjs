@@ -1,4 +1,4 @@
-import { commitManagedWrites } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
+import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
 import {
   HOST_API_VERSION,
   MODEL_VERSION,

@@ -1,10 +1,11 @@
 import { resolve } from 'node:path';
 import {
   artifactPaths,
-  loadProjectAndManifest,
+  artifactDefinition,
+  loadProject,
   readStructured,
   repositoryRootFrom,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../runtime/project.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
 const json = process.argv.includes('--json');
@@ -83,8 +84,8 @@ function deriveUcCases(capabilities) {
 }
 
 try {
-  const { project, manifest } = await loadProjectAndManifest(root);
-  const registry = manifest.artifactRegistry.find((item) => item.id === 'capabilities');
+  const project = await loadProject(root);
+  const registry = artifactDefinition(project, 'capabilities', 'product-design');
   const paths = artifactPaths(project, 'capabilities', 'product-design');
   const capabilities = await readStructured(root, paths.authorityPath, registry.format);
   const cases = deriveUcCases(capabilities);

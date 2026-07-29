@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import playwright from '@playwright/test';
 import { build } from 'vite';
-import { commitManagedWrites } from '../../../../.psp/harness/scripts/lib/artifact-transaction.mjs';
-import { repositoryFile } from '../../../../.psp/harness/scripts/lib/repository.mjs';
+import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
+import { repositoryFile } from '../../../runtime/project.mjs';
 import {
   HOST_API_VERSION,
   actorArgument,

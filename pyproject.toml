@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sdd-pre"
+version = "0.5.0"
+description = "Initialize a local Product Design and Architecture Design workspace for an Agent."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "pre-sdd maintainers" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.scripts]
+sdd-pre = "sdd_pre.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["runtime/sdd_pre"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"templates/workspace" = "sdd_pre/_workspace"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/runtime/sdd_pre",
+  "/templates/workspace",
+  "/README.md",
+  "/QUICKSTART.md",
+]

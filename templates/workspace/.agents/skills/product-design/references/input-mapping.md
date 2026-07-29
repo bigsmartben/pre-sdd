@@ -29,7 +29,7 @@
 
 `visualPolicy.mode` 必须先选择：无视觉输入为 `autonomous`，风格或局部参考为 `guided`，完整视觉参照或明确视觉还原为 `exact`。`unresolved` 只允许保留结构，不允许开始界面实现或通过 readiness。
 
-`repairPolicy` 只声明当前应用的 `allowedImplementationPaths`。用户显式调用 `canonical-ui-repair --new-session` 即授权一次 Agent 修复；尝试次数、可修复缺陷类别和统一门禁由 Canonical UI Artifact Contract 与 Manifest 定义，不复制进模型。`autonomous`、`guided`、`exact` 均可修复一般 HTML/CSS/Lit 缺陷；`guided` 只在声明范围内使用来源，`exact` 额外执行完整来源一致性，`unresolved` 仍不得开始实现或修复。
+`repairPolicy` 只声明当前应用的 `allowedImplementationPaths`。用户明确请求修复后，Agent 才调用本 Skill 随附的修复脚本开始一次修复；尝试次数、可修复缺陷类别和检查规则由 Canonical UI Artifact Contract 与领域脚本定义，不复制进模型。`autonomous`、`guided`、`exact` 均可修复一般 HTML/CSS/Lit 缺陷；`guided` 只在声明范围内使用来源，`exact` 额外执行完整来源一致性，`unresolved` 仍不得开始实现或修复。
 
 `designSources[].coverage` 与 `visualPolicy.coverage` 使用 Screen、State、Viewport 和证据项标识表达可验证覆盖，不接受自由文本。`guided` 和 `exact` 中，`assets[].sourceIds`、`tokens[].sourceIds` 与 `sourceParityAssertions[].sourceId` 必须引用已采集来源；`autonomous` 可以使用空 `sourceIds` 表示自主设计事实。
 

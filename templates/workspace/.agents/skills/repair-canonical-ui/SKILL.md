@@ -9,11 +9,11 @@ description: 用户明确要求修复 Canonical UI Prototype（规范界面原�
 
 本技能只拥有一次有边界的 Canonical UI 实现修复。正式 Review、反馈路由、Publish 与 Reopen 生命周期由 `$product-design` 拥有；`canonical-ui-dev` 临时预览服务、Review Marker 和 Review Evidence 都不属于本技能。
 
-开始前加载 `$product-design` 与 `$apply-repository-harness`。只有用户明确请求本次修复后，才首次调用 Manifest 登记的 `canonical-ui-repair` operation 并传入 `--new-session`；operation 返回 `PASS` 时立即完成，不修改任何文件。
+开始前加载 `$product-design`。只有用户明确请求本次修复后，才首次调用本 Skill 随附的修复脚本并传入 `--new-session`；脚本返回 `PASS` 时立即完成，不修改任何文件。
 
-Review Feedback Packet（评审反馈包）只表达用户反馈，不是 Repair Packet，也不授权修复。必须先由 Validator（校验器）形成机器可判定诊断，并由 `canonical-ui-repair` operation 生成有效 Repair Packet；无法形成该数据包的反馈必须返回 `$product-design` 保留为未解析反馈，不得按主观判断修改。
+Review Feedback Packet（评审反馈包）只表达用户反馈，不是 Repair Packet，也不授权修复。必须先由领域 Validator（校验器）形成机器可判定诊断，并由修复脚本生成有效 Repair Packet；无法形成该数据包的反馈必须返回 `$product-design` 保留为未解析反馈，不得按主观判断修改。
 
-只有状态为 `REPAIR_REQUIRED` 且通过 Schema 校验的 Repair Packet 是本次写入依据。Validator（校验器）负责判定、截图和生成 Repair Diagnostic（修复诊断），Agent 只修改实现。`allowedImplementationPaths` 是最小范围指导，不是代码写入许可；实际写入还必须通过 Resolver（解析器）。不得修改 `src/spec/**`、Mock 数据、业务状态逻辑、设计来源、截图基线或视觉容差。
+只有状态为 `REPAIR_REQUIRED` 且通过 Schema 校验的 Repair Packet 是本次写入依据。Validator（校验器）负责判定、截图和生成 Repair Diagnostic（修复诊断），Agent 只修改 `allowedImplementationPaths` 指定的实现范围。不得修改 `src/spec/**`、Mock 数据、业务状态逻辑、设计来源、截图基线或视觉容差。
 
 以下缺陷可以进入本技能：
 
@@ -41,7 +41,7 @@ Review Feedback Packet（评审反馈包）只表达用户反馈，不是 Repair
 1. 确认用户已明确请求本次修复，再使用 `canonical-ui-repair --new-session` 开始；`PASS` 立即完成。
 2. 读取 `AIH_UI_REPAIR_REQUIRED` 返回的 Repair Packet，确认 `repairSessionId`、`attempt: 1`、允许路径和全部诊断。
 3. 对全部诊断执行一次最小实现修改，不改变业务语义或验证输入。
-4. 使用同一个 operation 并传入 `--session <repairSessionId>` 重新验证。
+4. 使用同一个领域脚本并传入 `--session <repairSessionId>` 重新验证。
 5. 返回 `PASS` 时立即完成；返回 `AIH_UI_REPAIR_EXHAUSTED`、`AIH_UI_REPAIR_SESSION_INVALID` 或其他 `BLOCKED` 时立即停止，不开始第二次修复。
 
-完成只由第二次 `canonical-ui-repair` 的真实 `PASS` 判定。Repair Action Report 是 operation 生成的临时过程证据，不是写入前许可，也不触发 Preview、Review、Publish 或 Handoff；完成后把控制权交回 `$product-design`，由它重新提供临时预览。
+完成只由第二次 `canonical-ui-repair` 的真实 `PASS` 判定。Repair Action Report 是领域脚本生成的临时过程证据，不是写入前许可，也不触发 Preview、Review 或 Publish；完成后把控制权交回 `$product-design`，由它重新提供临时预览。

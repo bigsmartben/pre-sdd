@@ -3,10 +3,11 @@ import {
   artifactCollectionMembers,
   artifactMemberPath,
   artifactPaths,
-  loadProjectAndManifest,
+  artifactDefinition,
+  loadProject,
   readStructured,
   repositoryRootFrom,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../runtime/project.mjs';
 import { extractCanonicalUi } from '../../product-design/canonical-ui-prototype/scripts/extract.mjs';
 import { analyzeUiCaseCoverage } from './model.mjs';
 
@@ -15,7 +16,7 @@ const actorIndex = process.argv.indexOf('--actor');
 const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
 const json = process.argv.includes('--json');
 
-async function analyzeActor(actor, project, manifest, visualSpec) {
+async function analyzeActor(actor, project, visualSpec) {
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const authorityPath = artifactMemberPath(paths, actor);
   try {
@@ -36,17 +37,17 @@ async function analyzeActor(actor, project, manifest, visualSpec) {
   }
 }
 
-const { project, manifest } = await loadProjectAndManifest(root);
-const visualRegistry = manifest.artifactRegistry.find((item) => item.id === 'visual-spec');
+const project = await loadProject(root);
+const visualRegistry = artifactDefinition(project, 'visual-spec', 'product-design');
 const visualPaths = artifactPaths(project, 'visual-spec', 'product-design');
 const visualSpec = await readStructured(root, visualPaths.authorityPath, visualRegistry.format);
 let results;
 if (requestedActor) {
-  results = [await analyzeActor(requestedActor, project, manifest, visualSpec)];
+  results = [await analyzeActor(requestedActor, project, visualSpec)];
 } else {
   const canonicalPaths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   const members = await artifactCollectionMembers(root, canonicalPaths);
-  results = await Promise.all(members.map((member) => analyzeActor(member.actor, project, manifest, visualSpec)));
+  results = await Promise.all(members.map((member) => analyzeActor(member.actor, project, visualSpec)));
   if (members.length === 0) {
     results = [{
       actor: null,

@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { artifactCollectionMembers, artifactPaths, readJson, repositoryFile } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import { artifactCollectionMembers, artifactDefinition, artifactPaths, readJson, repositoryFile } from '../../../../runtime/project.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
-export async function canonicalExpectedOutputs(root, project, manifest) {
-  const registry = manifest.artifactRegistry.find((item) => item.id === 'canonical-ui-prototype');
+export async function canonicalExpectedOutputs(root, project) {
+  const registry = artifactDefinition(project, 'canonical-ui-prototype', 'product-design');
   const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
   if (!registry || !paths) return [];
   const schema = await readJson(root, registry.schema);
@@ -43,9 +43,9 @@ export async function canonicalExpectedOutputs(root, project, manifest) {
   return outputs;
 }
 
-export async function canonicalOutputDrift(root, project, manifest) {
+export async function canonicalOutputDrift(root, project) {
   const drift = [];
-  for (const output of await canonicalExpectedOutputs(root, project, manifest)) {
+  for (const output of await canonicalExpectedOutputs(root, project)) {
     let actual = null;
     try { actual = await readFile(repositoryFile(root, output.output), 'utf8'); } catch { /* Missing is drift. */ }
     if (actual !== output.content) drift.push(output);

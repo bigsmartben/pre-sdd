@@ -14,7 +14,7 @@ description: 在 Product Design 中分析 UI Case 轴值覆盖、显式启动 he
 - UI Case Mock（界面用例模拟）只把该有限状态投影到正式组件的公开 Property（属性）、Attribute（特性）和 Slot（插槽），等待 Lit `updateComplete`，执行视觉断言并回滚。
 - Use Case（业务用例）、UC Case（业务路径用例）、UI Interaction Scenario（界面交互场景）和 Component Visual Case（组件视觉案例）的语义与结构仍由 `$product-design` 拥有。
 - 不点击正式控件、不派发业务事件、不拦截 Fetch、不修改私有 DOM。模板中的 MSW 网络桩是独立能力。
-- 不创建 Candidate、Suite、Fixture、Behavior、READY Evidence、Handoff 或 Receipt，不写工作区正式文件。截图和运行事实只写操作系统临时目录。
+- 不创建 Candidate、Suite、Fixture、Behavior 或独立就绪状态，不写工作区正式文件。截图和运行事实只写操作系统临时目录。
 
 例如：`UI-CASE-002` 可以把同一页面上的列表组件投影为“空数据”，同时把提交按钮投影为“disabled / secondary”；它不能伪造“下单失败”这一业务路径。
 
@@ -28,16 +28,16 @@ description: 在 Product Design 中分析 UI Case 轴值覆盖、显式启动 he
 | Review（评审） | `npm run review:ui-case-mock -- --actor ACTOR-NNN --headed` | 启动有界面的交互评审，等待用户结束或取消 |
 | Verify（验证） | `npm run verify:ui-case-mock`；可用 `-- --actor ACTOR-NNN` 收窄 | 默认无头执行全部参与者的 UI Case × Viewport，生成临时截图与断言事实 |
 
-只说 `$ui-case-mock` 而没有指定操作时，默认只执行 Analyze。Skill 名称、上游 Handoff、Receipt 或来源关系均不授权 Review、Verify 或任何写入。Analyze、Review、Verify 不串联，也不互相隐含。
+只说 `$ui-case-mock` 而没有指定操作时，默认只执行 Analyze。Skill 名称或来源关系均不授权 Review、Verify 或任何写入。Analyze、Review、Verify 不串联，也不互相隐含。
 
 ## 执行规则
 
-1. 读取根与工作区治理入口，使用 `$apply-repository-harness` 解析当前操作。
+1. 读取 `psp.project.yaml`、Canonical UI 与本 Skill 的本地规则，直接选择用户明确请求的单次操作。
 2. Analyze 读取 Canonical UI 与 Visual Spec，检查引用、Route 边界、合法 Matrix Entry、重复 Override、Viewport 和轴值覆盖；不写文件。
 3. Review 必须由用户明确要求并带 `--headed`。`review=0` 不加载工具，`review=1` 才加载 `ui-case-switcher`。
 4. Verify 必须无头执行所有 Case。每次投影前保存公开接口基线，切换 Case、Route 或退出时完整恢复；失败回滚不完整时返回 `AIH_UI_CASE_ROLLBACK_FAILED`。
 5. 产品截图前隐藏所有 `[data-review-tool]` 元素，Review Tool 不得进入产品视觉证据。
-6. 浏览器缺失时返回 `AIH_UI_CASE_BROWSER_MISSING`，并建议用户显式运行 `npm run install:browser`；本 Skill 不安装浏览器。
+6. 浏览器缺失时返回 `AIH_UI_CASE_BROWSER_MISSING`；Agent 可在后台准备依赖，不把安装命令交给用户。
 
 ## 稳定阻断
 

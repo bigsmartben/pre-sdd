@@ -5,11 +5,12 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import {
   artifactCollectionMembers,
   artifactPaths,
-  loadProjectAndManifest,
+  artifactDefinition,
+  loadProject,
   readStructured,
   repositoryFile,
   repositoryRootFrom,
-} from '../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../runtime/project.mjs';
 import { extractCanonicalUi } from '../../product-design/canonical-ui-prototype/scripts/extract.mjs';
 
 export const MODEL_VERSION = '2.0.0';
@@ -108,10 +109,10 @@ async function exists(path) {
 
 export async function workspaceContext(actor, { allowMissingSuite = true } = {}) {
   const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
-  const { project, manifest } = await loadProjectAndManifest(root);
+  const project = await loadProject(root);
   if (project.kind !== 'PSPProject') fail('AIH_PROJECT_BINDING_INVALID', 'MockCase 只能在生成工作区 PSPProject 中运行。');
   const stage = project.stages?.mockcase;
-  const registry = manifest.artifactRegistry?.find((item) => item.id === 'mockcase-suite' && item.domain === 'mockcase');
+  const registry = artifactDefinition(project, 'mockcase-suite', 'mockcase');
   const paths = artifactPaths(project, 'mockcase-suite', 'mockcase');
   if (!stage || !registry || !paths || paths.authorityKind !== 'area-set') {
     fail('AIH_PROJECT_BINDING_INVALID', '项目未完整绑定 mockcase Stage 与 mockcase-suite。');
@@ -155,7 +156,6 @@ export async function workspaceContext(actor, { allowMissingSuite = true } = {})
   return {
     root,
     project,
-    manifest,
     stage,
     registry,
     paths,

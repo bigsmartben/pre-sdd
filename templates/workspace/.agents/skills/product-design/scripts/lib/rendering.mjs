@@ -1,10 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import {
+  artifactDefinition,
+  artifactDefinitions,
   artifactPaths,
   readStructured,
   repositoryFile,
-} from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+} from '../../../../runtime/project.mjs';
 
 function text(value) {
   return value === null || value === undefined || value === ''
@@ -414,18 +416,18 @@ function outputsForArtifact(registry, paths, data) {
   });
 }
 
-export async function preparedArtifactOutputs(root, project, manifest, stageId, artifactId, data) {
-  const registry = manifest.artifactRegistry.find((item) => item.id === artifactId && item.stage === stageId);
+export async function preparedArtifactOutputs(root, project, stageId, artifactId, data) {
+  const registry = artifactDefinition(project, artifactId, stageId);
   if (!registry || registry.authorityKind !== 'internal-model') throw new Error('未知内部模型 artifact：' + artifactId);
   const paths = artifactPaths(project, artifactId, stageId);
   if (!paths) throw new Error('项目未绑定 artifact：' + artifactId);
   return outputsForArtifact(registry, paths, data);
 }
 
-export async function expectedOutputs(root, project, manifest, stageId, artifactIds = null) {
+export async function expectedOutputs(root, project, stageId, artifactIds = null) {
   const selected = artifactIds ? new Set(artifactIds) : null;
   const outputs = [];
-  for (const registry of manifest.artifactRegistry.filter((item) => item.stage === stageId && item.authorityKind === 'internal-model')) {
+  for (const registry of artifactDefinitions(project, stageId).filter((item) => item.authorityKind === 'internal-model')) {
     if (selected && !selected.has(registry.id)) continue;
     const paths = artifactPaths(project, registry.id, stageId);
     if (!paths) continue;
@@ -435,9 +437,9 @@ export async function expectedOutputs(root, project, manifest, stageId, artifact
   return outputs;
 }
 
-export async function outputDrift(root, project, manifest, stageId, artifactIds = null) {
+export async function outputDrift(root, project, stageId, artifactIds = null) {
   const results = [];
-  for (const output of await expectedOutputs(root, project, manifest, stageId, artifactIds)) {
+  for (const output of await expectedOutputs(root, project, stageId, artifactIds)) {
     let actual = null;
     try { actual = await readFile(repositoryFile(root, output.output), 'utf8'); } catch { /* missing output is drift */ }
     if (actual !== output.content) results.push(output);
@@ -445,8 +447,8 @@ export async function outputDrift(root, project, manifest, stageId, artifactIds 
   return results;
 }
 
-export async function writeExpectedOutputs(root, project, manifest, stageId) {
-  const outputs = await expectedOutputs(root, project, manifest, stageId);
+export async function writeExpectedOutputs(root, project, stageId) {
+  const outputs = await expectedOutputs(root, project, stageId);
   for (const output of outputs) {
     const absolute = repositoryFile(root, output.output);
     await mkdir(dirname(absolute), { recursive: true });

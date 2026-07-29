@@ -228,48 +228,18 @@ test('Canonical UI schema rejects raw property overrides and business identities
 test('UI Case Mock reports a browser blocker and contains no browser installation path', async () => {
   const runner = await readFile(resolve(workspaceRoot, '.agents/skills/ui-case-mock/scripts/runtime-runner.mjs'), 'utf8');
   assert.match(runner, /AIH_UI_CASE_BROWSER_MISSING/);
-  assert.match(runner, /npm run install:browser/);
+  assert.match(runner, /Agent 需在后台准备浏览器依赖/);
   assert.doesNotMatch(runner, /spawn(?:Sync)?\(|exec(?:File|Sync)?\(|chromium\.install/);
 });
 
-test('User Harness keeps UI Case Mock inside Product Design while independent MockCase remains separate', async () => {
-  const manifest = JSON.parse(await readFile(resolve(workspaceRoot, '.psp/harness/harness.manifest.json'), 'utf8'));
+test('project bindings keep UI Case Mock inside Product Design while independent MockCase remains separate', async () => {
   const project = parseYaml(await readFile(resolve(workspaceRoot, 'psp.project.yaml'), 'utf8'));
-  const packageModel = JSON.parse(await readFile(resolve(workspaceRoot, 'package.json'), 'utf8'));
   assert.deepEqual(Object.keys(project.stages), ['product-design', 'mockcase', 'architecture-design']);
-  assert.deepEqual(manifest.artifactRegistry.map((item) => item.id).sort(), [
-    'architecture-package',
-    'canonical-ui-prototype',
-    'capabilities',
-    'conceptual-model',
-    'mockcase-suite',
-    'system-boundary',
-    'technical-validation',
-    'visual-spec',
-  ]);
-  assert.deepEqual(
-    manifest.commands.filter((item) => item.id.startsWith('ui-case-')).map((item) => item.id).sort(),
-    ['ui-case-analyze', 'ui-case-review', 'ui-case-verify'],
-  );
-  assert.equal(manifest.operations.some((item) => item.id.includes('ui-case')), false);
-  assert.equal(manifest.projectDag.nodes.some((item) => item.id.includes('ui-case')), false);
-  assert.equal(manifest.projectDag.edges.some((item) => item.to.includes('ui-case')), false);
-  for (const profileId of [
-    'product-delivery',
-    'canonical-ui-review-readiness',
-    'product-handoff',
-  ]) {
-    assert.ok(manifest.validationProfiles.find((item) => item.id === profileId).commands.includes('ui-case-verify'), profileId);
+  assert.ok(project.stages['product-design'].artifacts['canonical-ui-prototype']);
+  assert.ok(project.stages.mockcase.artifacts['mockcase-suite']);
+  for (const path of ['analyze.mjs', 'review.mjs', 'verify.mjs']) {
+    assert.ok((await readFile(resolve(workspaceRoot, '.agents/skills/ui-case-mock/scripts', path), 'utf8')).length > 0);
   }
-  assert.equal(manifest.validationProfiles.some((item) => item.id === 'canonical-ui-handoff'), true);
-  assert.equal(
-    manifest.scopes.find((item) => item.id === 'canonical-ui-prototype').handoffProfile,
-    'canonical-ui-handoff',
-  );
-  assert.deepEqual(
-    Object.keys(packageModel.scripts).filter((name) => name.includes('ui-case')).sort(),
-    ['analyze:ui-case-coverage', 'review:ui-case-mock', 'test:ui-case-mock', 'verify:ui-case-mock'],
-  );
 });
 
 test('UC Case analyzer derives main, alternate and exception cases, exempts non-UI paths, and writes nothing', async () => {
