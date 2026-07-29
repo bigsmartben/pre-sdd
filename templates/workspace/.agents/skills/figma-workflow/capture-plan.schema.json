@@ -1,98 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://psp.dev/adapters/figma/capture-plan.schema.json",
-  "title": "Figma Deterministic Asset Capture Plan",
+  "$id": "https://psp.dev/skills/figma-workflow/capture-plan.schema.json",
+  "title": "Figma Workflow Capture Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "sourceId", "rootNodeId", "sourceVersion", "scopeConfirmation", "highImpactConfirmation", "writebackBoundary", "frozenAt", "formalCapture", "candidateVisualNodes"],
+  "required": [
+    "version",
+    "sourceId",
+    "rootNodeId",
+    "sourceVersion",
+    "scopeAudit",
+    "writebackApproval",
+    "writebackReceipt",
+    "finalFigmaAcceptance",
+    "frozenAt",
+    "formalCapture",
+    "candidateVisualNodes"
+  ],
   "properties": {
-    "version": {"const": "2.0.0"},
+    "version": {"const": "3.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
     "rootNodeId": {"$ref": "#/$defs/nodeId"},
     "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
-    "scopeConfirmation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "sourceVersion", "rootNodeId", "scanInventory", "screenBindings", "includedNodes", "excludedNodes", "viewportIds", "scenarioIds", "stateIds", "counts"],
-      "properties": {
-        "id": {"$ref": "#/$defs/id"},
-        "sha256": {"$ref": "#/$defs/sha256"},
-        "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
-        "confirmedAt": {"$ref": "#/$defs/timestamp"},
-        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
-        "rootNodeId": {"$ref": "#/$defs/nodeId"},
-        "scanInventory": {"$ref": "#/$defs/scanInventory"},
-        "screenBindings": {
-          "type": "array",
-          "minItems": 1,
-          "items": {"$ref": "#/$defs/screenBinding"}
-        },
-        "includedNodes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/scopeNode"}},
-        "excludedNodes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/excludedScopeNode"}},
-        "viewportIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "scenarioIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "stateIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "counts": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["pages", "components", "visualNodes", "viewports", "scenarios", "states"],
-          "properties": {
-            "pages": {"type": "integer", "minimum": 0},
-            "components": {"type": "integer", "minimum": 0},
-            "visualNodes": {"type": "integer", "minimum": 0},
-            "viewports": {"type": "integer", "minimum": 1},
-            "scenarios": {"type": "integer", "minimum": 1},
-            "states": {"type": "integer", "minimum": 1}
-          }
-        }
-      }
-    },
-    "highImpactConfirmation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "sourceVersion", "scopeConfirmationId", "scopeConfirmationSha256", "componentProposals", "stateAxes", "resourceAmbiguities", "writebackOperations", "detachApprovals"],
-      "properties": {
-        "id": {"$ref": "#/$defs/id"},
-        "sha256": {"$ref": "#/$defs/sha256"},
-        "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
-        "confirmedAt": {"$ref": "#/$defs/timestamp"},
-        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
-        "scopeConfirmationId": {"$ref": "#/$defs/id"},
-        "scopeConfirmationSha256": {"$ref": "#/$defs/sha256"},
-        "componentProposals": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/componentProposal"}},
-        "stateAxes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/stateAxis"}},
-        "resourceAmbiguities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/resourceAmbiguity"}},
-        "writebackOperations": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/writebackOperation"}},
-        "detachApprovals": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/detachApproval"}}
-      }
-    },
-    "writebackBoundary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["scopeConfirmationId", "highImpactConfirmationId", "highImpactConfirmationSha256", "sourceVersionBefore", "sourceVersionAfter", "operationIds", "completedAt", "formalCaptureOrdinal", "recaptureTriggers"],
-      "properties": {
-        "scopeConfirmationId": {"$ref": "#/$defs/id"},
-        "highImpactConfirmationId": {"$ref": "#/$defs/id"},
-        "highImpactConfirmationSha256": {"$ref": "#/$defs/sha256"},
-        "sourceVersionBefore": {"$ref": "#/$defs/sourceVersion"},
-        "sourceVersionAfter": {"$ref": "#/$defs/sourceVersion"},
-        "operationIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "completedAt": {"$ref": "#/$defs/timestamp"},
-        "formalCaptureOrdinal": {"const": 1},
-        "recaptureTriggers": {
-          "type": "array",
-          "minItems": 3,
-          "maxItems": 3,
-          "uniqueItems": true,
-          "items": {"enum": ["scope-change", "source-version-change", "post-freeze-writeback"]},
-          "allOf": [
-            {"contains": {"const": "scope-change"}},
-            {"contains": {"const": "source-version-change"}},
-            {"contains": {"const": "post-freeze-writeback"}}
-          ]
-        }
-      }
-    },
+    "scopeAudit": {"$ref": "#/$defs/scopeAudit"},
+    "writebackApproval": {"$ref": "#/$defs/writebackApproval"},
+    "writebackReceipt": {"$ref": "#/$defs/writebackReceipt"},
+    "finalFigmaAcceptance": {"$ref": "#/$defs/finalFigmaAcceptance"},
     "frozenAt": {"$ref": "#/$defs/timestamp"},
     "formalCapture": {"$ref": "#/$defs/formalCapture"},
     "candidateVisualNodes": {
@@ -105,7 +38,6 @@
     "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
     "nodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
     "humanIdentity": {"type": "string", "pattern": "^user:[A-Za-z0-9][A-Za-z0-9._-]*$"},
-    "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
     "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
     "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
     "sourceVersion": {
@@ -115,6 +47,8 @@
         {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "node-fingerprint"}, "value": {"$ref": "#/$defs/sha256"}}}
       ]
     },
+    "status": {"enum": ["PASS", "FAIL", "EXCLUDED"]},
+    "auditReason": {"type": "string", "minLength": 1},
     "scanInventory": {
       "type": "object",
       "additionalProperties": false,
@@ -123,22 +57,30 @@
         "scannedAt": {"$ref": "#/$defs/timestamp"},
         "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
         "rootNodeId": {"$ref": "#/$defs/nodeId"},
-        "nodes": {
-          "type": "array",
-          "minItems": 1,
-          "items": {"$ref": "#/$defs/scannedNode"}
-        }
+        "nodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scannedNode"}}
       }
     },
     "scannedNode": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "nodeId", "name"],
+      "required": ["kind", "nodeId", "name", "visible"],
       "properties": {
-        "kind": {"enum": ["page", "component", "visual"]},
+        "kind": {"enum": ["page", "section", "frame", "group", "component-set", "component", "instance", "image", "visual"]},
         "nodeId": {"$ref": "#/$defs/nodeId"},
         "name": {"type": "string", "minLength": 1},
+        "visible": {"type": "boolean"},
         "parentNodeId": {"$ref": "#/$defs/nodeId"}
+      }
+    },
+    "scopeNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nodeId", "name"],
+      "properties": {
+        "kind": {"enum": ["page", "section", "frame", "group", "component-set", "component", "instance", "image", "visual"]},
+        "nodeId": {"$ref": "#/$defs/nodeId"},
+        "name": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
       }
     },
     "screenBinding": {
@@ -150,216 +92,81 @@
         "figmaRootNodeId": {"$ref": "#/$defs/nodeId"},
         "viewportId": {"$ref": "#/$defs/id"},
         "scenarioId": {"$ref": "#/$defs/id"},
-        "stateIds": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/id"}
-        }
+        "stateIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
       }
     },
-    "formalCapture": {
+    "pageCoverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ordinal", "startedAt", "completedAt", "sourceVersionBefore", "sourceVersionAfter"],
+      "required": ["expectedPageId", "status"],
       "properties": {
-        "ordinal": {"const": 1},
-        "startedAt": {"$ref": "#/$defs/timestamp"},
-        "completedAt": {"$ref": "#/$defs/timestamp"},
-        "sourceVersionBefore": {"$ref": "#/$defs/sourceVersion"},
-        "sourceVersionAfter": {"$ref": "#/$defs/sourceVersion"}
+        "expectedPageId": {"$ref": "#/$defs/id"},
+        "figmaPageNodeId": {"oneOf": [{"$ref": "#/$defs/nodeId"}, {"type": "null"}]},
+        "status": {"$ref": "#/$defs/status"},
+        "reason": {"$ref": "#/$defs/auditReason"}
       }
     },
-    "scopeNode": {
+    "groupIntegrity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "nodeId", "name"],
+      "required": ["groupNodeId", "memberNodeIds", "containsVisualContent", "assetBoundaryNodeId", "status"],
       "properties": {
-        "kind": {"enum": ["page", "component", "visual"]},
-        "nodeId": {"$ref": "#/$defs/nodeId"},
-        "name": {"type": "string", "minLength": 1}
+        "groupNodeId": {"$ref": "#/$defs/nodeId"},
+        "memberNodeIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "containsVisualContent": {"type": "boolean"},
+        "assetBoundaryNodeId": {"oneOf": [{"$ref": "#/$defs/nodeId"}, {"type": "null"}]},
+        "status": {"$ref": "#/$defs/status"},
+        "reason": {"$ref": "#/$defs/auditReason"}
       }
     },
-    "excludedScopeNode": {
+    "imageGroupCoverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "nodeId", "name", "reason"],
+      "required": ["imageNodeId", "ownerGroupNodeId", "expectedGroupNodeId", "status"],
       "properties": {
-        "kind": {"enum": ["page", "component", "visual"]},
-        "nodeId": {"$ref": "#/$defs/nodeId"},
-        "name": {"type": "string", "minLength": 1},
-        "reason": {"type": "string", "minLength": 1}
+        "imageNodeId": {"$ref": "#/$defs/nodeId"},
+        "ownerGroupNodeId": {"oneOf": [{"$ref": "#/$defs/nodeId"}, {"type": "null"}]},
+        "expectedGroupNodeId": {"$ref": "#/$defs/nodeId"},
+        "status": {"$ref": "#/$defs/status"},
+        "reason": {"$ref": "#/$defs/auditReason"}
       }
     },
-    "componentProposal": {
+    "stateCoverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "nodeIds", "decision", "semanticRole", "structureSignatures", "reason", "counterexample", "componentBoundary", "sizeBehavior", "interfaceProposal"],
+      "required": ["screenId", "stateId", "figmaNodeIds", "status"],
       "properties": {
-        "id": {"$ref": "#/$defs/id"},
-        "nodeIds": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/nodeId"}
-        },
-        "decision": {"enum": ["shared-component", "primitive-only", "local-structure"]},
-        "componentName": {"type": "string", "minLength": 1},
-        "semanticRole": {"type": "string", "minLength": 1},
-        "structureSignatures": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/sha256"}
-        },
-        "reason": {"type": "string", "minLength": 1},
-        "counterexample": {"type": "string", "minLength": 1},
-        "componentBoundary": {"$ref": "#/$defs/componentBoundary"},
-        "sizeBehavior": {"$ref": "#/$defs/sizeBehavior"},
-        "interfaceProposal": {"$ref": "#/$defs/interfaceProposal"}
-      },
-      "allOf": [
-        {
-          "if": {"properties": {"decision": {"const": "shared-component"}}, "required": ["decision"]},
-          "then": {"properties": {"componentName": {}}, "required": ["componentName"]},
-          "else": {"not": {"required": ["componentName"]}}
-        }
-      ]
+        "screenId": {"$ref": "#/$defs/id"},
+        "stateId": {"$ref": "#/$defs/id"},
+        "figmaNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "status": {"$ref": "#/$defs/status"},
+        "reason": {"$ref": "#/$defs/auditReason"}
+      }
     },
-    "stateAxis": {
+    "variantCoverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "proposalId", "kind", "name", "values"],
+      "required": ["proposalId", "axisName", "expectedValues", "observedValues", "definitionNodeIds", "status"],
       "properties": {
-        "id": {"$ref": "#/$defs/id"},
         "proposalId": {"$ref": "#/$defs/id"},
-        "kind": {"enum": ["variant", "runtime-state", "interaction-state", "content-override"]},
-        "name": {"type": "string", "minLength": 1},
-        "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "axisName": {"type": "string", "minLength": 1},
+        "expectedValues": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "observedValues": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "definitionNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "status": {"$ref": "#/$defs/status"},
+        "reason": {"$ref": "#/$defs/auditReason"}
       }
     },
-    "componentBoundary": {
+    "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "rootNodeId", "nestedComponentNodeIds"],
+      "required": ["id", "kind", "nodeIds", "message", "resolved"],
       "properties": {
-        "kind": {"enum": ["single-component", "component-set", "nested-components"]},
-        "rootNodeId": {"$ref": "#/$defs/nodeId"},
-        "nestedComponentNodeIds": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/nodeId"}
-        }
-      }
-    },
-    "sizeBehavior": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["width", "height", "wrap"],
-      "properties": {
-        "width": {"$ref": "#/$defs/sizeDimension"},
-        "height": {"$ref": "#/$defs/sizeDimension"},
-        "wrap": {"enum": ["none", "text", "content", "mixed"]}
-      }
-    },
-    "sizeDimension": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["mode", "min", "max"],
-      "properties": {
-        "mode": {"enum": ["fixed", "hug", "fill", "content", "mixed"]},
-        "min": {"type": ["number", "null"], "minimum": 0},
-        "max": {"type": ["number", "null"], "exclusiveMinimum": 0}
-      }
-    },
-    "interfaceProposal": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["properties", "slots", "events"],
-      "properties": {
-        "properties": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfaceProperty"}
-        },
-        "slots": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfaceSlot"}
-        },
-        "events": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfaceEvent"}
-        }
-      }
-    },
-    "interfaceProperty": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "figmaProperty", "litProperty", "litAttribute", "values"],
-      "properties": {
-        "kind": {"enum": ["variant", "text", "boolean", "instance-swap"]},
-        "figmaProperty": {"type": "string", "minLength": 1},
-        "litProperty": {"$ref": "#/$defs/litName"},
-        "litAttribute": {
-          "oneOf": [
-            {"$ref": "#/$defs/litName"},
-            {"type": "null"}
-          ]
-        },
-        "values": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/interfacePropertyValue"}
-        }
-      },
-      "allOf": [
-        {
-          "if": {"properties": {"kind": {"const": "variant"}}, "required": ["kind"]},
-          "then": {
-            "properties": {
-              "litAttribute": {"$ref": "#/$defs/litName"},
-              "values": {"type": "array", "minItems": 1}
-            }
-          }
-        }
-      ]
-    },
-    "interfacePropertyValue": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["figmaValue", "litValue"],
-      "properties": {
-        "figmaValue": {"type": "string", "minLength": 1},
-        "litValue": {"type": "string", "minLength": 1}
-      }
-    },
-    "interfaceSlot": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["figmaProperty", "litSlot", "contentRole"],
-      "properties": {
-        "figmaProperty": {"type": "string", "minLength": 1},
-        "litSlot": {"$ref": "#/$defs/litName"},
-        "contentRole": {"type": "string", "minLength": 1}
-      }
-    },
-    "interfaceEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "trigger", "litEvent"],
-      "properties": {
-        "name": {"type": "string", "minLength": 1},
-        "trigger": {"type": "string", "minLength": 1},
-        "litEvent": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"}
-      }
-    },
-    "litName": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
-    "resourceAmbiguity": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["nodeId", "decision", "reason"],
-      "properties": {
-        "nodeId": {"$ref": "#/$defs/nodeId"},
-        "decision": {"enum": ["asset", "dom-css", "dynamic", "ignored"]},
-        "reason": {"type": "string", "minLength": 1}
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["page", "group", "image-group", "state", "variant", "other"]},
+        "nodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "message": {"type": "string", "minLength": 1},
+        "resolved": {"type": "boolean"}
       }
     },
     "writebackOperation": {
@@ -373,6 +180,122 @@
         "reason": {"type": "string", "minLength": 1}
       }
     },
+    "componentProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "nodeIds", "decision", "structureSignatures", "componentBoundary", "figmaComponentContract"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "nodeIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "decision": {"enum": ["shared-component", "primitive-only", "local-structure"]},
+        "structureSignatures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+        "componentBoundary": {"$ref": "#/$defs/componentBoundary"},
+        "figmaComponentContract": {"$ref": "#/$defs/figmaComponentContract"}
+      }
+    },
+    "componentBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "rootNodeId", "nestedComponentNodeIds"],
+      "properties": {
+        "kind": {"enum": ["single-component", "component-set", "nested-components"]},
+        "rootNodeId": {"$ref": "#/$defs/nodeId"},
+        "nestedComponentNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}}
+      }
+    },
+    "figmaComponentContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "properties", "variantAxes", "contentRegions", "nestedComponentNodeIds", "sizeBehavior"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "properties": {"type": "array", "items": {"$ref": "#/$defs/figmaProperty"}},
+        "variantAxes": {"type": "array", "items": {"$ref": "#/$defs/variantAxis"}},
+        "contentRegions": {"type": "array", "items": {"$ref": "#/$defs/contentRegion"}},
+        "nestedComponentNodeIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nodeId"}},
+        "sizeBehavior": {"$ref": "#/$defs/sizeBehavior"}
+      }
+    },
+    "figmaProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "values"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["variant", "text", "boolean", "instance-swap"]},
+        "values": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "variantAxis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "values"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "contentRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1}
+      }
+    },
+    "sizeBehavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "wrap"],
+      "properties": {
+        "width": {"enum": ["fixed", "hug", "fill", "content", "mixed"]},
+        "height": {"enum": ["fixed", "hug", "fill", "content", "mixed"]},
+        "wrap": {"enum": ["none", "text", "content", "mixed"]}
+      }
+    },
+    "scopeAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sha256",
+        "scopeMode",
+        "sourceVersion",
+        "rootNodeId",
+        "scanInventory",
+        "screenBindings",
+        "includedNodes",
+        "excludedNodes",
+        "pageCoverage",
+        "groupIntegrity",
+        "imageGroupCoverage",
+        "stateCoverage",
+        "variantCoverage",
+        "findings",
+        "writebackPlan",
+        "componentProposals"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "scopeMode": {"enum": ["file", "selection"]},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+        "rootNodeId": {"$ref": "#/$defs/nodeId"},
+        "scanInventory": {"$ref": "#/$defs/scanInventory"},
+        "screenBindings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/screenBinding"}},
+        "includedNodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scopeNode"}},
+        "excludedNodes": {"type": "array", "items": {"$ref": "#/$defs/scopeNode"}},
+        "pageCoverage": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/pageCoverage"}},
+        "groupIntegrity": {"type": "array", "items": {"$ref": "#/$defs/groupIntegrity"}},
+        "imageGroupCoverage": {"type": "array", "items": {"$ref": "#/$defs/imageGroupCoverage"}},
+        "stateCoverage": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stateCoverage"}},
+        "variantCoverage": {"type": "array", "items": {"$ref": "#/$defs/variantCoverage"}},
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+        "writebackPlan": {"type": "array", "items": {"$ref": "#/$defs/writebackOperation"}},
+        "componentProposals": {"type": "array", "items": {"$ref": "#/$defs/componentProposal"}}
+      }
+    },
     "detachApproval": {
       "type": "object",
       "additionalProperties": false,
@@ -380,6 +303,82 @@
       "properties": {
         "instanceNodeId": {"$ref": "#/$defs/nodeId"},
         "blockingReason": {"type": "string", "minLength": 1}
+      }
+    },
+    "writebackApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "sourceVersion", "scopeAuditId", "scopeAuditSha256", "operationIds", "detachApprovals"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
+        "confirmedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+        "scopeAuditId": {"$ref": "#/$defs/id"},
+        "scopeAuditSha256": {"$ref": "#/$defs/sha256"},
+        "operationIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "detachApprovals": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/detachApproval"}}
+      }
+    },
+    "postWriteAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scanInventory", "pageCoverage", "groupIntegrity", "imageGroupCoverage", "stateCoverage", "variantCoverage", "findings"],
+      "properties": {
+        "scanInventory": {"$ref": "#/$defs/scanInventory"},
+        "pageCoverage": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/pageCoverage"}},
+        "groupIntegrity": {"type": "array", "items": {"$ref": "#/$defs/groupIntegrity"}},
+        "imageGroupCoverage": {"type": "array", "items": {"$ref": "#/$defs/imageGroupCoverage"}},
+        "stateCoverage": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stateCoverage"}},
+        "variantCoverage": {"type": "array", "items": {"$ref": "#/$defs/variantCoverage"}},
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+      }
+    },
+    "writebackReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "writebackApprovalId", "writebackApprovalSha256", "sourceVersionBefore", "sourceVersionAfter", "operationIds", "beforeInventorySha256", "afterInventorySha256", "screenshotEvidenceItemIds", "postWriteAudit", "completedAt"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "writebackApprovalId": {"$ref": "#/$defs/id"},
+        "writebackApprovalSha256": {"$ref": "#/$defs/sha256"},
+        "sourceVersionBefore": {"$ref": "#/$defs/sourceVersion"},
+        "sourceVersionAfter": {"$ref": "#/$defs/sourceVersion"},
+        "operationIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "beforeInventorySha256": {"$ref": "#/$defs/sha256"},
+        "afterInventorySha256": {"$ref": "#/$defs/sha256"},
+        "screenshotEvidenceItemIds": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "postWriteAudit": {"$ref": "#/$defs/postWriteAudit"},
+        "completedAt": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "finalFigmaAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "confirmedBy", "confirmedAt", "sourceVersion", "writebackReceiptId", "writebackReceiptSha256", "result"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "confirmedBy": {"$ref": "#/$defs/humanIdentity"},
+        "confirmedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
+        "writebackReceiptId": {"$ref": "#/$defs/id"},
+        "writebackReceiptSha256": {"$ref": "#/$defs/sha256"},
+        "result": {"const": "accepted"}
+      }
+    },
+    "formalCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "startedAt", "completedAt", "sourceVersionBefore", "sourceVersionAfter"],
+      "properties": {
+        "ordinal": {"const": 1},
+        "startedAt": {"$ref": "#/$defs/timestamp"},
+        "completedAt": {"$ref": "#/$defs/timestamp"},
+        "sourceVersionBefore": {"$ref": "#/$defs/sourceVersion"},
+        "sourceVersionAfter": {"$ref": "#/$defs/sourceVersion"}
       }
     },
     "bounds": {
@@ -431,11 +430,12 @@
     "candidateVisualNode": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nodeId", "name", "strategy"],
+      "required": ["nodeId", "name", "strategy", "assetBoundaryNodeId"],
       "properties": {
         "nodeId": {"$ref": "#/$defs/nodeId"},
         "name": {"type": "string", "minLength": 1},
-        "strategy": {"enum": ["asset", "dom-css", "dynamic", "ignored"]},
+        "strategy": {"enum": ["asset", "layout", "dynamic", "ignored"]},
+        "assetBoundaryNodeId": {"oneOf": [{"$ref": "#/$defs/nodeId"}, {"type": "null"}]},
         "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
         "captureScope": {"enum": ["layer", "artwork-subtree"]},
         "containsDynamicContent": {"const": false},
@@ -447,14 +447,15 @@
         {
           "if": {"properties": {"strategy": {"const": "asset"}}, "required": ["strategy"]},
           "then": {
+            "required": ["assetKind", "captureScope", "containsDynamicContent", "consumerTargets", "assetExport"],
             "properties": {
+              "assetBoundaryNodeId": {"$ref": "#/$defs/nodeId"},
               "assetKind": {},
               "captureScope": {},
               "containsDynamicContent": {},
               "consumerTargets": {},
               "assetExport": {}
-            },
-            "required": ["assetKind", "captureScope", "containsDynamicContent", "consumerTargets", "assetExport"]
+            }
           },
           "else": {
             "not": {
@@ -469,8 +470,8 @@
           }
         },
         {
-          "if": {"properties": {"strategy": {"const": "ignored"}}, "required": ["strategy"]},
-          "then": {"properties": {"reason": {}}, "required": ["reason"]}
+          "if": {"properties": {"strategy": {"enum": ["dynamic", "ignored"]}}, "required": ["strategy"]},
+          "then": {"required": ["reason"], "properties": {"reason": {}}}
         }
       ]
     }

@@ -39,7 +39,8 @@
       ".agents/skills/figma-workflow/SKILL.md",
       ".agents/skills/implement-canonical-ui/SKILL.md",
       ".agents/skills/repair-canonical-ui/SKILL.md",
-      ".agents/skills/mockcase/SKILL.md"
+      ".agents/skills/mockcase/SKILL.md",
+      ".agents/skills/ui-case-mock/SKILL.md"
     ]
   },
   "readOrder": [
@@ -267,24 +268,6 @@
         "analysisCommand": "project-consistency"
       },
       {
-        "from": "use-cases",
-        "to": "mockcase",
-        "type": "dependency",
-        "analysisCommand": "project-consistency"
-      },
-      {
-        "from": "canonical-ui-prototype",
-        "to": "mockcase",
-        "type": "dependency",
-        "analysisCommand": "project-consistency"
-      },
-      {
-        "from": "canonical-ui-prototype",
-        "to": "mockcase",
-        "type": "handoff",
-        "profile": "canonical-ui-handoff"
-      },
-      {
         "from": "system-boundary",
         "to": "technical-validation",
         "type": "dependency",
@@ -313,6 +296,24 @@
         "to": "canonical-ui-prototype",
         "type": "dependency",
         "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "use-cases",
+        "to": "mockcase",
+        "type": "dependency",
+        "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "canonical-ui-prototype",
+        "to": "mockcase",
+        "type": "dependency",
+        "analysisCommand": "project-consistency"
+      },
+      {
+        "from": "canonical-ui-prototype",
+        "to": "mockcase",
+        "type": "handoff",
+        "profile": "canonical-ui-handoff"
       },
       {
         "from": "system-boundary",
@@ -718,7 +719,7 @@
       "id": "mockcase-generate",
       "npmScript": "generate:mockcase-candidate",
       "run": "npm run generate:mockcase-candidate",
-      "purpose": "只读生成绑定实际依赖与目标 Suite 摘要的确定性 Candidate",
+      "purpose": "只读生成绑定当前上游与目标 Suite 摘要的确定性增量 Candidate",
       "blocking": true,
       "domain": "mockcase",
       "executor": {
@@ -734,12 +735,47 @@
       "id": "mockcase-static",
       "npmScript": "validate:mockcase",
       "run": "npm run validate:mockcase",
-      "purpose": "验证 MockCase Suite 的 Schema、跨文件引用、输入锁与 MAPPED/STALE 边界",
+      "purpose": "验证 MockCase Suite 的 Schema、跨文件引用、输入锁与 quick 生命周期边界",
       "blocking": true,
       "domain": "mockcase",
       "executor": {
         "kind": "module",
-        "path": ".agents/skills/mockcase/scripts/validate.mjs"
+        "path": ".agents/skills/mockcase/scripts/validate.mjs",
+        "args": ["--require", "quick"]
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "mockcase-readiness-check",
+      "npmScript": "validate:mockcase:readiness",
+      "run": "npm run validate:mockcase:readiness",
+      "purpose": "要求 MockCase 生命周期达到 READY 或 VERIFIED",
+      "blocking": true,
+      "domain": "mockcase",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase/scripts/validate.mjs",
+        "args": ["--require", "readiness"]
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "mockcase-runtime-check",
+      "npmScript": "validate:mockcase:runtime",
+      "run": "npm run validate:mockcase:runtime",
+      "purpose": "要求 MockCase 生命周期达到 VERIFIED",
+      "blocking": true,
+      "domain": "mockcase",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/mockcase/scripts/validate.mjs",
+        "args": ["--require", "runtime"]
       },
       "costClass": "quick",
       "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
@@ -750,13 +786,91 @@
       "id": "test-mockcase",
       "npmScript": "test:mockcase",
       "run": "npm run test:mockcase",
-      "purpose": "验证 MockCase 单一垂直域的契约、原子事务、运行投影与 Review Extension",
+      "purpose": "验证 MockCase 独立垂直域的契约、原子事务、运行投影、评审与生命周期",
       "blocking": true,
       "domain": "mockcase",
       "executor": {
         "kind": "node-test",
         "paths": [
           ".agents/skills/mockcase/tests/*.test.mjs"
+        ]
+      },
+      "costClass": "standard",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 600000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "uc-case-analyze",
+      "npmScript": "analyze:uc-case-coverage",
+      "run": "npm run analyze:uc-case-coverage",
+      "purpose": "只读派生 UC Case 并检查 main、alternate、exception 与 Interaction Flow 的业务路径覆盖",
+      "blocking": true,
+      "domain": "product-design",
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/product-design/scripts/analyze-uc-case-coverage.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "disabled"}
+    },
+    {
+      "id": "ui-case-analyze",
+      "npmScript": "analyze:ui-case-coverage",
+      "run": "npm run analyze:ui-case-coverage",
+      "purpose": "只读检查 UI ViewModel、UI Case 与有限 State Axis Value 覆盖",
+      "blocking": true,
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/ui-case-mock/scripts/analyze.mjs"
+      },
+      "costClass": "quick",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 120000,
+      "cache": {"mode": "disabled"}
+    },
+    {
+      "id": "ui-case-review",
+      "npmScript": "review:ui-case-mock",
+      "run": "npm run review:ui-case-mock",
+      "purpose": "仅在用户明确要求并使用 headed 模式时启动 UI Case Mock 交互评审",
+      "blocking": true,
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/ui-case-mock/scripts/review.mjs"
+      },
+      "costClass": "standard",
+      "allowedContexts": ["local-edit"],
+      "timeoutMs": 1800000,
+      "cache": {"mode": "disabled"}
+    },
+    {
+      "id": "ui-case-verify",
+      "npmScript": "verify:ui-case-mock",
+      "run": "npm run verify:ui-case-mock",
+      "purpose": "无头执行全部 UI Case × Viewport 的公开组件状态投影、视觉断言、截图排除与回滚",
+      "blocking": true,
+      "executor": {
+        "kind": "module",
+        "path": ".agents/skills/ui-case-mock/scripts/verify.mjs"
+      },
+      "costClass": "full",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 600000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "test-ui-case-mock",
+      "npmScript": "test:ui-case-mock",
+      "run": "npm run test:ui-case-mock",
+      "purpose": "验证 Product Design 子能力的 UI Case 模型、投影、评审边界与回滚",
+      "blocking": true,
+      "executor": {
+        "kind": "node-test",
+        "paths": [
+          ".agents/skills/ui-case-mock/tests/*.test.mjs"
         ]
       },
       "costClass": "standard",
@@ -1615,18 +1729,9 @@
       ],
       "version": "1.0.0",
       "costClass": "quick",
-      "allowedContexts": [
-        "local-edit",
-        "explicit-consistency",
-        "handoff",
-        "pull-request",
-        "main",
-        "release"
-      ],
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
       "timeoutMs": 240000,
-      "cache": {
-        "mode": "content-addressed"
-      }
+      "cache": {"mode": "content-addressed"}
     },
     {
       "id": "mockcase-quick",
@@ -1636,18 +1741,48 @@
       ],
       "version": "1.0.0",
       "costClass": "quick",
-      "allowedContexts": [
-        "local-edit",
-        "explicit-consistency",
-        "handoff",
-        "pull-request",
-        "main",
-        "release"
-      ],
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
       "timeoutMs": 240000,
-      "cache": {
-        "mode": "content-addressed"
-      }
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "mockcase-readiness",
+      "commands": [
+        "harness",
+        "mockcase-readiness-check",
+        "test-mockcase"
+      ],
+      "version": "2.0.0",
+      "costClass": "standard",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 900000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "mockcase-runtime",
+      "commands": [
+        "harness",
+        "mockcase-runtime-check",
+        "test-mockcase"
+      ],
+      "version": "2.0.0",
+      "costClass": "standard",
+      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
+      "timeoutMs": 900000,
+      "cache": {"mode": "content-addressed"}
+    },
+    {
+      "id": "mockcase-main",
+      "commands": [
+        "harness",
+        "mockcase-runtime-check",
+        "test-mockcase"
+      ],
+      "version": "2.0.0",
+      "costClass": "standard",
+      "allowedContexts": ["main", "release"],
+      "timeoutMs": 900000,
+      "cache": {"mode": "content-addressed"}
     },
     {
       "id": "repository-harness",
@@ -1789,6 +1924,7 @@
         "canonical-ui-build",
         "canonical-ui-contract-tests",
         "canonical-ui-runtime",
+        "ui-case-verify",
         "product-strict"
       ],
       "version": "3.0.0",
@@ -1838,6 +1974,7 @@
         "canonical-ui-build",
         "canonical-ui-contract-tests",
         "canonical-ui-runtime",
+        "ui-case-verify",
         "product-strict"
       ],
       "version": "3.0.0",
@@ -2118,45 +2255,6 @@
       }
     },
     {
-      "id": "mockcase-readiness",
-      "commands": [
-        "harness",
-        "mockcase-static",
-        "test-mockcase"
-      ],
-      "version": "1.0.0",
-      "costClass": "standard",
-      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
-      "timeoutMs": 900000,
-      "cache": {"mode": "content-addressed"}
-    },
-    {
-      "id": "mockcase-runtime",
-      "commands": [
-        "harness",
-        "mockcase-static",
-        "test-mockcase"
-      ],
-      "version": "1.0.0",
-      "costClass": "standard",
-      "allowedContexts": ["local-edit", "explicit-consistency", "handoff", "pull-request", "main", "release"],
-      "timeoutMs": 900000,
-      "cache": {"mode": "content-addressed"}
-    },
-    {
-      "id": "mockcase-main",
-      "commands": [
-        "harness",
-        "mockcase-static",
-        "test-mockcase"
-      ],
-      "version": "1.0.0",
-      "costClass": "standard",
-      "allowedContexts": ["main", "release"],
-      "timeoutMs": 900000,
-      "cache": {"mode": "content-addressed"}
-    },
-    {
       "id": "use-cases-handoff",
       "commands": [
         "harness",
@@ -2246,6 +2344,7 @@
         "canonical-ui-build",
         "canonical-ui-contract-tests",
         "canonical-ui-runtime",
+        "ui-case-verify",
         "product-strict"
       ],
       "version": "3.0.0",
@@ -2289,6 +2388,7 @@
         "test-harness",
         "test-product-fast",
         "test-product-slow",
+        "ui-case-verify",
         "product-strict",
         "test-architecture",
         "architecture-strict"
@@ -2375,7 +2475,7 @@
           "mockcase-suite"
         ],
         "areas": [
-          "mockcase-suites"
+          "mockcase-models"
         ]
       },
       "defaultProfile": "mockcase-quick",
@@ -2716,7 +2816,39 @@
       "code": "AIH_ASSET_CLASSIFICATION_INCOMPLETE",
       "severity": "blocker",
       "owner": "product-design",
-      "meaning": "确认范围内的视觉候选节点缺少唯一 asset、dom-css、dynamic 或 ignored 策略",
+      "meaning": "确认范围内的视觉候选节点缺少唯一 asset、layout、dynamic 或 ignored 策略",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_FIGMA_AUDIT_INCOMPLETE",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Figma Page、Group、图片归组、State 或 Variant 审计存在未解决项",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_FIGMA_WRITEBACK_UNAPPROVED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Figma 写回没有人工批准、哈希不闭合或实际操作超出批准清单",
+      "domain": "product-design",
+      "gateClass": "safety-structure"
+    },
+    {
+      "code": "AIH_FIGMA_FINAL_ACCEPTANCE_REQUIRED",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "Figma 写回后缺少同版本、同节点清单和同截图证据的最终人工验收",
+      "domain": "product-design",
+      "gateClass": "domain-diagnostic"
+    },
+    {
+      "code": "AIH_FIGMA_VISUAL_POLICY_VIOLATION",
+      "severity": "blocker",
+      "owner": "product-design",
+      "meaning": "含视觉内容的 Figma 节点被错误分类为 layout，或 Group 资产边界被拆分",
       "domain": "product-design",
       "gateClass": "domain-diagnostic"
     },
@@ -2748,7 +2880,7 @@
       "code": "AIH_ASSET_CSS_BYPASS",
       "severity": "blocker",
       "owner": "product-design",
-      "meaning": "已分类 asset 的消费目标没有加载并使用正式 Asset，疑似以 DOM/CSS 近似旁路",
+      "meaning": "已登记 Asset 未实际加载，或 Figma 覆盖区域使用 CSS、伪元素、内联 SVG、Canvas 或 DOM 图形替代来源视觉",
       "domain": "product-design",
       "gateClass": "domain-diagnostic"
     },
@@ -3238,139 +3370,99 @@
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_UPSTREAM_GAP",
+      "code": "AIH_UC_CASE_COVERAGE_INCOMPLETE",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "正式 Use Case 或 Scenario 缺少生成唯一 State Matrix 公开属性投影所需的业务结果、恢复状态或显式绑定事实",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "派生的 UC Case 没有完整覆盖 Use Case main、alternate 或 exception 步骤对应的 Interaction Flow",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_CANDIDATE_STALE",
+      "code": "AIH_UI_CASE_CONTRACT_INVALID",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 候选绑定的 Schema、Generator、Use Cases、Canonical UI、目标 Suite 或输入哈希已变化",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI ViewModel 或 UI Case 包含未知 Route、Page Instance、State Matrix Entry、Viewport 或重复 Override",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_APPLY_FAILED",
+      "code": "AIH_UI_CASE_COVERAGE_INCOMPLETE",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 候选未能原子应用到 MockCase Suite",
-      "gateClass": "safety-structure"
-    },
-    {
-      "code": "AIH_MOCKCASE_CONTRACT_INVALID",
-      "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 或 Effect 的 Route、Scenario、实例、Data Binding、Behavior 或 Matrix 引用无效",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI Case 未覆盖页面组件实例的默认 Entry 或某个有限 State Axis Value",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_COVERAGE_FAILED",
+      "code": "AIH_UI_CASE_VISUAL_TRACE_INVALID",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 默认 Case 或 business Scenario 覆盖不符合领域规则",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "Component Visual Case 无法解析到唯一 Component Contract 或合法 State Matrix Entry",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_COVERAGE_INCOMPLETE",
+      "code": "AIH_UI_CASE_TARGET_MISSING",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "Scoped MockCase Suite 尚未覆盖全部 Canonical UI Scenario，因此只能处于 PARTIAL",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI Case Mock 在正式 Route 中找不到登记的页面组件实例或 Contract 身份",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_PROJECTION_UNSUPPORTED",
+      "code": "AIH_UI_CASE_PROJECTION_CONFLICT",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "State Matrix 绑定无法收敛为 Component Contract 声明的公开 Lit Property",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "一次 UI Case Mock 请求试图同时投影多个页面组合态",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_PROPERTY_INVALID",
+      "code": "AIH_UI_CASE_ASSERTION_FAILED",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 投影引用未知公开属性、无效 Fixture Pointer 或类型不匹配的属性值",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI Case 投影后的 Render 或 Source Parity Assertion 未通过",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_PROJECTION_CONFLICT",
+      "code": "AIH_UI_CASE_PLUGIN_FAILED",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "同一正式组件公开属性收到值不一致的 State Matrix 或 Fixture 投影",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI Case Mock Review Extension 未能加载、挂载或运行",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_STATE_MISMATCH",
+      "code": "AIH_UI_CASE_REVIEW_CANCELLED",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 声明的 State Matrix 结果与实际组件状态不一致",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "用户取消了本次 UI Case Mock 交互评审",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_TARGET_MISSING",
+      "code": "AIH_UI_CASE_ROLLBACK_FAILED",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 目标组件实例或公开 Component Contract 身份在当前 Route 中不存在",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI Case 切换、Route 变化或退出时未完整恢复公开 Property、Attribute 或 Slot 基线",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_CONFLICT",
+      "code": "AIH_UI_CASE_TIMEOUT",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "多个 MockCase 要求同一组件实例进入互斥 State Matrix Entry",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "UI Case 的 Lit 稳定等待或正式状态观测超时",
       "gateClass": "domain-diagnostic"
     },
     {
-      "code": "AIH_MOCKCASE_PLUGIN_FAILED",
+      "code": "AIH_UI_CASE_BROWSER_MISSING",
       "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase Review Plugin 未能加载、挂载或完成运行事务",
-      "gateClass": "domain-diagnostic"
-    },
-    {
-      "code": "AIH_MOCKCASE_REVIEW_CANCELLED",
-      "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "用户取消了可视 MockCase 评审，因此不形成新的 READY Evidence",
-      "gateClass": "domain-diagnostic"
-    },
-    {
-      "code": "AIH_MOCKCASE_TOOL_MISSING",
-      "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "已请求 MockCase Review 的页面未加载唯一 MockCase Extension，或工具隔离失效",
-      "gateClass": "domain-diagnostic"
-    },
-    {
-      "code": "AIH_MOCKCASE_ROLLBACK_FAILED",
-      "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 失败事务未能在错误事件前恢复全部受影响实例、属性与原激活集合",
-      "gateClass": "domain-diagnostic"
-    },
-    {
-      "code": "AIH_MOCKCASE_TIMEOUT",
-      "severity": "blocker",
-      "owner": "mockcase",
-      "domain": "mockcase",
-      "meaning": "MockCase 事务或组件状态观测在稳定超时内未完成",
+      "owner": "product-design",
+      "domain": "product-design",
+      "meaning": "本地缺少 Chromium；必须由用户显式运行浏览器安装命令",
       "gateClass": "domain-diagnostic"
     },
     {
@@ -3515,6 +3607,24 @@
       "gateClass": "safety-structure",
       "meaning": "Handoff Receipt 完整性校验失败。"
     },
+    {"code": "AIH_MOCKCASE_UPSTREAM_GAP", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "正式 Use Case 或 Canonical UI 缺少生成 MockCase 所需的权威业务事实", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_CANDIDATE_STALE", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "Candidate 绑定的上游、目标 Suite 或输入摘要已变化", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_APPLY_FAILED", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "Candidate 未能原子应用到 MockCase Suite", "gateClass": "safety-structure"},
+    {"code": "AIH_MOCKCASE_CONTRACT_INVALID", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "MockCase Suite 的引用或契约无效", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_COVERAGE_FAILED", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "MockCase 默认 Case 或业务 Scenario 覆盖不符合规则", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_COVERAGE_INCOMPLETE", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "Scoped Suite 尚未覆盖全部 Canonical UI Scenario", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_PROJECTION_UNSUPPORTED", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "MockCase 绑定无法投影到公开组件接口", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_PROPERTY_INVALID", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "MockCase 投影引用未知属性、Fixture 或不匹配的值", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_PROJECTION_CONFLICT", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "同一目标收到互相冲突的 MockCase 投影", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_STATE_MISMATCH", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "声明的预期状态与实际组件状态不一致", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_TARGET_MISSING", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "目标 Route、组件实例或公开 Contract 不存在", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_CONFLICT", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "多个 MockCase 要求互斥状态", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_PLUGIN_FAILED", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "Review Extension 未能加载、挂载或完成事务", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_REVIEW_CANCELLED", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "用户取消可视评审，不能形成 READY Evidence", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_TOOL_MISSING", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "页面未加载唯一 MockCase Extension 或隔离失效", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_ROLLBACK_FAILED", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "事务未能恢复全部公开状态、Behavior 与 Case 集合", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_TIMEOUT", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "MockCase 事务或组件状态观测超时", "gateClass": "domain-diagnostic"},
+    {"code": "AIH_MOCKCASE_LIFECYCLE_NOT_READY", "severity": "blocker", "owner": "mockcase", "domain": "mockcase", "meaning": "MockCase 生命周期未达到当前 Profile 要求的 READY 或 VERIFIED", "gateClass": "domain-diagnostic"},
     {
       "code": "AIH_RECEIPT_STATE_INVALID",
       "severity": "blocker",

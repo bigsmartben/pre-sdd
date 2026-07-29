@@ -31,6 +31,13 @@ function sameIds(actual, expected) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function lifecycleSatisfies(required, lifecycle) {
+  if (required === 'quick') return ['PARTIAL', 'MAPPED', 'READY', 'VERIFIED'].includes(lifecycle);
+  if (required === 'readiness') return ['READY', 'VERIFIED'].includes(lifecycle);
+  if (required === 'runtime') return lifecycle === 'VERIFIED';
+  throw Object.assign(new Error('--require 只允许 quick、readiness 或 runtime。'), { code: 'AIH_COMMAND_INVALID' });
+}
+
 function evidenceFactsMatch(mode, evidence, runtime) {
   const byKind = (kind) => evidence.facts.filter((item) => item.kind === kind);
   const descriptors = byKind('descriptor');
@@ -49,9 +56,12 @@ function evidenceFactsMatch(mode, evidence, runtime) {
       && actualCases.every((item) => {
         const expected = expectedCases.get(item.caseId);
         return expected?.routeId === item.routeId
-          && expected?.projectionDigest === item.projectionDigest;
+          && expected?.projectionDigest === item.projectionDigest
+          && item.applyStatus === 'PASS';
       })
       && sameIds(disposeRouteIds, expectedRouteIds)
+      && byKind('dispose').every((item) =>
+        item.rollbackStatus === 'PASS' && item.beforeDigest === item.afterDigest)
       && byKind('review-host').length === 0
       && byKind('review-decision').length === 0;
   }
@@ -66,7 +76,9 @@ function evidenceFactsMatch(mode, evidence, runtime) {
       const available = new Map(runtime.cases
         .filter((item) => item.routeId === decision.routeId)
         .map((item) => [item.id, item.projectionDigest]));
-      return decision.caseProjections.length > 0
+      return decision.applyStatus === 'PASS'
+        && decision.rollbackStatus === 'PASS'
+        && sameIds(decision.caseProjections.map((item) => item.caseId), [...available.keys()])
         && decision.caseProjections.every((item) =>
           available.get(item.caseId) === item.projectionDigest);
     });
@@ -129,10 +141,17 @@ try {
   const stage = project.stages?.mockcase;
   if (!stage) throw Object.assign(new Error('项目未绑定 mockcase Stage。'), { code: 'AIH_PROJECT_BINDING_INVALID' });
   const requestedActor = argument('--actor');
+  const requiredLifecycle = argument('--require') || 'quick';
   if (requestedActor && !/^ACTOR-[0-9]{3}$/.test(requestedActor)) {
     throw Object.assign(new Error('--actor 必须是 ACTOR-NNN。'), { code: 'AIH_SCOPE_UNRESOLVED' });
   }
   if (stage.status === 'uninitialized') {
+    if (requiredLifecycle !== 'quick') {
+      throw Object.assign(
+        new Error(`MockCase 未初始化，不能通过 ${requiredLifecycle} 门禁。`),
+        { code: 'AIH_MOCKCASE_LIFECYCLE_NOT_READY' },
+      );
+    }
     result = { status: 'PASS', operation: 'validate-mockcase', lifecycle: 'UNINITIALIZED', actors: [], blockers: [] };
   } else {
     const paths = artifactPaths(project, 'mockcase-suite', 'mockcase');
@@ -146,11 +165,18 @@ try {
     for (const actor of actorIds) {
       const context = await workspaceContext(actor, { allowMissingSuite: false });
       const { coverage } = await validateSuiteData(context);
-      actors.push({ actor, suiteDigest: context.suiteDigest, lifecycle: await lifecycleFor(context, coverage) });
+      const lifecycle = await lifecycleFor(context, coverage);
+      if (!lifecycleSatisfies(requiredLifecycle, lifecycle)) {
+        throw Object.assign(
+          new Error(`MockCase 生命周期不满足 ${requiredLifecycle} 门禁：${actor} / ${lifecycle}`),
+          { code: 'AIH_MOCKCASE_LIFECYCLE_NOT_READY' },
+        );
+      }
+      actors.push({ actor, suiteDigest: context.suiteDigest, lifecycle });
     }
     const lifecycles = new Set(actors.map((item) => item.lifecycle));
     const lifecycle = lifecycles.size === 1 ? actors[0].lifecycle : 'STALE';
-    result = { status: 'PASS', operation: 'validate-mockcase', lifecycle, actors, blockers: [] };
+    result = { status: 'PASS', operation: 'validate-mockcase', requiredLifecycle, lifecycle, actors, blockers: [] };
   }
 } catch (error) {
   result = failure(error, 'validate-mockcase');

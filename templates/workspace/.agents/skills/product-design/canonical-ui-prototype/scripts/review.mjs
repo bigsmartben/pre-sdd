@@ -144,7 +144,13 @@ async function main() {
       continue;
     }
     const result = executeRegisteredCommand(root, command, { arguments: command.executor.kind === 'module' ? ['--json'] : [], timeout: 240_000 });
-    validation.push({ id: command.id, status: result.status, blockers: result.blockers || [] });
+    const parsed = parseJsonOutput(result.stdout);
+    validation.push({
+      id: command.id,
+      status: result.status,
+      blockers: result.blockers || [],
+      ...(result.status !== 'PASS' && parsed?.blockers ? { details: parsed.blockers } : {}),
+    });
     if (command.id === 'canonical-ui-runtime') runtime = parseJsonOutput(result.stdout);
     if (result.status !== 'PASS') failed = true;
   }

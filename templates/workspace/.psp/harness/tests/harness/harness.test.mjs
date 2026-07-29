@@ -182,14 +182,18 @@ test('Canonical UI Review registers Feedback Packet input and Review Evidence 2.
   assert.ok(manifest.blockers.some((item) => item.code === 'AIH_CANONICAL_UI_FEEDBACK_STALE'));
 });
 
-test('Harness registers MockCase as an isolated vertical domain', () => {
-  const artifact = manifest.artifactRegistry.find((item) => item.id === 'mockcase-suite');
-  assert.equal(artifact.domain, 'mockcase');
-  assert.equal(artifact.authorityKind, 'area-set');
-  assert.equal(manifest.operations.find((item) => item.id === 'apply-mockcase-candidate').kind, 'artifact');
-  assert.equal(manifest.operations.find((item) => item.id === 'project-mockcase-runtime').kind, 'projection-refresh');
-  assert.equal(manifest.operations.find((item) => item.id === 'review-mockcase').kind, 'review');
-  assert.equal(manifest.operations.find((item) => item.id === 'verify-mockcase').kind, 'verification');
+test('Harness keeps UI Case Mock as Product Design child commands without an independent lifecycle', () => {
+  assert.equal(manifest.artifactRegistry.some((item) => item.id.includes('ui-case')), false);
+  assert.equal(manifest.domainRegistry.some((item) => item.id.includes('ui-case')), false);
+  assert.equal(manifest.operations.some((item) => item.id.includes('ui-case')), false);
+  assert.equal(manifest.projectDag.nodes.some((item) => item.id.includes('ui-case')), false);
+  assert.deepEqual(
+    manifest.commands.filter((item) => item.id.startsWith('ui-case-')).map((item) => item.id).sort(),
+    ['ui-case-analyze', 'ui-case-review', 'ui-case-verify'],
+  );
+  assert.ok(
+    manifest.validationProfiles.find((item) => item.id === 'product-delivery').commands.includes('ui-case-verify'),
+  );
 });
 
 test('Harness requires one active Canonical UI generated-support refresh operation', async () => {

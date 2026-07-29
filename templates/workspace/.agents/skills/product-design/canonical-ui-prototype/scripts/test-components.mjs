@@ -194,14 +194,17 @@ try {
       location: contract.id,
     });
     if (defaultHost) {
-      const contentBindings = new Set(
-        model.stateAxes
-          .filter((axis) => axis.componentContractId === contract.id && axis.kind === 'content-override')
-          .map((axis) => axis.renderBinding.name)
-          .filter(Boolean),
-      );
+      const contentAxes = model.stateAxes
+        .filter((axis) => axis.componentContractId === contract.id && axis.kind === 'content-override');
+      const contentBindings = new Set(contentAxes.map((axis) => axis.renderBinding.name).filter(Boolean));
+      const contentBoundProperties = new Set(contentAxes.flatMap((axis) => {
+        if (axis.renderBinding.kind === 'lit-property') return [axis.renderBinding.name];
+        if (axis.renderBinding.kind !== 'lit-attribute') return [];
+        const attribute = contract.attributes.find((item) => item.name === axis.renderBinding.name);
+        return attribute ? [attribute.propertyName] : [];
+      }));
       for (const property of contract.properties) {
-        if (!Object.hasOwn(property, 'defaultValue') || contentBindings.has(property.name)) continue;
+        if (!Object.hasOwn(property, 'defaultValue') || contentBoundProperties.has(property.name)) continue;
         const actual = await defaultHost.evaluate((node, name) => node[name], property.name);
         if (JSON.stringify(actual) !== JSON.stringify(property.defaultValue)) {
           block('AIH_COMPONENT_CONTRACT_TEST_FAILED', 'Property 默认值不匹配：' + contract.id + ' / ' + property.name, contract.id, true);

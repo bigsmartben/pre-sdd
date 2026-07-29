@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -38,6 +38,14 @@ async function exists(path) {
   }
 }
 
+async function waitForReady(path, attempts = 50) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (await exists(path)) return true;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  }
+  return false;
+}
+
 function runNpm(commandArgs, cwd) {
   if (process.env.npm_execpath) {
     return run(process.execPath, [process.env.npm_execpath, ...commandArgs], { cwd });
@@ -63,6 +71,16 @@ async function dependencyRoot() {
   if (await exists(ready)) return cache;
 
   await mkdir(cacheParent, { recursive: true });
+  if (await exists(cache) && !await exists(ready)) {
+    const stale = join(cacheParent, '.stale-' + randomUUID());
+    try {
+      await rename(cache, stale);
+      await rm(stale, { recursive: true, force: true });
+    } catch (error) {
+      if (!['ENOENT', 'EEXIST', 'ENOTEMPTY', 'EPERM'].includes(error.code)) throw error;
+      if (await waitForReady(ready)) return cache;
+    }
+  }
   const staging = await mkdtemp(join(cacheParent, '.install-'));
   try {
     await Promise.all([
@@ -80,7 +98,10 @@ async function dependencyRoot() {
     try {
       await rename(staging, cache);
     } catch (error) {
-      if (!['EEXIST', 'ENOTEMPTY'].includes(error.code) || !await exists(ready)) throw error;
+      // Windows reports EPERM when another process wins the atomic directory
+      // publication race. Wait briefly because its ready marker may not yet be
+      // observable when rename returns.
+      if (!['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(error.code) || !await waitForReady(ready)) throw error;
     }
     return cache;
   } finally {

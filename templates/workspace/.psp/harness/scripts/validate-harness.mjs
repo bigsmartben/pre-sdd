@@ -52,6 +52,10 @@ const REQUIRED_CODES = [
   'AIH_STAGE_ALREADY_INITIALIZED',
   'AIH_DOMAIN_BOUNDARY_INVALID',
   'AIH_ASSET_CLASSIFICATION_INCOMPLETE',
+  'AIH_FIGMA_AUDIT_INCOMPLETE',
+  'AIH_FIGMA_WRITEBACK_UNAPPROVED',
+  'AIH_FIGMA_FINAL_ACCEPTANCE_REQUIRED',
+  'AIH_FIGMA_VISUAL_POLICY_VIOLATION',
   'AIH_ASSET_MISSING',
   'AIH_ASSET_HASH_MISMATCH',
   'AIH_ASSET_CLOSURE_FAILED',
@@ -218,7 +222,14 @@ if (project && manifest) {
           : [];
         const areaAuthorityIsUserArtifact = ['area', 'area-set'].includes(registry.authorityKind)
           && contract?.spec?.outputRole === 'user-artifact';
-        if (projectValid && !areaAuthorityIsUserArtifact && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)) {
+        const areaAuthorityIsInternalModelSet = registry.authorityKind === 'area-set'
+          && contract?.spec?.outputRole === 'internal-model-set';
+        if (
+          projectValid
+          && !areaAuthorityIsUserArtifact
+          && !areaAuthorityIsInternalModelSet
+          && !boundOutputs.some((output) => output.role === contract?.spec?.outputRole)
+        ) {
           block('AIH_CONTRACT_INVALID', 'Contract outputRole 与项目 Artifact binding 不一致。', registry.contract);
         }
         const registeredProjections = new Map((registry.projections || []).map((item) => [item.id, item]));

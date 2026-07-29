@@ -1,4 +1,5 @@
 import { LitElement, css, html } from 'lit';
+import { selectMatchingBehavior } from './matcher.mjs';
 
 type ProjectionSource =
   | { kind: 'state-matrix'; axisId: string; valueId: string }
@@ -8,6 +9,12 @@ type RuntimeEffect = {
   targetInstanceId: string;
   componentContractId: string;
   stateMatrixEntryId: string;
+  behaviorIds: string[];
+  activation: {
+    kind: 'request' | 'control-event' | 'input';
+    controlId?: string;
+    value?: string;
+  };
   assignments: Array<{
     propertyName: string;
     value: unknown;
@@ -31,6 +38,22 @@ type Runtime = {
   actor: string;
   sourceDigests: { suite: string };
   routes: Array<{ id: string; path: string }>;
+  fixtures: Array<{ id: string; payload: unknown }>;
+  behaviors: Array<{
+    id: string;
+    request: {
+      method: string;
+      path: string;
+      query?: Record<string, string>;
+      headers?: Record<string, string>;
+    };
+    response: {
+      fixtureId: string;
+      status: number;
+      headers?: Record<string, string>;
+      delayMs?: number;
+    };
+  }>;
   cases: RuntimeCase[];
 };
 
@@ -49,11 +72,19 @@ type ReviewViewError = {
 type CompletedRoute = {
   routeId: string;
   caseProjections: Array<{ caseId: string; projectionDigest: string }>;
+  applyStatus: 'PASS';
+  rollbackStatus: 'PASS';
 };
 
 type Baseline = {
   element: HTMLElement & Record<string, unknown>;
   values: Map<string, unknown>;
+};
+
+type ControlSnapshot = {
+  element: HTMLElement;
+  value?: string;
+  textContent: string | null;
 };
 
 declare const __PSP_MOCKCASE_RUNTIME__: Runtime;
@@ -73,6 +104,10 @@ let routeFrame: number | null = null;
 let routeWindow: Window | null = null;
 let routeNavigationListener: (() => void) | null = null;
 const baselines = new Map<string, Baseline>();
+const controlBaselines = new Map<HTMLElement, ControlSnapshot>();
+let activeBehaviorIds = new Set<string>();
+let originalFetch: typeof globalThis.fetch | null = null;
+const reviewedCaseProjections = new Map<string, string>();
 
 function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code });
@@ -112,6 +147,37 @@ function currentCases(host: ReviewHost): RuntimeCase[] {
   return runtime.cases.filter((item) => item.routeId === routeId);
 }
 
+function matchingBehavior(input: RequestInfo | URL, init?: RequestInit): Runtime['behaviors'][number] | null {
+  return selectMatchingBehavior(
+    runtime.behaviors,
+    activeBehaviorIds,
+    input,
+    init,
+    globalThis.location.href,
+  );
+}
+
+function responseFor(behavior: Runtime['behaviors'][number]): Response {
+  const fixture = runtime.fixtures.find((item) => item.id === behavior.response.fixtureId);
+  if (!fixture) fail('AIH_MOCKCASE_CONTRACT_INVALID', `Fixture 不存在：${behavior.response.fixtureId}`);
+  return new Response(JSON.stringify(fixture.payload), {
+    status: behavior.response.status,
+    headers: { 'content-type': 'application/json', ...(behavior.response.headers ?? {}) },
+  });
+}
+
+async function interceptedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const behavior = matchingBehavior(input, init);
+  if (!behavior) {
+    if (!originalFetch) fail('AIH_MOCKCASE_PLUGIN_FAILED', '原始 Fetch 未初始化。');
+    return originalFetch(input, init);
+  }
+  if (behavior.response.delayMs) {
+    await new Promise((resolve) => setTimeout(resolve, behavior.response.delayMs));
+  }
+  return responseFor(behavior);
+}
+
 function routeHref(host: ReviewHost, path: string): string {
   const url = new URL(path, host.location.href);
   url.searchParams.set('review', '1');
@@ -127,7 +193,9 @@ function readCompletedRoutes(host: ReviewHost): CompletedRoute[] {
     return parsed.filter((item) =>
       item
       && typeof item.routeId === 'string'
-      && Array.isArray(item.caseProjections));
+      && Array.isArray(item.caseProjections)
+      && item.applyStatus === 'PASS'
+      && item.rollbackStatus === 'PASS');
   } catch {
     return [];
   }
@@ -149,6 +217,49 @@ function targetElement(host: ReviewHost, effect: RuntimeEffect): HTMLElement & R
     fail('AIH_MOCKCASE_TARGET_MISSING', `组件实例的公开 Contract 身份不匹配：${effect.targetInstanceId}`);
   }
   return element;
+}
+
+function activationControl(host: ReviewHost, effect: RuntimeEffect): HTMLElement | null {
+  if (!effect.activation.controlId) return null;
+  const selector = `[data-control-id="${CSS.escape(effect.activation.controlId)}"]`;
+  const target = targetElement(host, effect);
+  const control = target.querySelector<HTMLElement>(selector)
+    ?? (target.shadowRoot ? queryPublicElement(target.shadowRoot, selector) : null)
+    ?? queryPublicElement(host.document, selector);
+  if (!control) fail('AIH_MOCKCASE_TARGET_MISSING', `Control 不存在：${effect.activation.controlId}`);
+  return control;
+}
+
+function snapshotControl(element: HTMLElement): ControlSnapshot {
+  const value = element instanceof HTMLInputElement
+    || element instanceof HTMLSelectElement
+    || element instanceof HTMLTextAreaElement
+    ? element.value
+    : undefined;
+  return { element, ...(value === undefined ? {} : { value }), textContent: element.textContent };
+}
+
+function rememberControlBaseline(element: HTMLElement): void {
+  if (!controlBaselines.has(element)) controlBaselines.set(element, snapshotControl(element));
+}
+
+function restoreControl(snapshot: ControlSnapshot): void {
+  if (
+    snapshot.value !== undefined
+    && (
+      snapshot.element instanceof HTMLInputElement
+      || snapshot.element instanceof HTMLSelectElement
+      || snapshot.element instanceof HTMLTextAreaElement
+    )
+  ) {
+    snapshot.element.value = snapshot.value;
+  } else {
+    snapshot.element.textContent = snapshot.textContent;
+  }
+}
+
+function restoreControlBaselines(): void {
+  for (const snapshot of [...controlBaselines.values()].reverse()) restoreControl(snapshot);
 }
 
 function rememberBaseline(effect: RuntimeEffect, element: HTMLElement & Record<string, unknown>): void {
@@ -190,6 +301,45 @@ async function restoreBaseline(targetInstanceId: string): Promise<void> {
     baseline.element[propertyName] = cloneValue(value);
   }
   await settle(baseline.element);
+}
+
+async function activateEffect(host: ReviewHost, effect: RuntimeEffect): Promise<void> {
+  const target = targetElement(host, effect);
+  const control = activationControl(host, effect);
+  if (control) rememberControlBaseline(control);
+  if (effect.activation.kind === 'request') {
+    for (const behaviorId of effect.behaviorIds) {
+      const behavior = runtime.behaviors.find((item) => item.id === behaviorId);
+      if (!behavior) fail('AIH_MOCKCASE_CONTRACT_INVALID', `Behavior 不存在：${behaviorId}`);
+      const requestUrl = new URL(behavior.request.path, globalThis.location.origin);
+      for (const [key, value] of Object.entries(behavior.request.query ?? {})) {
+        requestUrl.searchParams.set(key, value);
+      }
+      const response = await globalThis.fetch(requestUrl, {
+        method: behavior.request.method,
+        headers: behavior.request.headers,
+      });
+      target.dispatchEvent(new CustomEvent('psp:review-network-response', {
+        bubbles: true,
+        composed: true,
+        detail: { response: response.clone(), behaviorId },
+      }));
+    }
+  } else if (effect.activation.kind === 'input') {
+    if (
+      control instanceof HTMLInputElement
+      || control instanceof HTMLSelectElement
+      || control instanceof HTMLTextAreaElement
+    ) {
+      control.value = effect.activation.value ?? '';
+    } else if (control) {
+      control.textContent = effect.activation.value ?? '';
+    }
+    control?.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true }));
+    control?.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  } else {
+    control?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+  }
 }
 
 function observedStateIds(element: HTMLElement): Set<string> {
@@ -264,6 +414,7 @@ function selectedCases(host: ReviewHost, ids: readonly string[]): RuntimeCase[] 
 
 function assertNoConflict(cases: RuntimeCase[]): void {
   const values = new Map<string, string>();
+  const requestMatchers = new Map<string, string>();
   for (const item of cases) {
     for (const effect of item.effects) {
       for (const assignment of effect.assignments) {
@@ -275,13 +426,31 @@ function assertNoConflict(cases: RuntimeCase[]): void {
         }
         values.set(key, value);
       }
+      for (const behaviorId of effect.behaviorIds) {
+        const behavior = runtime.behaviors.find((entry) => entry.id === behaviorId);
+        if (!behavior) fail('AIH_MOCKCASE_CONTRACT_INVALID', `Behavior 不存在：${behaviorId}`);
+        const matcher = JSON.stringify([
+          behavior.request.method,
+          behavior.request.path,
+          Object.entries(behavior.request.query ?? {}).sort(),
+          Object.entries(behavior.request.headers ?? {}).sort(),
+        ]);
+        const previous = requestMatchers.get(matcher);
+        if (previous && previous !== behaviorId) {
+          fail('AIH_MOCKCASE_CONFLICT', `Behavior Request Matcher 冲突：${previous} / ${behaviorId}`);
+        }
+        requestMatchers.set(matcher, behaviorId);
+      }
     }
   }
 }
 
 async function apply(host: ReviewHost, ids: readonly string[]) {
   if (disposed) fail('AIH_MOCKCASE_PLUGIN_FAILED', 'Extension 已释放。');
-  const previousCaseIds = activeCaseIds;
+  const previousCaseIds = [...activeCaseIds];
+  const previousBehaviorIds = new Set(activeBehaviorIds);
+  const propertySnapshots = new Map<string, Baseline>();
+  const controlSnapshots = new Map<HTMLElement, ControlSnapshot>();
   try {
     const cases = selectedCases(host, ids);
     assertNoConflict(cases);
@@ -289,6 +458,18 @@ async function apply(host: ReviewHost, ids: readonly string[]) {
     for (const item of [...previousCases, ...cases]) {
       for (const effect of item.effects) {
         const element = targetElement(host, effect);
+        const transaction = propertySnapshots.get(effect.targetInstanceId) ?? {
+          element,
+          values: new Map<string, unknown>(),
+        };
+        for (const assignment of effect.assignments) {
+          if (!transaction.values.has(assignment.propertyName)) {
+            transaction.values.set(assignment.propertyName, cloneValue(element[assignment.propertyName]));
+          }
+        }
+        propertySnapshots.set(effect.targetInstanceId, transaction);
+        const control = activationControl(host, effect);
+        if (control && !controlSnapshots.has(control)) controlSnapshots.set(control, snapshotControl(control));
         rememberBaseline(effect, element);
       }
     }
@@ -296,6 +477,9 @@ async function apply(host: ReviewHost, ids: readonly string[]) {
       item.effects.map((effect) => effect.targetInstanceId)))) {
       await restoreBaseline(targetInstanceId);
     }
+    restoreControlBaselines();
+    activeBehaviorIds = new Set(cases.flatMap((item) =>
+      item.effects.flatMap((effect) => effect.behaviorIds)));
     for (const item of cases) {
       for (const effect of item.effects) {
         const element = targetElement(host, effect);
@@ -303,10 +487,13 @@ async function apply(host: ReviewHost, ids: readonly string[]) {
           element[assignment.propertyName] = cloneValue(assignment.value);
         }
         await settle(element);
+        await activateEffect(host, effect);
+        await settle(element);
         await verifyExpectedStates(element, effect.expectedStateIds);
       }
     }
     activeCaseIds = cases.map((item) => item.id);
+    for (const item of cases) reviewedCaseProjections.set(item.id, item.projectionDigest);
     host.emit('psp:mockcase-ready', {
       actor: runtime.actor,
       routeId: currentRoute(host)?.id ?? null,
@@ -318,11 +505,18 @@ async function apply(host: ReviewHost, ids: readonly string[]) {
     updateReviewView(host);
     return { activeCaseIds: [...activeCaseIds] };
   } catch (error) {
-    activeCaseIds = [];
+    activeBehaviorIds = previousBehaviorIds;
+    activeCaseIds = previousCaseIds;
     try {
-      for (const targetInstanceId of [...baselines.keys()].reverse()) await restoreBaseline(targetInstanceId);
+      for (const snapshot of [...controlSnapshots.values()].reverse()) restoreControl(snapshot);
+      for (const snapshot of [...propertySnapshots.values()].reverse()) {
+        for (const [propertyName, value] of snapshot.values) {
+          snapshot.element[propertyName] = cloneValue(value);
+        }
+        await settle(snapshot.element);
+      }
     } catch {
-      fail('AIH_MOCKCASE_ROLLBACK_FAILED', '失败事务未能恢复组件公开属性。');
+      fail('AIH_MOCKCASE_ROLLBACK_FAILED', '失败事务未能恢复组件属性、输入内容或原激活集合。');
     }
     host.emit('psp:mockcase-error', errorDetail(error));
     throw error;
@@ -334,8 +528,8 @@ function canCompleteRoute(host: ReviewHost): boolean {
   return extensionReady
     && pendingApplication === null
     && lastApplicationError === null
-    && activeCaseIds.length > 0
-    && activeCaseIds.every((id) => availableIds.has(id));
+    && availableIds.size > 0
+    && [...availableIds].every((id) => reviewedCaseProjections.has(id));
 }
 
 function updateReviewView(host: ReviewHost): void {
@@ -374,16 +568,20 @@ function runApplication(host: ReviewHost, ids: readonly string[]): void {
   updateReviewView(host);
 }
 
-async function resetRouteState(): Promise<void> {
-  for (const targetInstanceId of [...baselines.keys()].reverse()) {
-    try {
+async function resetRouteState(clearReviewProgress = true): Promise<void> {
+  try {
+    for (const targetInstanceId of [...baselines.keys()].reverse()) {
       await restoreBaseline(targetInstanceId);
-    } catch {
-      // A router may already have detached the previous formal component.
     }
+    restoreControlBaselines();
+  } catch {
+    fail('AIH_MOCKCASE_ROLLBACK_FAILED', '未能恢复组件属性、Input/Select/Textarea value 或 textContent。');
   }
   baselines.clear();
+  controlBaselines.clear();
+  activeBehaviorIds = new Set();
   activeCaseIds = [];
+  if (clearReviewProgress) reviewedCaseProjections.clear();
   lastApplicationError = null;
 }
 
@@ -590,10 +788,11 @@ function createTool(host: ReviewHost): MockcaseReviewView {
   const element = host.document.createElement(REVIEW_VIEW_TAG) as MockcaseReviewView;
   element.setAttribute('data-review-tool', 'mockcase');
   element.onApply = (ids) => runApplication(host, ids);
-  element.onComplete = () => {
+  element.onComplete = () => void (async () => {
     const route = currentRoute(host);
     if (!route || !canCompleteRoute(host)) return;
-    const selected = currentCases(host).filter((item) => activeCaseIds.includes(item.id));
+    const selected = currentCases(host).filter((item) => reviewedCaseProjections.has(item.id));
+    await resetRouteState(false);
     const completed = readCompletedRoutes(host).filter((item) => item.routeId !== route.id);
     completed.push({
       routeId: route.id,
@@ -601,7 +800,10 @@ function createTool(host: ReviewHost): MockcaseReviewView {
         caseId: item.id,
         projectionDigest: item.projectionDigest,
       })).sort((left, right) => left.caseId.localeCompare(right.caseId)),
+      applyStatus: 'PASS',
+      rollbackStatus: 'PASS',
     });
+    reviewedCaseProjections.clear();
     completed.sort((left, right) => left.routeId.localeCompare(right.routeId));
     writeCompletedRoutes(host, completed);
     const requiredRouteIds = runtime.routes
@@ -620,15 +822,24 @@ function createTool(host: ReviewHost): MockcaseReviewView {
     });
     if (allRoutesComplete) clearCompletedRoutes(host);
     updateReviewView(host);
-  };
-  element.onCancel = () => {
+  })().catch((error: unknown) => {
+    lastApplicationError = errorDetail(error);
+    host.emit('psp:mockcase-error', lastApplicationError);
+    updateReviewView(host);
+  });
+  element.onCancel = () => void (async () => {
     if (!extensionReady || pendingApplication) return;
+    await resetRouteState();
     clearCompletedRoutes(host);
     host.emit('psp:mockcase-review-cancel', {
       actor: runtime.actor,
       routeId: currentRoute(host)?.id ?? null,
     });
-  };
+  })().catch((error: unknown) => {
+    lastApplicationError = errorDetail(error);
+    host.emit('psp:mockcase-error', lastApplicationError);
+    updateReviewView(host);
+  });
   host.document.body.append(element);
   tool = element;
   updateReviewView(host);
@@ -642,12 +853,16 @@ const extension = {
     extensionReady = false;
     lastApplicationError = null;
     currentRoutePath = host.location.pathname;
+    originalFetch = globalThis.fetch.bind(globalThis);
+    globalThis.fetch = interceptedFetch;
 
     async function dispose(clearSession = false) {
       if (disposed) return;
       disposed = true;
       stopRouteObservation();
       await resetRouteState();
+      if (originalFetch) globalThis.fetch = originalFetch;
+      originalFetch = null;
       if (clearSession) clearCompletedRoutes(host);
       extensionReady = false;
       pendingApplication = null;
@@ -668,6 +883,7 @@ const extension = {
           return Object.freeze(currentCases(host).map((item) => item.id));
         },
         apply: (ids: readonly string[]) => apply(host, ids),
+        reset: () => resetRouteState(false),
         dispose: () => dispose(true),
       });
       Object.defineProperty(globalThis, '__pspMockcaseRuntimeApi', { value: api, configurable: true });

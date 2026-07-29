@@ -6,8 +6,8 @@ metadata:
 spec:
   stage: mockcase
   internalModelFormat: json
-  outputRole: user-artifact
-  purpose: 按 Actor 管理独立的 MockData 事实、MockCase 场景编排、输入锁和基于 Component Contract 公开 Lit Property 的确定性浏览器运行投影。
+  outputRole: internal-model-set
+  purpose: 在隐藏模型目录中按 Actor 管理独立的 MockData 事实、MockCase 场景编排、输入锁和确定性浏览器运行投影；JSON Suite 不属于用户交付物。
   references:
     - stage: product-design
       artifact: capabilities
@@ -22,16 +22,17 @@ spec:
       fixedVersionField: inputLock.canonicalUiDigest
       lifecycleControl: none
   owns:
-    - suite.json 输入锁与组合文件摘要
+    - MockCase/.psp/models/actors/ACTOR-NNN/suite.json 输入锁与组合文件摘要
     - mockdata.json Fixture 与可追溯的请求响应行为事实
     - mockcases.json Case、Data Binding、Effect 与 State Matrix 引用
     - 确定性 Runtime Bundle、Review Extension 与验证证据
   excludes:
+    - JSON Suite 作为 user-artifact 或正式用户交付物
     - Use Cases、Visual Spec、Canonical UI 与 UI HTML 写入
     - Product Design readiness、review、publish 或 reopen
     - Handoff 自动初始化、自动 Apply 或业务就绪声明
     - 浏览器 Plugin 文件系统写入
-    - 正式控件点击、输入值写入、正式事件派发、Fetch 拦截或私有 DOM 修改
+    - 私有 DOM、私有组件状态或未登记 Control 修改
   domainRules:
     - mockdata-model-source-only
     - mockcase-orchestration-only
@@ -41,7 +42,10 @@ spec:
     - state-matrix-selection-recovery-first-and-never-guessed
     - suite-atomic-write
     - component-contract-public-property-projection-only
-    - network-behavior-projects-through-fixture-binding
+    - complete-request-matcher-selects-one-behavior
+    - request-control-event-input-activations
+    - public-observable-transaction-rollback
+    - ready-evidence-covers-all-routes-and-cases
     - partial-coverage-never-ready
     - headed-review-requires-user-decision
     - mapped-ready-verified-separated

@@ -43,7 +43,7 @@ stages:
       mockcase-suite:
         authority:
           kind: area-set
-          area: mockcase-suites
+          area: mockcase-models
           semanticEntry: suite.json
           companionEntries:
             - mockdata.json
@@ -55,8 +55,8 @@ stages:
             role: runtime-projection
             projection: mockcase-runtime
     areas:
-      mockcase-suites:
-        root: actors
+      mockcase-models:
+        root: .psp/models/actors
   architecture-design:
     status: uninitialized
     root: 02-architecture-design

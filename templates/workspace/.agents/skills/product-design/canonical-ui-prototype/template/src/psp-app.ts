@@ -12,12 +12,16 @@ export class PspApp extends LitElement {
     mode: { type: String, reflect: true },
     message: { type: String },
     previewState: { attribute: false },
+    previewInteractionState: { attribute: false },
+    caseFlag: { type: Boolean, attribute: 'data-case-flag', reflect: true },
     feedback: { state: true },
   };
 
   declare mode: string;
   declare message: string;
   declare previewState: PreviewState;
+  declare previewInteractionState: string;
+  declare caseFlag: boolean;
   declare private feedback: string;
 
   constructor() {
@@ -25,6 +29,8 @@ export class PspApp extends LitElement {
     this.mode = 'default';
     this.message = '';
     this.previewState = 'COMPONENT-STATE-DEFAULT';
+    this.previewInteractionState = 'INT-STATE-NNN';
+    this.caseFlag = false;
     this.feedback = '选择一种 Mock 行为，验证 Loading、Success 与 Error 状态。';
     const matrixEntryId = new URLSearchParams(window.location.search).get('__pspStateMatrix');
     const model = canonicalUi as unknown as {
@@ -44,6 +50,17 @@ export class PspApp extends LitElement {
     this.setAttribute('data-component-state', this.previewState);
   }
 
+  private interactionStateForEvent(eventId: string): string | undefined {
+    const workflowStateIds = new Set<string>(
+      canonicalUi.states.filter((state) => state.scope === 'workflow').map((state) => state.id),
+    );
+    const scenario = canonicalUi.scenarios.find((item) => (
+      item.eventIds[item.eventIds.length - 1] === eventId
+      && item.expectedStateIds.some((stateId) => workflowStateIds.has(stateId))
+    ));
+    return scenario?.expectedStateIds.find((stateId) => workflowStateIds.has(stateId));
+  }
+
   private async runMock(mode: 'success' | 'error'): Promise<void> {
     this.previewState = 'COMPONENT-STATE-LOADING';
     this.feedback = '正在等待 Mock 响应…';
@@ -54,6 +71,9 @@ export class PspApp extends LitElement {
     } catch (error: unknown) {
       this.previewState = 'COMPONENT-STATE-ERROR';
       this.feedback = error instanceof Error ? error.message : '发生未知错误。';
+    } finally {
+      const eventId = mode === 'success' ? 'EVENT-001' : 'EVENT-002';
+      this.previewInteractionState = this.interactionStateForEvent(eventId) ?? this.previewInteractionState;
     }
   }
 
@@ -71,6 +91,7 @@ export class PspApp extends LitElement {
 
   private returnToEntry(): void {
     this.previewState = 'COMPONENT-STATE-DEFAULT';
+    this.previewInteractionState = this.interactionStateForEvent('EVENT-003') ?? this.previewInteractionState;
     this.feedback = '已返回入口，可以修复后重新提交。';
   }
 
@@ -101,7 +122,7 @@ export class PspApp extends LitElement {
           </div>
         </section>
 
-        <section class="grid" aria-label="Canonical UI Prototype 验证区" data-screen-id="SCREEN-001" data-state-id="INT-STATE-NNN">
+        <section class="grid" aria-label="Canonical UI Prototype 验证区" data-screen-id="SCREEN-001" data-state-id=${this.previewInteractionState}>
           <article class="card trace-card">
             <p class="card-index">01 / TRACEABILITY</p>
             <h2>规格追溯</h2>
@@ -122,7 +143,7 @@ export class PspApp extends LitElement {
 
           <article class="card state-card" data-component-state=${this.previewState}>
             <p class="card-index">02 / STATE LAB</p>
-            <h2>交互状态实验台</h2>
+            <h2><slot name="label">交互状态实验台</slot></h2>
             <div class="status" data-component-state=${this.previewState} role="status" aria-live="polite">
               <span class="status-dot" aria-hidden="true"></span>
               <div>
@@ -175,6 +196,11 @@ export class PspApp extends LitElement {
             </ul>
           </article>
         </section>
+        <div hidden aria-hidden="true" data-workflow-state-registry>
+          ${canonicalUi.states
+            .filter((state) => state.scope === 'workflow')
+            .map((state) => html`<span data-state-id=${state.id}></span>`)}
+        </div>
       </main>
 
       <footer>

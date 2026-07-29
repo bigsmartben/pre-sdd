@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["version", "sourceId", "sourceVersion", "capturePlan", "downloadOperation", "ingestedAt", "assets", "status"],
   "properties": {
-    "version": {"const": "1.0.0"},
+    "version": {"const": "2.0.0"},
     "sourceId": {"$ref": "#/$defs/id"},
     "sourceVersion": {"$ref": "#/$defs/sourceVersion"},
     "capturePlan": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "pattern": "^design-sources/[^/]+/capture-plan\\.json$"}, "sha256": {"$ref": "#/$defs/sha256"}}},
@@ -17,9 +17,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["sourceNodeId", "path", "assetKind", "captureScope", "containsDynamicContent", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "sha256", "consumerTargets", "status"],
+        "required": ["sourceNodeId", "assetBoundaryNodeId", "path", "assetKind", "captureScope", "containsDynamicContent", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "sha256", "consumerTargets", "status"],
         "properties": {
           "sourceNodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
+          "assetBoundaryNodeId": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"},
           "path": {"type": "string", "pattern": "^public/assets/[^/]+/[^/]+\\.(?:png|svg)$"},
           "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
           "captureScope": {"enum": ["layer", "artwork-subtree"]},

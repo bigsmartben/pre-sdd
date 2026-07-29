@@ -372,11 +372,11 @@ test('resolver separates local-edit, pull-request, and release gates for Product
   assert.deepEqual(readinessResult.commands, [
     'npm run validate:harness',
     'npm run check:scaffold-consistency',
-    'npm run test:harness',
-    'npm run test:workspace:harness',
-    'npm run test:workspace:product',
-    'npm run test:workspace:mockcase',
-    'npm run test:workspace:architecture',
+      'npm run test:harness',
+      'npm run test:workspace:harness',
+      'npm run test:workspace:product',
+      'npm run test:workspace:mockcase',
+      'npm run test:workspace:architecture',
     'npm run test:package',
     'npm run pack:check',
   ]);
@@ -488,11 +488,11 @@ test('continuous-integration plan comes from Resolver commands', () => {
   assert.deepEqual(result.commands, [
     'npm run validate:harness',
     'npm run check:scaffold-consistency',
-    'npm run test:harness',
-    'npm run test:workspace:harness',
-    'npm run test:workspace:product',
-    'npm run test:workspace:mockcase',
-    'npm run test:workspace:architecture',
+      'npm run test:harness',
+      'npm run test:workspace:harness',
+      'npm run test:workspace:product',
+      'npm run test:workspace:mockcase',
+      'npm run test:workspace:architecture',
     'npm run test:package',
   ]);
 });
@@ -511,11 +511,11 @@ test('release validation requires an explicit isolated context and is the only c
   assert.deepEqual(result.commands, [
     'npm run validate:harness',
     'npm run check:scaffold-consistency',
-    'npm run test:harness',
-    'npm run test:workspace:harness',
-    'npm run test:workspace:product',
-    'npm run test:workspace:mockcase',
-    'npm run test:workspace:architecture',
+      'npm run test:harness',
+      'npm run test:workspace:harness',
+      'npm run test:workspace:product',
+      'npm run test:workspace:mockcase',
+      'npm run test:workspace:architecture',
     'npm run test:package',
     'npm run pack:check',
   ]);

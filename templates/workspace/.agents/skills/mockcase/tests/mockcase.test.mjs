@@ -16,14 +16,15 @@ import {
 import { completeProductFixture } from '../../product-design/tests/helpers/product-fixture.mjs';
 import { compileProjectionEffect, jsonText, sha256, stableJson } from '../scripts/lib.mjs';
 import { runRuntime } from '../scripts/runtime-runner.mjs';
+import { selectMatchingBehavior } from '../runtime/matcher.mjs';
 
 const workspaceRoot = resolve(import.meta.dirname, '../../../..');
 
 test.after(cleanupTemporaryRepositories);
 
 function fixtureStateMatrixEntryId(scenario) {
-  if (scenario.expectedStateIds.includes('COMPONENT-STATE-ERROR')) return 'STATE-MATRIX-ERROR';
-  if (scenario.expectedStateIds.includes('COMPONENT-STATE-SUCCESS')) return 'STATE-MATRIX-SUCCESS';
+  if (scenario.expectedStateIds.includes('COMPONENT-STATE-ERROR')) return 'STATE-MATRIX-ERROR-INTERACTION-FAILURE';
+  if (scenario.expectedStateIds.includes('COMPONENT-STATE-SUCCESS')) return 'STATE-MATRIX-SUCCESS-INTERACTION-SUCCESS';
   return 'STATE-MATRIX-DEFAULT';
 }
 
@@ -45,18 +46,50 @@ async function filesBelow(directory) {
   return result;
 }
 
+async function workspaceDigest(directory) {
+  const entries = [];
+  async function visit(current) {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      if (entry.isDirectory() && ['.git', 'node_modules', 'dist'].includes(entry.name)) continue;
+      const path = resolve(current, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile()) {
+        const relativePath = path.slice(directory.length + 1).replaceAll('\\', '/');
+        entries.push([relativePath, sha256(await readFile(path))]);
+      }
+    }
+  }
+  await visit(directory);
+  return stableJson(entries.sort((left, right) => left[0].localeCompare(right[0])));
+}
+
 test('MockCase is one optional stage/domain/artifact with side-path DAG edges', async () => {
   const manifest = JSON.parse(await readFile(resolve(workspaceRoot, '.psp/harness/harness.manifest.json'), 'utf8'));
   const project = parseYaml(await readFile(resolve(workspaceRoot, 'psp.project.yaml'), 'utf8'));
   assert.equal(project.stages.mockcase.status, 'uninitialized');
   assert.equal(project.stages.mockcase.root, 'MockCase');
+  assert.equal(project.stages.mockcase.areas['mockcase-models'].root, '.psp/models/actors');
   assert.ok(manifest.domainRegistry.some((item) => item.id === 'mockcase'));
-  assert.ok(manifest.artifactRegistry.some((item) => item.id === 'mockcase-suite' && item.domain === 'mockcase'));
+  assert.ok(manifest.artifactRegistry.some((item) =>
+    item.id === 'mockcase-suite'
+    && item.domain === 'mockcase'
+    && item.authorityKind === 'area-set'));
   assert.ok(manifest.projectDag.nodes.some((item) => item.id === 'mockcase' && item.kind === 'stage'));
   assert.ok(manifest.projectDag.edges.some((item) => item.from === 'use-cases' && item.to === 'mockcase' && item.type === 'dependency'));
   assert.ok(manifest.projectDag.edges.some((item) => item.from === 'canonical-ui-prototype' && item.to === 'mockcase' && item.type === 'dependency'));
   assert.ok(manifest.projectDag.edges.some((item) => item.from === 'canonical-ui-prototype' && item.to === 'mockcase' && item.type === 'handoff'));
   assert.ok(!JSON.stringify(manifest).includes('mockcase-coverage'));
+  assert.ok(manifest.validationProfiles.find((item) => item.id === 'mockcase-readiness')
+    ?.commands.includes('mockcase-readiness-check'));
+  assert.ok(manifest.validationProfiles.find((item) => item.id === 'mockcase-runtime')
+    ?.commands.includes('mockcase-runtime-check'));
+  assert.ok(manifest.validationProfiles.find((item) => item.id === 'mockcase-main')
+    ?.commands.includes('mockcase-runtime-check'));
+  assert.deepEqual(
+    (await filesBelow(resolve(workspaceRoot, 'MockCase')))
+      .map((path) => path.slice(resolve(workspaceRoot, 'MockCase').length + 1).replaceAll('\\', '/')),
+    ['.gitkeep'],
+  );
 });
 
 test('all MockCase operations and blockers are owned by the MockCase domain', async () => {
@@ -79,7 +112,7 @@ test('all MockCase operations and blockers are owned by the MockCase domain', as
   }
 });
 
-test('Product Design declares the Review Tool boundary without owning MockCase runtime facts', async () => {
+test('Product Design declares the Review Tool boundary while MockCase owns runtime activation', async () => {
   const productRoot = resolve(workspaceRoot, '.agents/skills/product-design');
   for (const path of await filesBelow(productRoot)) {
     const text = await readFile(path, 'utf8');
@@ -94,7 +127,11 @@ test('Product Design declares the Review Tool boundary without owning MockCase r
   assert.match(host, /disposers\.splice\(0\)\.reverse\(\)/);
   const extension = await readFile(resolve(workspaceRoot, '.agents/skills/mockcase/runtime/extension.ts'), 'utf8');
   assert.match(extension, /catch \(error\) \{\s*await dispose\(true\);\s*throw error;/);
-  assert.doesNotMatch(extension, /globalThis\.fetch|\.click\(|dispatchEvent|InputEvent|\.value\s*=|textContent\s*=/);
+  assert.match(extension, /interceptedFetch/);
+  assert.match(extension, /InputEvent/);
+  assert.match(extension, /MouseEvent/);
+  assert.match(extension, /control\.value\s*=/);
+  assert.match(extension, /control\.textContent\s*=/);
 });
 
 test('MockData owns payloads while MockCases owns orchestration references', async () => {
@@ -110,7 +147,7 @@ test('MockData owns payloads while MockCases owns orchestration references', asy
   assert.match(mockcasesText, /dataBindings/);
   assert.match(mockcasesText, /sourcePointer/);
   assert.match(mockcasesText, /propertyName/);
-  assert.doesNotMatch(mockcasesText, /activation|controlId/);
+  assert.match(mockcasesText, /activation|controlId/);
   assert.doesNotMatch(mockcasesText, /payload|delayMs|status/);
 });
 
@@ -166,6 +203,8 @@ test('runtime projection rejects private, conflicting, and DOM-mutating bindings
   const effect = {
     targetInstanceId: 'COMPONENT-INSTANCE-001',
     stateMatrixEntryId: 'STATE-MATRIX-ERROR',
+    behaviorIds: ['BEHAVIOR-ERROR'],
+    activation: { kind: 'request' },
     dataBindings: [{
       behaviorId: 'BEHAVIOR-ERROR',
       sourcePointer: '/message',
@@ -213,6 +252,7 @@ test('runtime projection rejects private, conflicting, and DOM-mutating bindings
     },
   );
   context.canonicalUi.stateAxes[1].renderBinding = { kind: 'slot-text', name: 'content' };
+  context.canonicalUi.stateAxes[1].values[0].value = 'custom';
   assert.throws(
     () => compileProjectionEffect(context, { ...effect, dataBindings: [] }),
     (error) => error.code === 'AIH_MOCKCASE_PROJECTION_UNSUPPORTED',
@@ -265,6 +305,51 @@ test('candidate hashes are deterministic and atomic post-validation failure roll
   }
 });
 
+test('request matcher selects one complete Method Path Query Header behavior', () => {
+  const behaviors = [
+    {
+      id: 'BEHAVIOR-OPEN',
+      request: { method: 'GET', path: '/api/orders', query: { status: 'open' }, headers: { 'x-mode': 'full' } },
+      response: { fixtureId: 'FIXTURE-OPEN', status: 200, delayMs: 100 },
+    },
+    {
+      id: 'BEHAVIOR-CLOSED',
+      request: { method: 'GET', path: '/api/orders', query: { status: 'closed' }, headers: { 'x-mode': 'full' } },
+      response: { fixtureId: 'FIXTURE-CLOSED', status: 202, delayMs: 2000 },
+    },
+  ];
+  const selected = selectMatchingBehavior(
+    behaviors,
+    behaviors.map((item) => item.id),
+    'https://example.test/api/orders?status=closed',
+    { method: 'GET', headers: { 'x-mode': 'full' } },
+    'https://example.test/',
+  );
+  assert.equal(selected.id, 'BEHAVIOR-CLOSED');
+  assert.equal(selected.response.status, 202);
+  assert.equal(selected.response.delayMs, 2000);
+  assert.equal(
+    selectMatchingBehavior(
+      behaviors,
+      behaviors.map((item) => item.id),
+      'https://example.test/api/orders?status=missing',
+      { method: 'GET', headers: { 'x-mode': 'full' } },
+      'https://example.test/',
+    ),
+    null,
+  );
+  assert.throws(
+    () => selectMatchingBehavior(
+      [behaviors[1], { ...structuredClone(behaviors[1]), id: 'BEHAVIOR-CLOSED-DUPLICATE' }],
+      ['BEHAVIOR-CLOSED', 'BEHAVIOR-CLOSED-DUPLICATE'],
+      'https://example.test/api/orders?status=closed',
+      { method: 'GET', headers: { 'x-mode': 'full' } },
+      'https://example.test/',
+    ),
+    (error) => error.code === 'AIH_MOCKCASE_CONFLICT',
+  );
+});
+
 test('stale input locks do not block latest-upstream incremental generation', async () => {
   const root = await temporaryRepository();
   await completeProductFixture(root);
@@ -299,8 +384,13 @@ test('stale input locks do not block latest-upstream incremental generation', as
     ]])),
   }, null, 2) + '\n');
   const generateArgs = ['--actor', 'ACTOR-001', '--mockdata', seedPath];
+  const beforeReadOnlyOperations = await workspaceDigest(root);
+  const analysis = runScript('.agents/skills/mockcase/scripts/analyze.mjs', root, ['--actor', 'ACTOR-001']);
+  assert.equal(analysis.exitCode, 1, JSON.stringify(analysis.output, null, 2));
+  assert.equal(analysis.output.status, 'BLOCKED');
   const first = runScript('.agents/skills/mockcase/scripts/generate.mjs', root, generateArgs);
   assert.equal(first.exitCode, 0, JSON.stringify(first.output, null, 2));
+  assert.equal(await workspaceDigest(root), beforeReadOnlyOperations);
   const initialized = runScript('.agents/skills/mockcase/scripts/initialize.mjs', root, ['--actor', 'ACTOR-001']);
   assert.equal(initialized.exitCode, 0, JSON.stringify(initialized.output, null, 2));
   const firstCandidate = resolve(root, 'first-candidate.json');
@@ -332,7 +422,7 @@ test('stale input locks do not block latest-upstream incremental generation', as
     '--input', secondCandidate,
   ]);
   assert.equal(secondApply.exitCode, 0, JSON.stringify(secondApply.output, null, 2));
-  const suite = JSON.parse(await readFile(resolve(root, 'MockCase', 'actors', 'ACTOR-001', 'suite.json'), 'utf8'));
+  const suite = JSON.parse(await readFile(resolve(root, 'MockCase', '.psp', 'models', 'actors', 'ACTOR-001', 'suite.json'), 'utf8'));
   assert.equal(suite.inputLock.canonicalUiDigest, second.output.inputLock.canonicalUiDigest);
 });
 
@@ -343,7 +433,7 @@ test('scoped generation remains PARTIAL until every Canonical UI Scenario is cov
   await writeFile(seedPath, JSON.stringify({
     bindings: [{
       scenarioId: 'SCENARIO-001',
-      stateMatrixEntryId: 'STATE-MATRIX-SUCCESS',
+      stateMatrixEntryId: 'STATE-MATRIX-SUCCESS-INTERACTION-SUCCESS',
       dataBindings: [],
     }],
   }, null, 2) + '\n');
@@ -395,6 +485,12 @@ test('pre-initialization candidate survives normalized initialization and projec
     id: 'ROUTE-SECONDARY',
     path: '/secondary',
   });
+  canonical.controls.push(
+    { id: 'CONTROL-INPUT', componentId: 'COMPONENT-001', label: 'Input activation probe' },
+    { id: 'CONTROL-SELECT', componentId: 'COMPONENT-001', label: 'Select activation probe' },
+    { id: 'CONTROL-TEXTAREA', componentId: 'COMPONENT-001', label: 'Textarea activation probe' },
+    { id: 'CONTROL-TEXTCONTENT', componentId: 'COMPONENT-001', label: 'Text content activation probe' },
+  );
   const canonicalExpected = Buffer.from(`export const canonicalUi = ${JSON.stringify(canonical, null, 2)} as const;\n`);
   await writeFile(canonicalAuthority, canonicalExpected);
   const seededScenario = canonical.scenarios.find((item) => item.expectedStateIds.includes('COMPONENT-STATE-ERROR'));
@@ -476,11 +572,36 @@ test('pre-initialization candidate survives normalized initialization and projec
   ]);
   assert.equal(applied.exitCode, 0, JSON.stringify(applied.output, null, 2));
   assert.equal(applied.output.lifecycle, 'MAPPED');
-  const mockcasesPath = resolve(root, 'MockCase', 'actors', 'ACTOR-001', 'mockcases.json');
-  const suitePath = resolve(root, 'MockCase', 'actors', 'ACTOR-001', 'suite.json');
+  const mockcasesPath = resolve(root, 'MockCase', '.psp', 'models', 'actors', 'ACTOR-001', 'mockcases.json');
+  const suitePath = resolve(root, 'MockCase', '.psp', 'models', 'actors', 'ACTOR-001', 'suite.json');
   const persistedMockcases = JSON.parse(await readFile(mockcasesPath, 'utf8'));
   const sourceCase = persistedMockcases.cases.find((item) => item.scenarioId === seededScenario.id);
   assert.ok(sourceCase);
+  const successCase = persistedMockcases.cases.find((item) =>
+    item.effects.some((effect) => effect.stateMatrixEntryId.includes('SUCCESS')));
+  assert.ok(successCase);
+  const activationCase = (id, label, controlId, value = undefined, base = sourceCase) => ({
+    id,
+    kind: 'technical',
+    label,
+    routeId: 'ROUTE-001',
+    effects: structuredClone(base.effects).map((effect) => ({
+      ...effect,
+      behaviorIds: [],
+      dataBindings: [],
+      activation: value === undefined
+        ? { kind: 'control-event', controlId }
+        : { kind: 'input', controlId, value },
+    })),
+    isDefault: false,
+  });
+  persistedMockcases.cases.push(
+    activationCase('MOCK-CASE-CONTROL-EVENT', 'Control event activation', 'CONTROL-001', undefined, successCase),
+    activationCase('MOCK-CASE-INPUT', 'Input activation', 'CONTROL-INPUT', 'input-updated'),
+    activationCase('MOCK-CASE-SELECT', 'Select activation', 'CONTROL-SELECT', 'selected-value'),
+    activationCase('MOCK-CASE-TEXTAREA', 'Textarea activation', 'CONTROL-TEXTAREA', 'textarea-updated'),
+    activationCase('MOCK-CASE-TEXTCONTENT', 'Text content activation', 'CONTROL-TEXTCONTENT', 'text-updated'),
+  );
   persistedMockcases.cases.push({
     id: 'MOCK-CASE-SECONDARY-TECHNICAL',
     kind: 'technical',
@@ -499,13 +620,47 @@ test('pre-initialization candidate survives normalized initialization and projec
   const validated = runScript('.agents/skills/mockcase/scripts/validate.mjs', root, ['--actor', 'ACTOR-001']);
   assert.equal(validated.exitCode, 0, JSON.stringify(validated.output, null, 2));
   assert.equal(validated.output.lifecycle, 'MAPPED');
+  for (const required of ['readiness', 'runtime']) {
+    const lifecycleGate = runScript(
+      '.agents/skills/mockcase/scripts/validate.mjs',
+      root,
+      ['--actor', 'ACTOR-001', '--require', required],
+    );
+    assert.equal(lifecycleGate.exitCode, 1, JSON.stringify(lifecycleGate.output, null, 2));
+    assert.equal(lifecycleGate.output.blockers[0].code, 'AIH_MOCKCASE_LIFECYCLE_NOT_READY');
+  }
 
   const runtime = JSON.parse(await readFile(resolve(root, projected.output.output), 'utf8'));
   assert.equal(runtime.hostApiVersion, 'psp.review-extension/v1');
   assert.ok(runtime.cases.every((item) => item.effects.every((effect) => Array.isArray(effect.expectedStateIds))));
   assert.ok(runtime.cases.every((item) => item.effects.every((effect) => Array.isArray(effect.assignments))));
-  assert.equal(Object.hasOwn(runtime, 'fixtures'), false);
-  assert.equal(Object.hasOwn(runtime, 'behaviors'), false);
+  assert.ok(runtime.cases.every((item) => item.effects.every((effect) => Array.isArray(effect.behaviorIds))));
+  assert.ok(runtime.cases.every((item) => item.effects.every((effect) => effect.activation?.kind)));
+  assert.equal(Object.hasOwn(runtime, 'fixtures'), true);
+  assert.equal(Object.hasOwn(runtime, 'behaviors'), true);
+  const appSourcePath = resolve(
+    root,
+    '01-product-design',
+    'Canonical-UI-Prototypes',
+    'ACTOR-001',
+    'src',
+    'psp-app.ts',
+  );
+  const appSource = await readFile(appSourcePath, 'utf8');
+  const normalizedAppSource = appSource.replaceAll('\r\n', '\n');
+  const actionEnd = `              </button>\n            </div>\n          </article>`;
+  const activationControls = `              </button>
+              <input data-control-id="CONTROL-INPUT" value="input-default" />
+              <select data-control-id="CONTROL-SELECT">
+                <option value="default-value" selected>default</option>
+                <option value="selected-value">selected</option>
+              </select>
+              <textarea data-control-id="CONTROL-TEXTAREA">textarea-default</textarea>
+              <span data-control-id="CONTROL-TEXTCONTENT">text-default</span>
+            </div>
+          </article>`;
+  assert.equal(normalizedAppSource.includes(actionEnd), true);
+  await writeFile(appSourcePath, normalizedAppSource.replace(actionEnd, activationControls));
   const dependencyRequire = createRequire(process.env.PRE_SDD_DEPENDENCY_ENTRY || import.meta.url);
   const server = await createServer({
     root: resolve(root, '01-product-design', 'Canonical-UI-Prototypes', 'ACTOR-001'),
@@ -580,6 +735,8 @@ test('pre-initialization candidate survives normalized initialization and projec
       'ACTOR-001',
       '--review-url',
       reviewUrl,
+      '--review-timeout-ms',
+      '10000',
     ];
     await assert.rejects(
       runRuntime('review'),
@@ -647,6 +804,58 @@ test('pre-initialization candidate survives normalized initialization and projec
             configurable: true,
           });
         });
+        const activationExpectations = [
+          ['MOCK-CASE-INPUT', 'CONTROL-INPUT', 'input-updated', 'input-default'],
+          ['MOCK-CASE-SELECT', 'CONTROL-SELECT', 'selected-value', 'default-value'],
+          ['MOCK-CASE-TEXTAREA', 'CONTROL-TEXTAREA', 'textarea-updated', 'textarea-default'],
+          ['MOCK-CASE-TEXTCONTENT', 'CONTROL-TEXTCONTENT', 'text-updated', 'text-default'],
+        ];
+        for (const [caseId, controlId, expected, baseline] of activationExpectations) {
+          await page.evaluate((id) => globalThis.__pspMockcaseRuntimeApi.apply([id]), caseId);
+          const activated = await page.evaluate((id) => {
+            const find = (root) => {
+              const direct = root.querySelector(`[data-control-id="${id}"]`);
+              if (direct) return direct;
+              for (const element of root.querySelectorAll('*')) {
+                if (element.shadowRoot) {
+                  const nested = find(element.shadowRoot);
+                  if (nested) return nested;
+                }
+              }
+              return null;
+            };
+            const control = find(document);
+            return 'value' in control ? control.value : control.textContent;
+          }, controlId);
+          assert.equal(activated, expected);
+          await page.evaluate(() => globalThis.__pspMockcaseRuntimeApi.apply([]));
+          const restored = await page.evaluate((id) => {
+            const find = (root) => {
+              const direct = root.querySelector(`[data-control-id="${id}"]`);
+              if (direct) return direct;
+              for (const element of root.querySelectorAll('*')) {
+                if (element.shadowRoot) {
+                  const nested = find(element.shadowRoot);
+                  if (nested) return nested;
+                }
+              }
+              return null;
+            };
+            const control = find(document);
+            return 'value' in control ? control.value : control.textContent;
+          }, controlId);
+          assert.equal(restored, baseline);
+        }
+        await page.evaluate(() => globalThis.__pspMockcaseRuntimeApi.apply(['MOCK-CASE-CONTROL-EVENT']));
+        assert.deepEqual(
+          await page.evaluate(() => globalThis.__pspMockcaseFormalEffects),
+          { click: 1, input: 4, change: 4, formalCustom: 0, fetch: 1 },
+        );
+        await page.evaluate(() => {
+          for (const key of Object.keys(globalThis.__pspMockcaseFormalEffects)) {
+            globalThis.__pspMockcaseFormalEffects[key] = 0;
+          }
+        });
         await page.evaluate(
           (caseId) => globalThis.__pspMockcaseRuntimeApi.apply([caseId]),
           `MOCK-CASE-${seededScenario.id}`,
@@ -661,7 +870,7 @@ test('pre-initialization candidate survives normalized initialization and projec
         assert.equal(projection.renderedState, 'COMPONENT-STATE-ERROR');
         assert.deepEqual(
           await page.evaluate(() => globalThis.__pspMockcaseFormalEffects),
-          { click: 0, input: 0, change: 0, formalCustom: 0, fetch: 0 },
+          { click: 0, input: 0, change: 0, formalCustom: 1, fetch: 1 },
         );
         await page.evaluate(() => globalThis.__pspMockcaseRuntimeApi.apply([]));
         const resetProjection = await page.locator('[data-component-instance-id="REVIEW-PRIMARY-INSTANCE"]').evaluate((element) => ({
@@ -693,9 +902,9 @@ test('pre-initialization candidate survives normalized initialization and projec
           renderedState: element.getAttribute('data-component-state'),
         }));
         assert.deepEqual(rolledBackProjection, {
-          previewState: 'COMPONENT-STATE-DEFAULT',
-          message: '',
-          renderedState: 'COMPONENT-STATE-DEFAULT',
+          previewState: 'COMPONENT-STATE-ERROR',
+          message: 'Fixture component content',
+          renderedState: 'COMPONENT-STATE-ERROR',
         });
         await page.evaluate(
           (caseId) => globalThis.__pspMockcaseRuntimeApi.apply([caseId]),
@@ -703,11 +912,16 @@ test('pre-initialization candidate survives normalized initialization and projec
         );
         assert.deepEqual(
           await page.evaluate(() => globalThis.__pspMockcaseFormalEffects),
-          { click: 0, input: 0, change: 0, formalCustom: 0, fetch: 0 },
+          { click: 0, input: 0, change: 0, formalCustom: 3, fetch: 3 },
         );
       },
       onInteractiveReady: async (page) => {
+        const caseIds = await page.evaluate(() => [...globalThis.__pspMockcaseRuntimeApi.caseIds]);
+        for (const caseId of caseIds) {
+          await page.evaluate((id) => globalThis.__pspMockcaseRuntimeApi.apply([id]), caseId);
+        }
         await page.locator('[data-review-action="complete"]').click();
+        await page.locator('[data-route-id="ROUTE-001"] small').filter({ hasText: 'DONE' }).waitFor();
         await page.locator('[data-route-id="ROUTE-SECONDARY"]').click();
         await page.waitForFunction(() => Boolean(globalThis.__pspMockcaseRuntimeApi));
         await page.locator('[data-review-action="complete"]').click();
@@ -739,6 +953,7 @@ test('pre-initialization candidate survives normalized initialization and projec
         }, null, { timeout: 10000 }).then((handle) => handle.jsonValue());
         assert.equal(secondaryState.error, null, secondaryState.error);
         await complete.click();
+        await page.locator('[data-route-id="ROUTE-SECONDARY"] small').filter({ hasText: 'DONE' }).waitFor();
         await page.evaluate(() => {
           document.querySelector('psp-product-router')?.navigate('/');
         });
@@ -749,6 +964,16 @@ test('pre-initialization candidate survives normalized initialization and projec
             ?.shadowRoot?.querySelector('[data-review-action="complete"]');
           return button instanceof HTMLButtonElement && button.disabled;
         });
+        await page.waitForFunction((caseId) => document.querySelector('psp-mockcase-review')
+          ?.shadowRoot?.querySelector(`[data-case-id="${caseId}"]`)
+          ?.getAttribute('aria-pressed') === 'true', `MOCK-CASE-${seededScenario.id}`);
+        const remainingCaseIds = await page.evaluate(
+          (selected) => [...globalThis.__pspMockcaseRuntimeApi.caseIds].filter((id) => id !== selected),
+          `MOCK-CASE-${seededScenario.id}`,
+        );
+        for (const caseId of remainingCaseIds) {
+          await page.evaluate((id) => globalThis.__pspMockcaseRuntimeApi.apply([id]), caseId);
+        }
         await page.waitForFunction(() => {
           const button = document.querySelector('psp-mockcase-review')
             ?.shadowRoot?.querySelector('[data-review-action="complete"]');
@@ -809,6 +1034,18 @@ test('pre-initialization candidate survives normalized initialization and projec
     const ready = runScript('.agents/skills/mockcase/scripts/validate.mjs', root, ['--actor', 'ACTOR-001']);
     assert.equal(ready.exitCode, 0, JSON.stringify(ready.output, null, 2));
     assert.equal(ready.output.lifecycle, 'READY');
+    const readinessGate = runScript(
+      '.agents/skills/mockcase/scripts/validate.mjs',
+      root,
+      ['--actor', 'ACTOR-001', '--require', 'readiness'],
+    );
+    assert.equal(readinessGate.exitCode, 0, JSON.stringify(readinessGate.output, null, 2));
+    const preVerifyRuntimeGate = runScript(
+      '.agents/skills/mockcase/scripts/validate.mjs',
+      root,
+      ['--actor', 'ACTOR-001', '--require', 'runtime'],
+    );
+    assert.equal(preVerifyRuntimeGate.exitCode, 1, JSON.stringify(preVerifyRuntimeGate.output, null, 2));
     const verified = await runRuntime('verify');
     assert.equal(verified.status, 'PASS', JSON.stringify(verified, null, 2));
     assert.equal(verified.lifecycle, 'VERIFIED');
@@ -823,10 +1060,16 @@ test('pre-initialization candidate survives normalized initialization and projec
     const verifiedStatus = runScript('.agents/skills/mockcase/scripts/validate.mjs', root, ['--actor', 'ACTOR-001']);
     assert.equal(verifiedStatus.exitCode, 0, JSON.stringify(verifiedStatus.output, null, 2));
     assert.equal(verifiedStatus.output.lifecycle, 'VERIFIED');
+    const runtimeGate = runScript(
+      '.agents/skills/mockcase/scripts/validate.mjs',
+      root,
+      ['--actor', 'ACTOR-001', '--require', 'runtime'],
+    );
+    assert.equal(runtimeGate.exitCode, 0, JSON.stringify(runtimeGate.output, null, 2));
     await appendFile(resolve(root, projected.output.output), '\n');
     const stale = runScript('.agents/skills/mockcase/scripts/validate.mjs', root, ['--actor', 'ACTOR-001']);
-    assert.equal(stale.exitCode, 0, JSON.stringify(stale.output, null, 2));
-    assert.equal(stale.output.lifecycle, 'STALE');
+    assert.equal(stale.exitCode, 1, JSON.stringify(stale.output, null, 2));
+    assert.equal(stale.output.blockers[0].code, 'AIH_MOCKCASE_LIFECYCLE_NOT_READY');
   } finally {
     process.argv = previousArgv;
     if (previousRepositoryRoot === undefined) delete process.env.PSP_REPOSITORY_ROOT;

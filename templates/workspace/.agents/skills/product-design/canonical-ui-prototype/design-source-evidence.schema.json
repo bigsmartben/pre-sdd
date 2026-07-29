@@ -90,6 +90,7 @@
         "sha256": {"$ref": "#/$defs/sha256"},
         "schema": {"type": "string", "minLength": 1},
         "sourceNodeId": {"$ref": "#/$defs/nodeId"},
+        "assetBoundaryNodeId": {"$ref": "#/$defs/nodeId"},
         "assetKind": {"enum": ["icon", "logo", "illustration", "photo", "effect", "other"]},
         "captureScope": {"enum": ["layer", "artwork-subtree"]},
         "containsDynamicContent": {"const": false},
@@ -113,6 +114,7 @@
           "then": {
             "properties": {
               "sourceNodeId": {},
+              "assetBoundaryNodeId": {},
               "assetKind": {},
               "captureScope": {},
               "containsDynamicContent": {},
@@ -126,7 +128,7 @@
               "consumerTargets": {},
               "status": {}
             },
-            "required": ["sourceNodeId", "assetKind", "captureScope", "containsDynamicContent", "strategy", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "downloadOperation", "consumerTargets", "status"]
+            "required": ["sourceNodeId", "assetBoundaryNodeId", "assetKind", "captureScope", "containsDynamicContent", "strategy", "format", "scale", "cropBounds", "transparentPadding", "expectedDimensions", "downloadOperation", "consumerTargets", "status"]
           }
         }
       ]

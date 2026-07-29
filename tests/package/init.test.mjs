@@ -175,7 +175,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   const project = parseYaml(await readFile(resolve(target, 'psp.project.yaml'), 'utf8'));
   assert.equal(project.stages['product-design'].status, 'uninitialized');
   assert.equal(project.stages.mockcase.status, 'uninitialized');
-  assert.equal(project.stages.mockcase.root, 'MockCase');
+  assert.equal(project.stages.mockcase.areas['mockcase-models'].root, '.psp/models/actors');
   assert.equal(project.stages['architecture-design'].status, 'uninitialized');
   const workspacePackage = JSON.parse(await readFile(resolve(target, 'package.json'), 'utf8'));
   const workspaceLock = JSON.parse(await readFile(resolve(target, 'package-lock.json'), 'utf8'));
@@ -208,6 +208,7 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
     'implement-canonical-ui',
     'repair-canonical-ui',
     'mockcase',
+    'ui-case-mock',
   ];
   for (const skill of auxiliarySkills) {
     const skillPath = `.agents/skills/${skill}/SKILL.md`;
@@ -215,6 +216,17 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
     assert.equal(await exists(resolve(target, `.agents/skills/${skill}/agents/openai.yaml`)), true, skill);
     assert.ok(workspaceManifest.codex.repositorySkills.includes(skillPath), skill);
   }
+  assert.equal(
+    await exists(resolve(target, '.agents/skills/figma-workflow/scripts/lib/figma-contract-validation.mjs')),
+    true,
+    'figma-workflow shared contract validator',
+  );
+  assert.equal(await exists(resolve(target, '.agents/skills/mockcase/SKILL.md')), true);
+  assert.equal(await exists(resolve(target, 'MockCase/.gitkeep')), true);
+  assert.equal(await exists(resolve(target, 'MockCase/.psp/models/actors')), false);
+  assert.equal(workspaceManifest.artifactRegistry.some((item) =>
+    item.id === 'mockcase-suite' && item.authorityKind === 'area-set'), true);
+  assert.equal(workspacePackage.scripts['test:mockcase'].includes('test:mockcase'), true);
   assert.equal(await exists(resolve(target, '.agents/skills/export-marked-assets/SKILL.md')), false);
   assert.equal(workspaceManifest.codex.repositorySkills.includes('.agents/skills/export-marked-assets/SKILL.md'), false);
   assert.equal(await exists(resolve(target, `.agents/skills/${retiredFigmaOnlyImplementationSkill}/SKILL.md`)), false);
@@ -237,35 +249,24 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   assert.match(productSkill, /\$figma-workflow/);
   assert.match(productSkill, /\$implement-canonical-ui/);
   assert.match(productSkill, /\$repair-canonical-ui/);
-  assert.match(figmaSkill, /\$figma:figma-use/);
-  assert.match(figmaSkill, /\$figma:figma-generate-library/);
-  assert.match(figmaSkill, /调用 `get_design_context` 前必须先加载 `\$figma:figma-design-to-code`/);
+  assert.match(figmaSkill, /figma:figma-use/);
+  assert.match(figmaSkill, /figma:figma-generate-library/);
+  assert.match(figmaSkill, /figma:figma-design-to-code.*`get_design_context`/);
   assert.match(figmaSkill, /不得选择或改变视觉策略/);
-  assert.match(figmaSkill, /不得直接编辑 `canonical-ui\.ts`/);
-  assert.match(figmaSkill, /\$implement-canonical-ui.*独立拥有.*Lit 组件与页面正常实现/);
-  assert.match(figmaSkill, /正式采集后发生任何 Figma 节点、图层、变量、组件、Variant 或来源版本变化/);
-  assert.match(figmaWriteback, /角色、Variant、Component Property、Override/);
-  assert.match(figmaWriteback, /Component Abstraction Proposal/);
-  for (const field of ['semanticRole', 'structureSignatures', 'counterexample', 'proposalId']) {
-    assert.match(figmaWriteback, new RegExp(field), field);
-  }
-  assert.match(figmaCapture, /Frame 尺寸/);
-  assert.match(figmaCapture, /本次会话创建并记录的操作系统临时目录/);
-  assert.match(figmaCapture, /source-registration\.schema\.json/);
+  assert.match(figmaSkill, /不得写 HTML、CSS、路由或 `canonical-ui\.ts`/);
+  assert.match(figmaSkill, /Product Design.*独立建立 Figma → Lit Mapping/);
+  assert.match(figmaSkill, /冻结后的节点、Group、Variable、Component 或 Variant 发生变化/);
+  assert.match(figmaWriteback, /Page、Section、Frame、Group、Component Set、Component、Instance、Image/);
+  assert.match(figmaWriteback, /组件提案/);
+  assert.match(figmaWriteback, /Page Coverage.*Group Integrity.*Image Group Coverage.*State Coverage.*Variant Coverage/s);
+  assert.match(figmaCapture, /geometry、typography、paint、effects/i);
+  assert.match(figmaCapture, /本次会话的操作系统临时目录/);
+  assert.match(figmaCapture, /Registration Packet 只保存 Figma 来源事实/);
   assert.match(figmaCapture, /figma-workflow\/scripts\/validate-png-assets\.mjs/);
-  assert.match(figmaCapture, /禁止先登记资源事实、后补来源证据/);
-  assert.match(figmaCapture, /AIH_SOURCE_INTEGRITY_FAILED/);
-  assert.match(figmaCapture, /componentSetNodeId/);
-  assert.match(figmaCapture, /mainComponentNodeId/);
-  for (const field of [
-    'scopeConfirmationSha256',
-    'highImpactConfirmationSha256',
-    'rawCapture',
-    'componentSetCatalog',
-    'componentHandshake',
-  ]) {
-    assert.match(figmaCapture, new RegExp(field), field);
-  }
+  assert.match(figmaCapture, /正式 Capture、下载、Ingest 和 Evidence 必须位于同一时间边界/);
+  assert.match(figmaCapture, /AIH_FIGMA_FINAL_ACCEPTANCE_REQUIRED/);
+  assert.match(figmaCapture, /Figma Component Contract/);
+  assert.match(figmaCapture, /\| `asset`.*\| `layout`.*\| `dynamic`.*\| `ignored`/s);
   assert.match(litSkill, /`autonomous`：允许 `designSources`、`sourceParityAssertions`、Figma Mapping 与来源 Asset 为空/);
   assert.match(litSkill, /`screenshot`、`export`、`other`/);
   assert.match(litSkill, /非 Figma 组件不要求 `mappingId`、Figma Instance 身份或 Figma Variant/);
@@ -275,9 +276,9 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
   assert.doesNotMatch(litSkill, /\$(?:capture-figma-design-source|organize-figma-assets|figma-component-from-design)/);
   assert.match(litSkill, /AIH_COMPONENT_IMPLEMENTATION_MISMATCH/);
   const documentedFigmaSequence = [
-    '第一次确认逐项冻结',
-    '第二次确认逐项冻结',
-    '全部 Figma 写入完成后才允许唯一一次正式采集',
+    '完整审计',
+    '第一道人工门禁',
+    '第二道人工门禁',
     'Registration Packet 通过 Component Handshake',
   ].map((text) => workspaceReadme.indexOf(text));
   assert.ok(documentedFigmaSequence.every((position) => position >= 0));
@@ -307,32 +308,27 @@ test('pre-sdd init creates only the bound pure workspace', async () => {
     resolve(target, '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'),
     'utf8',
   ));
-  assert.equal(capturePlanSchema.properties.version.const, '2.0.0');
-  for (const field of ['sourceVersion']) {
-    assert.ok(capturePlanSchema.properties.scopeConfirmation.required.includes(field), 'scopeConfirmation.' + field);
+  assert.equal(capturePlanSchema.properties.version.const, '3.0.0');
+  for (const field of ['pageCoverage', 'groupIntegrity', 'imageGroupCoverage', 'stateCoverage', 'variantCoverage', 'findings']) {
+    assert.ok(capturePlanSchema.$defs.scopeAudit.required.includes(field), 'scopeAudit.' + field);
   }
-  for (const field of ['sourceVersion', 'scopeConfirmationSha256']) {
-    assert.ok(capturePlanSchema.properties.highImpactConfirmation.required.includes(field), 'highImpactConfirmation.' + field);
+  for (const field of ['scopeAuditSha256', 'operationIds']) {
+    assert.ok(capturePlanSchema.$defs.writebackApproval.required.includes(field), 'writebackApproval.' + field);
   }
-  assert.ok(
-    capturePlanSchema.properties.writebackBoundary.required.includes('highImpactConfirmationSha256'),
-    'writebackBoundary.highImpactConfirmationSha256',
-  );
-  for (const field of ['semanticRole', 'structureSignatures', 'counterexample']) {
+  assert.ok(capturePlanSchema.required.includes('finalFigmaAcceptance'));
+  for (const field of ['structureSignatures', 'figmaComponentContract']) {
     assert.ok(capturePlanSchema.$defs.componentProposal.required.includes(field), 'componentProposal.' + field);
   }
-  for (const field of ['proposalId', 'kind']) {
-    assert.ok(capturePlanSchema.$defs.stateAxis.required.includes(field), 'stateAxis.' + field);
-  }
-  assert.equal(designContextSchema.properties.version.const, '3.0.0');
-  for (const field of ['rawCapture', 'componentSetCatalog']) {
+  assert.deepEqual(capturePlanSchema.$defs.candidateVisualNode.properties.strategy.enum, ['asset', 'layout', 'dynamic', 'ignored']);
+  assert.equal(designContextSchema.properties.version.const, '4.0.0');
+  for (const field of ['rawCapture', 'componentSetCatalog', 'visualNodeCatalog']) {
     assert.ok(designContextSchema.required.includes(field), 'design-context.' + field);
   }
-  assert.equal(registrationSchema.properties.version.const, '2.0.0');
+  assert.equal(registrationSchema.properties.version.const, '3.0.0');
   for (const field of ['designContext', 'componentHandshake']) {
     assert.ok(registrationSchema.required.includes(field), 'registration.' + field);
   }
-  assert.equal(canonicalSchema.properties.version.const, '11.0.0');
+  assert.equal(canonicalSchema.properties.version.const, '12.0.0');
   for (const field of ['reviewTools', 'componentVariantDefinitions', 'componentSourceParityAssertions']) {
     assert.ok(canonicalSchema.required.includes(field), 'canonical.' + field);
   }
@@ -688,6 +684,10 @@ test('Vite and browser execution are registered in the Product Design domain Ski
     'AIH_SOURCE_CAPTURE_BLOCKED',
     'AIH_SOURCE_COVERAGE_FAILED',
     'AIH_ASSET_CLASSIFICATION_INCOMPLETE',
+    'AIH_FIGMA_AUDIT_INCOMPLETE',
+    'AIH_FIGMA_WRITEBACK_UNAPPROVED',
+    'AIH_FIGMA_FINAL_ACCEPTANCE_REQUIRED',
+    'AIH_FIGMA_VISUAL_POLICY_VIOLATION',
     'AIH_ASSET_MISSING',
     'AIH_ASSET_HASH_MISMATCH',
     'AIH_ASSET_CLOSURE_FAILED',
@@ -785,6 +785,11 @@ test('package allowlist includes runtime and template but excludes root workspac
   assert.equal(files.has(`templates/workspace/.agents/skills/${retiredFigmaOnlyImplementationSkill}/SKILL.md`), false);
   assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui/SKILL.md'));
   assert.ok(files.has('templates/workspace/.agents/skills/repair-canonical-ui/agents/openai.yaml'));
+  assert.ok(files.has('templates/workspace/.agents/skills/mockcase/SKILL.md'));
+  assert.ok(files.has('templates/workspace/.agents/skills/mockcase/contract.yaml'));
+  assert.ok(files.has('templates/workspace/.agents/skills/mockcase/runtime/extension.ts'));
+  assert.ok(files.has('templates/workspace/.agents/skills/mockcase/scripts/validate.mjs'));
+  assert.ok(files.has('templates/workspace/MockCase/.gitkeep'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/review-feedback-packet.schema.json'));
   assert.ok(files.has('templates/workspace/.agents/skills/product-design/canonical-ui-prototype/review-evidence.schema.json'));

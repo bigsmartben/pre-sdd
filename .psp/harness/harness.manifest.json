@@ -456,7 +456,8 @@
         "figma-workflow",
         "implement-canonical-ui",
         "repair-canonical-ui",
-        "mockcase"
+        "mockcase",
+        "ui-case-mock"
       ]
     },
     "textContracts": [
@@ -887,10 +888,10 @@
       }
     },
     {
-      "id": "test-template-architecture",
-      "npmScript": "test:template:architecture",
-      "run": "npm run test:template:architecture",
-      "purpose": "在操作系统临时目录的模板副本运行 Architecture Design 快速测试",
+      "id": "test-template-mockcase",
+      "npmScript": "test:template:mockcase",
+      "run": "npm run test:template:mockcase",
+      "purpose": "在操作系统临时目录的模板副本运行独立 MockCase 领域测试",
       "blocking": true,
       "costClass": "standard",
       "allowedContexts": [
@@ -905,10 +906,10 @@
       }
     },
     {
-      "id": "test-template-mockcase",
-      "npmScript": "test:template:mockcase",
-      "run": "npm run test:template:mockcase",
-      "purpose": "在操作系统临时目录的模板副本运行独立 MockCase 领域测试",
+      "id": "test-template-architecture",
+      "npmScript": "test:template:architecture",
+      "run": "npm run test:template:architecture",
+      "purpose": "在操作系统临时目录的模板副本运行 Architecture Design 快速测试",
       "blocking": true,
       "costClass": "standard",
       "allowedContexts": [
@@ -939,10 +940,10 @@
       }
     },
     {
-      "id": "test-workspace-architecture",
-      "npmScript": "test:workspace:architecture",
-      "run": "npm run test:workspace:architecture",
-      "purpose": "在临时生成工作区运行 Architecture Design 领域回归测试",
+      "id": "test-workspace-mockcase",
+      "npmScript": "test:workspace:mockcase",
+      "run": "npm run test:workspace:mockcase",
+      "purpose": "在临时生成工作区运行独立 MockCase 领域回归测试",
       "blocking": true,
       "costClass": "full",
       "allowedContexts": [
@@ -955,10 +956,10 @@
       }
     },
     {
-      "id": "test-workspace-mockcase",
-      "npmScript": "test:workspace:mockcase",
-      "run": "npm run test:workspace:mockcase",
-      "purpose": "在临时生成工作区运行独立 MockCase 领域回归测试",
+      "id": "test-workspace-architecture",
+      "npmScript": "test:workspace:architecture",
+      "run": "npm run test:workspace:architecture",
+      "purpose": "在临时生成工作区运行 Architecture Design 领域回归测试",
       "blocking": true,
       "costClass": "full",
       "allowedContexts": [
@@ -1140,7 +1141,7 @@
         "harness",
         "test-template-mockcase"
       ],
-      "version": "1.0.0",
+      "version": "2.0.0",
       "costClass": "standard",
       "allowedContexts": [
         "explicit-consistency",
@@ -1210,12 +1211,12 @@
       }
     },
     {
-      "id": "workspace-architecture",
+      "id": "workspace-mockcase",
       "commands": [
         "harness",
-        "test-workspace-architecture"
+        "test-workspace-mockcase"
       ],
-      "version": "3.0.0",
+      "version": "2.0.0",
       "costClass": "full",
       "allowedContexts": [
         "main",
@@ -1227,12 +1228,12 @@
       }
     },
     {
-      "id": "workspace-mockcase",
+      "id": "workspace-architecture",
       "commands": [
         "harness",
-        "test-workspace-mockcase"
+        "test-workspace-architecture"
       ],
-      "version": "1.0.0",
+      "version": "3.0.0",
       "costClass": "full",
       "allowedContexts": [
         "main",
@@ -1446,7 +1447,8 @@
           "templates/workspace/.agents/skills/product-design/**",
           "templates/workspace/.agents/skills/figma-workflow/**",
           "templates/workspace/.agents/skills/implement-canonical-ui/**",
-          "templates/workspace/.agents/skills/repair-canonical-ui/**"
+          "templates/workspace/.agents/skills/repair-canonical-ui/**",
+          "templates/workspace/.agents/skills/ui-case-mock/**"
         ]
       },
       "defaultProfile": "scaffold-structure",

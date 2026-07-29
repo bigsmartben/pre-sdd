@@ -2,13 +2,20 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
-import Ajv2020 from 'ajv/dist/2020.js';
 import { artifactCollectionMembers, artifactMemberPath, artifactPaths, loadProjectAndManifest, readJson, readStructured, repositoryFile, repositoryRootFrom } from '../../../../../.psp/harness/scripts/lib/repository.mjs';
+import {
+  createSchemaValidatorCache,
+  validateFigmaAssetClosure,
+  validateFigmaDesignContext,
+  validateFigmaWorkflow,
+} from '../../../figma-workflow/scripts/lib/figma-contract-validation.mjs';
+import { analyzeUiCaseCoverage } from '../../../ui-case-mock/scripts/model.mjs';
 import { extractCanonicalUi } from './extract.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '../..'));
 const json = process.argv.includes('--json');
 const blockers = [];
+const schemaValidators = createSchemaValidatorCache((schemaPath) => readJson(root, schemaPath));
 const actorIndex = process.argv.indexOf('--actor');
 const requestedActor = actorIndex >= 0 ? process.argv[actorIndex + 1] : null;
 
@@ -91,22 +98,26 @@ function sameObjectSet(left, right) {
   return JSON.stringify(leftItems) === JSON.stringify(rightItems);
 }
 
-function sameInterfaceProperties(left, right) {
-  const normalize = (properties) => (properties || []).map((property) => ({
-    ...property,
-    values: (property.values || []).map((value) => canonicalJson(value)).sort(),
-  }));
-  return sameObjectSet(normalize(left), normalize(right));
+function sameFigmaComponentContract(left, right) {
+  return Boolean(left && right && canonicalJson(left) === canonicalJson(right));
 }
 
-function sameInterfaceProposal(left, right) {
-  return Boolean(
-    left
-    && right
-    && sameInterfaceProperties(left.properties, right.properties)
-    && sameObjectSet(left.slots, right.slots)
-    && sameObjectSet(left.events, right.events)
-  );
+function figmaContractMatchesMapping(contract, mapping) {
+  if (!contract || !mapping) return false;
+  const sourceProperties = contract.properties.map((property) => ({
+    name: property.name,
+    kind: property.kind,
+    values: [...property.values].sort(),
+  }));
+  const mappedProperties = mapping.propertyMappings.map((property) => ({
+    name: property.figmaProperty,
+    kind: property.kind,
+    values: property.values.map((value) => value.figmaValue).sort(),
+  }));
+  const sourceRegions = contract.contentRegions.map((region) => region.name).sort();
+  const mappedRegions = mapping.slotMappings.map((slot) => slot.figmaProperty).sort();
+  return sameObjectSet(sourceProperties, mappedProperties)
+    && JSON.stringify(sourceRegions) === JSON.stringify(mappedRegions);
 }
 
 function scopeScreenId(screenBindings, figmaRootNodeId) {
@@ -120,11 +131,13 @@ try {
   const stage = project.stages?.['product-design'];
   if (!['active', 'published'].includes(stage?.status)) throw Object.assign(new Error('产品设计阶段尚未初始化。'), { code: 'AIH_STAGE_UNINITIALIZED' });
   const upstreamFacts = {};
+  const upstreamModels = {};
   for (const artifactId of ['capabilities', 'visual-spec']) {
     const registry = manifest.artifactRegistry.find((item) => item.id === artifactId);
     const paths = artifactPaths(project, artifactId, 'product-design');
     const authorityPath = paths.authorityPath;
     const model = await readStructured(root, authorityPath, registry.format);
+    upstreamModels[artifactId] = model;
     if (model.metadata?.status !== 'ready' || model.gaps?.length > 0 || model.gates?.some((gate) => gate.checked !== true)) {
       block('AIH_UPSTREAM_NOT_READY', '上游产物未达到严格就绪：' + artifactId, authorityPath);
     }
@@ -152,16 +165,34 @@ try {
   }
   const areaPath = paths.authorityRoot + '/' + requestedActor;
   const areaDirectory = repositoryFile(root, areaPath);
-  const evidenceSchema = await readJson(root, '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json');
-  const validateEvidence = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(evidenceSchema);
-  const figmaContextSchema = await readJson(root, '.agents/skills/figma-workflow/figma-design-context.schema.json');
-  const validateFigmaContext = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(figmaContextSchema);
-  const capturePlanSchema = await readJson(root, '.agents/skills/figma-workflow/capture-plan.schema.json');
-  const validateCapturePlan = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(capturePlanSchema);
-  const ingestReceiptSchema = await readJson(root, '.agents/skills/figma-workflow/ingest-receipt.schema.json');
-  const validateIngestReceipt = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(ingestReceiptSchema);
-  const sourceRegistrationSchema = await readJson(root, '.agents/skills/figma-workflow/source-registration.schema.json');
-  const validateSourceRegistration = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true }).compile(sourceRegistrationSchema);
+  const evidenceSchemaPath = '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json';
+  const figmaContextSchemaPath = '.agents/skills/figma-workflow/figma-design-context.schema.json';
+  const capturePlanSchemaPath = '.agents/skills/figma-workflow/capture-plan.schema.json';
+  const ingestReceiptSchemaPath = '.agents/skills/figma-workflow/ingest-receipt.schema.json';
+  const sourceRegistrationSchemaPath = '.agents/skills/figma-workflow/source-registration.schema.json';
+  const [
+    evidenceSchema,
+    figmaContextSchema,
+    capturePlanSchema,
+    ingestReceiptSchema,
+    sourceRegistrationSchema,
+    validateEvidence,
+    validateFigmaContext,
+    validateCapturePlan,
+    validateIngestReceipt,
+    validateSourceRegistration,
+  ] = await Promise.all([
+    schemaValidators.schema(evidenceSchemaPath),
+    schemaValidators.schema(figmaContextSchemaPath),
+    schemaValidators.schema(capturePlanSchemaPath),
+    schemaValidators.schema(ingestReceiptSchemaPath),
+    schemaValidators.schema(sourceRegistrationSchemaPath),
+    schemaValidators.get(evidenceSchemaPath),
+    schemaValidators.get(figmaContextSchemaPath),
+    schemaValidators.get(capturePlanSchemaPath),
+    schemaValidators.get(ingestReceiptSchemaPath),
+    schemaValidators.get(sourceRegistrationSchemaPath),
+  ]);
   const evidenceAssets = new Map();
   const evidenceItems = new Map();
   const figmaContexts = new Map();
@@ -332,84 +363,10 @@ try {
         }
       }
 	      if (source.kind === 'figma' && figmaContext) {
-	        const contextComponents = new Map();
-	        const componentSets = new Map();
-	        for (const component of figmaContext.components) {
-          if (contextComponents.has(component.nodeId)) {
-            block('AIH_COMPONENT_MAPPING_INVALID', 'Figma design-context 组件节点重复：' + component.nodeId, source.evidence.path);
-          }
-          contextComponents.set(component.nodeId, component);
-        }
-        for (const component of figmaContext.components) {
-          if (component.kind === 'component-set' && component.componentSetNodeId !== component.nodeId) {
-            block('AIH_COMPONENT_MAPPING_INVALID', 'Component Set 必须以自身 nodeId 作为 componentSetNodeId：' + component.nodeId, source.evidence.path);
-          }
-          if (component.componentSetNodeId && contextComponents.get(component.componentSetNodeId)?.kind !== 'component-set') {
-            block('AIH_COMPONENT_MAPPING_INVALID', '组件引用未知 Component Set：' + component.nodeId + ' → ' + component.componentSetNodeId, source.evidence.path);
-          }
-	          if (component.kind === 'instance' && contextComponents.get(component.mainComponentNodeId)?.kind !== 'component') {
-	            block('AIH_COMPONENT_MAPPING_INVALID', 'Instance 引用未知 Main Component：' + component.nodeId + ' → ' + component.mainComponentNodeId, source.evidence.path);
-	          }
-	        }
-	        for (const catalog of figmaContext.componentSetCatalog) {
-	          if (componentSets.has(catalog.componentSetNodeId)) {
-	            block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Figma design-context Component Set Catalog 重复：' + catalog.componentSetNodeId, source.evidence.path);
-	          }
-	          componentSets.set(catalog.componentSetNodeId, catalog);
-	          const expectedDefinitionIds = figmaContext.components
-	            .filter((component) => component.kind === 'component' && component.componentSetNodeId === catalog.componentSetNodeId)
-	            .map((component) => component.nodeId)
-	            .sort();
-	          if (
-	            contextComponents.get(catalog.componentSetNodeId)?.kind !== 'component-set'
-	            || JSON.stringify([...catalog.definitionNodeIds].sort()) !== JSON.stringify(expectedDefinitionIds)
-	          ) {
-	            block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Component Set Catalog 必须登记全部且仅登记其 Component Definition：' + catalog.componentSetNodeId, source.evidence.path);
-	          }
-	          const catalogAxes = new Map(catalog.axes.map((axis) => [axis.name, [...axis.values].sort()]));
-	          if (catalogAxes.size !== catalog.axes.length) {
-	            block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Component Set Catalog Variant Axis 名称重复：' + catalog.componentSetNodeId, source.evidence.path);
-	          }
-	          const definitionAxes = new Map();
-	          for (const definitionId of expectedDefinitionIds) {
-	            const definition = contextComponents.get(definitionId);
-	            for (const [name, value] of Object.entries(definition?.variantProperties || {})) {
-	              if (!definitionAxes.has(name)) definitionAxes.set(name, new Set());
-	              definitionAxes.get(name).add(value);
-	            }
-	          }
-	          if (
-	            JSON.stringify([...catalogAxes.keys()].sort()) !== JSON.stringify([...definitionAxes.keys()].sort())
-	            || [...definitionAxes].some(([name, values]) => (
-	              JSON.stringify([...values].sort()) !== JSON.stringify(catalogAxes.get(name) || [])
-	            ))
-	            || expectedDefinitionIds.some((definitionId) => (
-	              JSON.stringify(Object.keys(contextComponents.get(definitionId)?.variantProperties || {}).sort())
-	              !== JSON.stringify([...catalogAxes.keys()].sort())
-	            ))
-	          ) {
-	            block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Component Set Catalog Axis/Value 必须与全部 Definition 的 Variant Properties 精确闭合：' + catalog.componentSetNodeId, source.evidence.path);
-	          }
-	        }
-	        for (const component of figmaContext.components.filter((item) => item.kind === 'component-set')) {
-	          if (!componentSets.has(component.nodeId)) {
-	            block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Figma Component Set 缺少完整 Catalog：' + component.nodeId, source.evidence.path);
-	          }
-	        }
+	        const contextComponents = new Map(figmaContext.components.map((component) => [component.nodeId, component]));
+	        const componentSets = new Map(figmaContext.componentSetCatalog.map((catalog) => [catalog.componentSetNodeId, catalog]));
 	        figmaContexts.set(source.id, { context: figmaContext, components: contextComponents, componentSets });
-        const contextAssets = new Map(figmaContext.assets.map((asset) => [asset.nodeId, asset]));
-        for (const item of evidence.items.filter((entry) => entry.role === 'asset')) {
-          const contextAsset = contextAssets.get(item.sourceNodeId);
-          if (
-            !contextAsset
-            || contextAsset.assetKind !== item.assetKind
-            || contextAsset.captureScope !== item.captureScope
-            || contextAsset.containsDynamicContent !== item.containsDynamicContent
-          ) {
-            block('AIH_SOURCE_INTEGRITY_FAILED', '导出资源证据与 Figma design-context 的静态图层声明不一致：' + item.id, item.path);
-          }
-        }
-      }
+	      }
 	      if (source.kind === 'figma') {
 	        const capture = capturePlans.get(source.id);
 	        const ingested = ingestReceipts.get(source.id);
@@ -424,6 +381,8 @@ try {
 	          block('AIH_VISUAL_SOURCE_INCOMPLETE', 'Figma 来源必须且只能登记一个正式 design-context。', source.evidence.path);
 	        }
 	        if (capture && figmaContext) {
+	          validateFigmaWorkflow(capture.plan, block);
+	          validateFigmaDesignContext(capture.plan, capture.item.sha256, figmaContext, block);
 	          const rawItem = rawDesignContextItems[0];
 	          if (
 	            !rawItem
@@ -439,72 +398,6 @@ try {
 	            block('AIH_SOURCE_INTEGRITY_FAILED', '唯一正式 get_design_context 原始采集、Capture Plan 与冻结来源版本未闭合。', source.evidence.path);
 	          }
 	        }
-        if (capture && ingested) {
-          if (
-            ingested.receipt.capturePlan.path !== capture.item.path
-            || ingested.receipt.capturePlan.sha256 !== capture.item.sha256
-          ) {
-            block('AIH_ASSET_HASH_MISMATCH', 'Ingest Receipt 引用的 Capture Plan 路径或哈希不匹配。', ingested.item.path);
-          }
-          const candidates = new Map();
-          for (const candidate of capture.plan.candidateVisualNodes) {
-            if (candidates.has(candidate.nodeId)) {
-              block('AIH_ASSET_CLASSIFICATION_INCOMPLETE', '视觉候选节点存在多个 strategy：' + candidate.nodeId, capture.item.path);
-            }
-            candidates.set(candidate.nodeId, candidate);
-          }
-          const plannedAssets = new Map(
-            capture.plan.candidateVisualNodes
-              .filter((candidate) => candidate.strategy === 'asset')
-              .map((candidate) => [candidate.nodeId, candidate]),
-          );
-          const receiptAssets = new Map();
-          for (const receiptAsset of ingested.receipt.assets) {
-            if (receiptAssets.has(receiptAsset.sourceNodeId)) {
-              block('AIH_ASSET_CLOSURE_FAILED', 'Ingest Receipt 重复登记来源节点：' + receiptAsset.sourceNodeId, ingested.item.path);
-            }
-            receiptAssets.set(receiptAsset.sourceNodeId, receiptAsset);
-            const planned = plannedAssets.get(receiptAsset.sourceNodeId);
-            if (
-              !planned
-              || planned.assetExport.targetPath !== receiptAsset.path
-              || planned.assetExport.format !== receiptAsset.format
-              || planned.assetExport.scale !== receiptAsset.scale
-              || !sameStringRecord(planned.assetExport.cropBounds, receiptAsset.cropBounds)
-              || !sameStringRecord(planned.assetExport.transparentPadding, receiptAsset.transparentPadding)
-              || !sameStringRecord(planned.assetExport.expectedDimensions, receiptAsset.expectedDimensions)
-              || planned.assetExport.downloadOperation !== ingested.receipt.downloadOperation
-              || JSON.stringify(planned.consumerTargets) !== JSON.stringify(receiptAsset.consumerTargets)
-            ) {
-              block('AIH_ASSET_CLOSURE_FAILED', 'Capture Plan 与 Ingest Receipt 的 Asset 事实不一致：' + receiptAsset.sourceNodeId, ingested.item.path);
-            }
-            const evidenceAsset = evidenceAssets.get(source.id)?.get(receiptAsset.path);
-            if (!evidenceAsset) {
-              block('AIH_ASSET_MISSING', 'Ingest Receipt Asset 缺少来源证据项：' + receiptAsset.path, ingested.item.path);
-            } else if (
-              evidenceAsset.sourceNodeId !== receiptAsset.sourceNodeId
-              || evidenceAsset.sha256 !== receiptAsset.sha256
-              || evidenceAsset.format !== receiptAsset.format
-              || evidenceAsset.scale !== receiptAsset.scale
-              || !sameStringRecord(evidenceAsset.cropBounds, receiptAsset.cropBounds)
-              || !sameStringRecord(evidenceAsset.transparentPadding, receiptAsset.transparentPadding)
-              || !sameStringRecord(evidenceAsset.expectedDimensions, receiptAsset.expectedDimensions)
-              || evidenceAsset.downloadOperation !== ingested.receipt.downloadOperation
-              || JSON.stringify(evidenceAsset.consumerTargets) !== JSON.stringify(receiptAsset.consumerTargets)
-              || evidenceAsset.status !== 'verified'
-            ) {
-              block('AIH_ASSET_CLOSURE_FAILED', '来源证据项与 Ingest Receipt 不一致：' + receiptAsset.path, evidenceAsset.path);
-            }
-          }
-          for (const nodeId of plannedAssets.keys()) {
-            if (!receiptAssets.has(nodeId)) block('AIH_ASSET_MISSING', '已分类 asset 未出现在 Ingest Receipt：' + nodeId, capture.item.path);
-          }
-          for (const evidenceAsset of evidenceAssets.get(source.id)?.values() || []) {
-            if (!receiptAssets.has(evidenceAsset.sourceNodeId)) {
-              block('AIH_ASSET_CLOSURE_FAILED', '来源 Asset 证据未出现在 Ingest Receipt：' + evidenceAsset.path, evidenceAsset.path);
-            }
-          }
-        }
         if (!source.registration?.path || !source.registration?.sha256) {
           block('AIH_SOURCE_INTEGRITY_FAILED', 'Figma 来源缺少 Registration Packet 路径或哈希。', location);
         } else {
@@ -553,35 +446,16 @@ try {
               if (source.status === 'available' && registration.gaps.length > 0) {
                 block('AIH_SOURCE_COVERAGE_FAILED', 'available Figma 来源的 Registration Packet 不得保留 gap。', source.registration.path);
               }
-              const registeredAssets = new Map();
-              for (const asset of registration.assets) {
-                if (registeredAssets.has(asset.path)) {
-                  block('AIH_ASSET_CLOSURE_FAILED', 'Registration Packet 重复登记 Asset：' + asset.path, source.registration.path);
-                }
-                registeredAssets.set(asset.path, asset);
-                const evidenceAsset = evidenceAssets.get(source.id)?.get(asset.path);
-                if (
-                  !evidenceAsset
-                  || evidenceAsset.sourceNodeId !== asset.sourceNodeId
-                  || evidenceAsset.assetKind !== asset.assetKind
-                  || evidenceAsset.strategy !== asset.strategy
-                  || evidenceAsset.format !== asset.format
-                  || evidenceAsset.scale !== asset.scale
-                  || !sameStringRecord(evidenceAsset.cropBounds, asset.cropBounds)
-                  || !sameStringRecord(evidenceAsset.transparentPadding, asset.transparentPadding)
-                  || !sameStringRecord(evidenceAsset.expectedDimensions, asset.expectedDimensions)
-                  || evidenceAsset.sha256 !== asset.sha256
-                  || evidenceAsset.downloadOperation !== asset.downloadOperation
-                  || JSON.stringify(evidenceAsset.consumerTargets) !== JSON.stringify(asset.consumerTargets)
-                  || evidenceAsset.status !== asset.status
-                ) {
-                  block('AIH_ASSET_CLOSURE_FAILED', 'Registration Packet Asset 与正式证据不一致：' + asset.path, source.registration.path);
-                }
-              }
-              for (const evidenceAsset of evidenceAssets.get(source.id)?.values() || []) {
-                if (!registeredAssets.has(evidenceAsset.path)) {
-                  block('AIH_ASSET_CLOSURE_FAILED', '正式来源 Asset 未进入 Registration Packet：' + evidenceAsset.path, source.registration.path);
-                }
+              if (capture && ingested && figmaContext) {
+                validateFigmaAssetClosure({
+                  plan: capture.plan,
+                  planSha256: capture.item.sha256,
+                  context: figmaContext,
+                  receipt: ingested.receipt,
+                  evidence,
+                  registration,
+                  location: source.registration.path,
+                }, block);
               }
             }
           } catch (error) {
@@ -614,6 +488,7 @@ try {
         block('AIH_ASSET_MISSING', '资源未出现在对应设计来源的证据清单：' + asset.id + ' / ' + sourceId, asset.path);
       } else if (source?.kind === 'figma' && (
         asset.sourceNodeId !== evidenceAsset.sourceNodeId
+        || asset.assetBoundaryNodeId !== evidenceAsset.assetBoundaryNodeId
         || !sameSourceVersion(asset.sourceVersion, ingestReceipts.get(sourceId)?.receipt.sourceVersion)
         || asset.strategy !== evidenceAsset.strategy
         || asset.format !== evidenceAsset.format
@@ -839,7 +714,7 @@ try {
         block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Variant Usage 与 Figma Instance、Definition 或属性不一致：' + coverage.id + ' / ' + usage.instanceNodeId, location);
       }
       const boundScreenId = scopeScreenId(
-        capturePlans.get(mapping.sourceId)?.plan.scopeConfirmation.screenBindings,
+        capturePlans.get(mapping.sourceId)?.plan.scopeAudit.screenBindings,
         instance?.screenRootNodeId,
       );
       if (boundScreenId !== usage.screenId) {
@@ -873,7 +748,7 @@ try {
     const matchedInventoryIds = new Set();
     const matchedProposalIds = new Set();
     const handshakeKeys = new Set();
-    const proposals = capture?.highImpactConfirmation.componentProposals || [];
+    const proposals = capture?.scopeAudit.componentProposals || [];
     const proposalIds = new Set();
     const proposalNodeOwners = new Map();
     for (const proposal of proposals) {
@@ -889,14 +764,14 @@ try {
         proposalNodeOwners.set(nodeId, proposal.id);
       }
     }
-    const confirmedComponentNodeIds = (capture?.scopeConfirmation.includedNodes || [])
-      .filter((item) => item.kind === 'component')
+    const confirmedComponentNodeIds = (capture?.scopeAudit.includedNodes || [])
+      .filter((item) => ['component-set', 'component', 'instance'].includes(item.kind))
       .map((item) => item.nodeId)
       .sort();
     if (JSON.stringify([...proposalNodeOwners.keys()].sort()) !== JSON.stringify(confirmedComponentNodeIds)) {
       block('AIH_COMPONENT_ABSTRACTION_UNRESOLVED', 'Capture Plan Component Proposal 必须对确认范围内组件节点形成无遗漏、无重叠分区。', capturePlans.get(source.id)?.item.path);
     }
-    const allowedScreenIds = new Set((capture?.scopeConfirmation.screenBindings || []).map((item) => item.screenId));
+    const allowedScreenIds = new Set((capture?.scopeAudit.screenBindings || []).map((item) => item.screenId));
     for (const handshake of registration.componentHandshake) {
       const location = source.registration.path;
       const handshakeKey = JSON.stringify([...handshake.finalNodeIds].sort());
@@ -910,7 +785,6 @@ try {
       if (
         !inventory
         || inventory.decision !== handshake.decision
-        || inventory.semanticRole !== handshake.semanticRole
         || JSON.stringify([...inventory.structureSignatures].sort()) !== JSON.stringify([...handshake.structureSignatures].sort())
       ) {
         block('AIH_COMPONENT_ABSTRACTION_UNRESOLVED', 'Registration Packet Component Handshake 未精确投影到 Component Inventory：' + handshake.proposalId, location);
@@ -924,12 +798,9 @@ try {
       if (
         !proposal
         || proposal.decision !== handshake.decision
-        || proposal.semanticRole !== handshake.semanticRole
-        || proposal.reason !== handshake.reason
-        || proposal.counterexample !== handshake.counterexample
-        || !sameInterfaceProposal(proposal.interfaceProposal, handshake.interfaceProposal)
+        || !sameFigmaComponentContract(proposal.figmaComponentContract, handshake.figmaComponentContract)
       ) {
-        block('AIH_COMPONENT_ABSTRACTION_UNRESOLVED', 'Registration Handshake 必须保留已确认 Proposal 的 ID、决定、语义、反例和接口提案：' + handshake.proposalId, location);
+        block('AIH_COMPONENT_ABSTRACTION_UNRESOLVED', 'Registration Handshake 必须保留已批准 Proposal 的 ID、决定和 Figma 组件事实：' + handshake.proposalId, location);
       }
       for (const evidenceItemId of handshake.baselineEvidenceItemIds) {
         const item = evidenceItems.get(source.id)?.get(evidenceItemId);
@@ -945,10 +816,10 @@ try {
         }
         usagePairs.add(pair);
         if (!allowedScreenIds.has(binding.screenId)) {
-          block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Component Handshake Usage Binding 的 Screen 不在 Scope Confirmation：' + handshake.proposalId + ' / ' + binding.screenId, location);
+          block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Component Handshake Usage Binding 的 Screen 不在 Scope Audit：' + handshake.proposalId + ' / ' + binding.screenId, location);
         }
         const instance = figmaContexts.get(source.id)?.components.get(binding.instanceNodeId);
-        const boundScreenId = scopeScreenId(capture?.scopeConfirmation.screenBindings, instance?.screenRootNodeId);
+        const boundScreenId = scopeScreenId(capture?.scopeAudit.screenBindings, instance?.screenRootNodeId);
         if (instance?.kind !== 'instance' || boundScreenId !== binding.screenId) {
           block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Component Handshake Usage 必须通过 Instance screenRootNodeId 的一个或多个 Viewport/Scenario Binding 唯一解析到同一 Product Screen：' + handshake.proposalId + ' / ' + binding.instanceNodeId, location);
         }
@@ -974,14 +845,6 @@ try {
       const expectedUsagePairs = expectedUsages.map((item) => item.instanceNodeId + '/' + item.screenId).sort();
       const handshakeUsageNodeIds = handshake.usageBindings.map((item) => item.instanceNodeId).sort();
       const handshakeUsagePairs = handshake.usageBindings.map((item) => item.instanceNodeId + '/' + item.screenId).sort();
-      const interfaceSlots = handshake.interfaceProposal.slots.map((item) => ({
-        figmaProperty: item.figmaProperty,
-        litSlot: item.litSlot,
-      }));
-      const expectedLitEvents = mapping
-        ? mapping.eventIds.map((eventId) => model.events.find((item) => item.id === eventId)?.name).filter(Boolean).sort()
-        : [];
-      const proposedLitEvents = handshake.interfaceProposal.events.map((item) => item.litEvent).sort();
       if (
         !mapping
         || handshake.figmaComponentNodeId !== mapping.figmaComponentNodeId
@@ -989,11 +852,9 @@ try {
         || JSON.stringify([...handshake.variantUsageInstanceNodeIds].sort()) !== JSON.stringify(expectedUsageNodeIds)
         || JSON.stringify(handshakeUsageNodeIds) !== JSON.stringify(expectedUsageNodeIds)
         || JSON.stringify(handshakeUsagePairs) !== JSON.stringify(expectedUsagePairs)
-        || !sameInterfaceProperties(handshake.interfaceProposal.properties, mapping.propertyMappings)
-        || !sameObjectSet(interfaceSlots, mapping.slotMappings)
-        || JSON.stringify(proposedLitEvents) !== JSON.stringify(expectedLitEvents)
+        || !figmaContractMatchesMapping(handshake.figmaComponentContract, mapping)
       ) {
-        block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Registration Handshake、接口提案、Mapping、Definition 与 Usage 未双向闭合：' + inventory.id, location);
+        block('AIH_COMPONENT_VARIANT_COVERAGE_FAILED', 'Registration 的 Figma 组件事实与 Product Design Mapping、Definition、Usage 未双向闭合：' + inventory.id, location);
       }
     }
     for (const inventory of sourceInventories) {
@@ -1264,13 +1125,24 @@ try {
         if (value.stateId) {
           block('AIH_STATE_MATRIX_INVALID', 'Variant 与 Content Override 轴值不得伪装成 Runtime/Interaction State：' + axis.id + ' / ' + value.id, location);
         }
-        if (axis.kind === 'variant' && Object.hasOwn(value, 'renderValue')) {
-          block('AIH_STATE_MATRIX_INVALID', 'Variant State Axis 必须通过 Mapping 渲染，不得声明 renderValue：' + axis.id + ' / ' + value.id, location);
+        if (
+          axis.kind === 'variant'
+          && axis.renderBinding.kind === 'mapped-variant'
+          && Object.hasOwn(value, 'renderValue')
+        ) {
+          block('AIH_STATE_MATRIX_INVALID', 'Mapping Variant State Axis 不得重复声明 renderValue：' + axis.id + ' / ' + value.id, location);
         }
-        if (axis.kind === 'content-override') {
+        if (
+          axis.kind === 'variant'
+          && axis.renderBinding.kind !== 'mapped-variant'
+          && !Object.hasOwn(value, 'renderValue')
+        ) {
+          block('AIH_STATE_MATRIX_INVALID', '直接 Lit Variant State Axis 的每个值必须声明 renderValue：' + axis.id + ' / ' + value.id, location);
+        }
+        if (axis.kind === 'content-override' || (axis.kind === 'variant' && axis.renderBinding.kind !== 'mapped-variant')) {
           const renderKey = canonicalJson(value.renderValue);
           if (renderValues.has(renderKey)) {
-            block('AIH_STATE_MATRIX_INVALID', 'Content Override 轴值的 renderValue 必须唯一：' + axis.id + ' / ' + value.id, location);
+            block('AIH_STATE_MATRIX_INVALID', '直接渲染轴值的 renderValue 必须唯一：' + axis.id + ' / ' + value.id, location);
           }
           renderValues.add(renderKey);
         }
@@ -1278,18 +1150,38 @@ try {
     }
 
     if (axis.kind === 'variant') {
-      const mapping = contract.mappingId ? mappings.get(contract.mappingId) : null;
-      const property = mapping?.propertyMappings.find((item) => item.kind === 'variant' && item.figmaProperty === axis.name);
-      const expected = property?.values.map((item) => item.figmaValue).sort() || [];
-      const actual = axis.values.map((item) => item.value).sort();
-      if (!property || JSON.stringify(expected) !== JSON.stringify(actual)) {
-        block('AIH_STATE_MATRIX_INVALID', 'Variant State Axis 必须一对一精确复用 Figma Variant 的有限值：' + axis.id, location);
+      if (axis.renderBinding.kind === 'mapped-variant') {
+        const mapping = contract.mappingId ? mappings.get(contract.mappingId) : null;
+        const property = mapping?.propertyMappings.find((item) => item.kind === 'variant' && item.figmaProperty === axis.name);
+        const expected = property?.values.map((item) => item.figmaValue).sort() || [];
+        const actual = axis.values.map((item) => item.value).sort();
+        if (!property || JSON.stringify(expected) !== JSON.stringify(actual)) {
+          block('AIH_STATE_MATRIX_INVALID', 'Mapping Variant State Axis 必须一对一精确复用 Figma Variant 的有限值：' + axis.id, location);
+        }
+      } else if (axis.renderBinding.kind === 'lit-property') {
+        if (!contract.properties.some((item) => item.name === axis.renderBinding.name)) {
+          block('AIH_STATE_MATRIX_INVALID', '直接 Variant renderBinding 必须引用 Contract 已声明的公开 Lit Property：' + axis.id, location);
+        }
+      } else if (axis.renderBinding.kind === 'lit-attribute') {
+        if (!contract.attributes.some((item) => item.name === axis.renderBinding.name)) {
+          block('AIH_STATE_MATRIX_INVALID', '直接 Variant renderBinding 必须引用 Contract 已声明的公开 Lit Attribute：' + axis.id, location);
+        }
       }
     }
 
     if (axis.kind === 'interaction-state') {
       const screenIds = new Set(contract.pageInstances.map((item) => item.screenId));
       const routeIds = new Set(model.routes.filter((item) => screenIds.has(item.screenId)).map((item) => item.id));
+      if (
+        axis.renderBinding.name
+        && !contract.properties.some((property) => property.name === axis.renderBinding.name)
+      ) {
+        block(
+          'AIH_STATE_MATRIX_INVALID',
+          'Interaction State renderBinding 必须引用 Contract 已声明的公开 Lit Property：' + axis.id,
+          location,
+        );
+      }
       for (const value of axis.values) {
         const observedInScenario = model.scenarios.some((scenario) => (
           routeIds.has(scenario.routeId)
@@ -1382,9 +1274,12 @@ try {
     const expectedVariantAxes = mapping
       ? mapping.propertyMappings.filter((item) => item.kind === 'variant').map((item) => item.figmaProperty).sort()
       : [];
-    const actualVariantAxes = (axesByKind.get('variant') || []).map((item) => item.name).sort();
+    const actualVariantAxes = (axesByKind.get('variant') || [])
+      .filter((item) => item.renderBinding.kind === 'mapped-variant')
+      .map((item) => item.name)
+      .sort();
     if (JSON.stringify(expectedVariantAxes) !== JSON.stringify(actualVariantAxes)) {
-      block('AIH_STATE_MATRIX_INVALID', 'Variant State Axis 必须全部且仅覆盖 Mapping 声明的 Variant 属性：' + contract.id, location);
+      block('AIH_STATE_MATRIX_INVALID', 'Mapping Variant State Axis 必须全部且仅覆盖 Mapping 声明的 Variant 属性：' + contract.id, location);
     }
 
     if (axes.length === 0) {
@@ -1467,6 +1362,9 @@ try {
       block('AIH_STATE_MATRIX_INVALID', 'Component Contract 默认状态必须引用合法 Matrix Entry：' + contract.id, location);
     }
   }
+
+  const uiCaseAnalysis = analyzeUiCaseCoverage(model, upstreamModels['visual-spec']);
+  for (const item of uiCaseAnalysis.blockers) block(item.code, item.message, item.location);
 
   const sourceIds = new Set(model.designSources.map((source) => source.id));
   const policyAspects = new Set(policy.aspects || []);

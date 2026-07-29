@@ -1,121 +1,70 @@
-# Figma 有限写回
+# Figma 扫描、审计与写回
 
-## 目录
+## 1. 输入契约
 
-- [范围扫描](#范围扫描)
-- [写回提案](#写回提案)
-- [组件抽象](#组件抽象)
-- [第二次确认](#第二次确认)
-- [合并执行](#合并执行)
-- [交接提案](#交接提案)
+只接受以下事实：
 
-## 范围扫描
+- Figma 文件或选区链接，以及可读取的根节点。
+- `sourceId` 与 `scopeMode: file | selection`。
+- Product Design 提供的 Screen Binding、预期 Page、State、Variant、Viewport 和 Scenario。
+- 可重复比较的 `sourceVersion`。
 
-只读盘点 Product Design 指定的 Page、Section、Frame、组件或选区：
+`file` 模式必须盘点文件中的全部 Page；`selection` 模式只证明选区完整，不得声称整个文件没有遗漏。
 
-- 用 `scanInventory={scannedAt,sourceVersion,rootNodeId,nodes}` 保存只读全量盘点；每个节点记录 `kind`、`nodeId`、`name` 和可选 `parentNodeId`。
-- 记录根节点、包含和排除的 Page / Component / Visual Node、名称、Node ID 与逐类数量；两组必须按 `kind + nodeId` 互斥且精确分区盘点节点。
-- 用 `screenBindings=[{screenId,figmaRootNodeId,viewportId,scenarioId,stateIds}]` 记录目标 Viewport、Scenario 和 State；同一 Figma Root 可有多行，但只能归属一个 Product Screen。
-- 记录 Instance 数量、嵌套层级和可能受影响的 Override（覆盖值）。
-- 识别容器、背景、媒体、图标、文本、控件、状态层、装饰和静态 Artwork（视觉作品）。
-- 记录已有组件、Component Set、Variant、Variable、Auto Layout、约束和当前 Export 设置。
-- 读取并记录扫描时的 `sourceVersion`，只形成 `scopeConfirmation` 候选；用户确认并由 Product Design 记录前不得写入。
+Workflow Request 是不落盘的输入检查表。权限、根节点、`sourceVersion`、Inventory 和审计输入应在一次前置遍历中取得；逻辑 Step 1 和 Step 2 不要求拆成独立远程调用。
 
-范围扩大、根节点变化或新增目标节点时，废弃候选并重新确认。
+## 2. 扫描审计
 
-## 写回提案
+`scopeAudit` 必须盘点 Page、Section、Frame、Group、Component Set、Component、Instance、Image 和视觉节点，并完成以下检查：
 
-把全部写回合并到一个可确认清单：
-
-- 图层重命名、分组、排序和 Auto Layout 调整。
-- 可一一映射的已有组件替换。
-- 新组件、Component Set、有限 Variant、Component Property 和 Variable 创建。
-- 静态 Artwork 的 `Export/kebab-case-name` 标记。
-- 资源分类歧义及其最终 `asset`、`dom-css`、`dynamic` 或 `ignored` 建议。
-- 真正阻断写回的具体 Instance 及逐个 Detach 理由。
-
-不得把动态文本、用户数据、内容图片、真实控件或交互结构压入静态资源。普通布局、文字、控件、单色基础形状和可由现有设计令牌表达的效果不得标记为导出资源。
-
-## 组件抽象
-
-对范围内每个重复或组件相关节点给出唯一决定：
-
-| 决定 | 含义 |
-|---|---|
-| `shared-component` | 语义职责和结构一致，需要一个共享 Figma 组件及唯一 Lit 接口 |
-| `primitive-only` | 只复用低层视觉或结构 Primitive，不合并业务组件 |
-| `local-structure` | 保留为页面或父组件局部结构 |
-
-`componentProposals` 是真正的抽象分组：每项以唯一 `id` 拥有一个或多个 `nodeIds`；不同分组互斥，并集必须精确等于范围中的全部 `kind=component` 节点。为每项记录 `semanticRole`、`structureSignatures`、作为复用依据的 `reason` 和具体 `counterexample`。结构签名忽略文字值、颜色、尺寸、坐标和当前 Variant 值，保留节点类型、内容角色、容器、Slot 和嵌套组件边界。
-
-每个提案必须显式记录：
-
-- `componentBoundary={kind,rootNodeId,nestedComponentNodeIds}`：单组件、组件集或嵌套组件的所有权边界。
-- `sizeBehavior={width,height,wrap}`：固定、Hug（内容自适应）、Fill（填充）、内容驱动或混合尺寸，以及最小/最大值。
-- `interfaceProposal={properties,slots,events}`：Figma Property 到 Lit Property / Attribute 的映射、内容 Slot 和交互 Event；Variant Property 必须逐值映射。
-
-组件模型遵守以下规则：
-
-- 结构或状态差异使用有限 Variant；文本、布尔开关、Instance Swap 和内容区域使用 Component Property 或 Slot。
-- 不得使用 `isHomePage`、路由、页面名、特殊间距或单屏 CSS 补丁表达实例差异。
-- 优先复用已有组件和变量；新变量只覆盖确认过的颜色、排版、间距、圆角、描边、阴影、效果和尺寸。
-- 先创建获批的变量和嵌套组件，再创建父组件与 Component Set。
-- 同一尺寸的不同状态保持相同 Frame 宽高；逐项切换属性和 Variant 验证。
-
-创建组件前按实际需要确认：
-
-- 组件名称以及单组件、组件集或嵌套组件边界。
-- 固定、内容自适应、填充、换行和最小/最大尺寸。
-- Text、Boolean、Instance Swap、Slot 和 Event。
-- 每个 Variant 轴的有限值和使用该组合的 Instance。
-- 颜色、排版、间距、圆角、描边、阴影、尺寸、主题及复用来源。
-- 哪些实例应随公共部分同步变化，哪些必须保持独立。
-
-## 第二次确认
-
-High-impact Confirmation（高影响确认）必须：
-
-- 重新读取同一种 `sourceVersion`，必须与 Scope Confirmation 完全相同；不同即废弃范围并重新扫描。
-- 引用已冻结的 `scopeConfirmation`，且使用不同确认 ID，并记录 `scopeConfirmationSha256`。
-- 包含组件抽象提案、有限 State / Variant 轴、变量、资源歧义、复用来源和全部拟写回操作。
-- 每个有限轴通过 `proposalId` 和 `kind` 明确归属；同一提案的 `kind + name` 不得重复。
-- `kind=variant` 的轴名和值必须与同一提案 `interfaceProposal.properties[kind=variant]` 完全一致。
-- 明确记录空写回或空 Detach，不允许省略。
-- 对每个 Detach Instance 记录具体 Node ID、阻断原因和用户批准。
-- 不把“已确认 Frame”解释为全量 Detach 授权。
-
-任何新增目标节点都必须返回第一次范围确认。Agent 不得代填确认人、确认时间或确认哈希。Product Design 对移除自身 `sha256` 后的完整确认对象执行 RFC 8785 JSON 规范化 SHA-256；High-impact Confirmation 的哈希还覆盖 `scopeConfirmationSha256`。
-
-## 合并执行
-
-1. 保存目标范围截图和节点盘点。
-2. 从最深层开始执行获批 Detach，保留位置、尺寸、约束、Auto Layout、可见性和全部非默认 Override。
-3. 按根节点、布局区域、内容、控件、状态层和 Export 标记整理图层。
-4. 替换已有组件前逐项核对角色、Variant、Component Property、Override、文字、图标、图片、状态、Frame 尺寸、约束和 Auto Layout；任一未知或缺失都停止该替换。
-5. 创建确认过的变量、嵌套组件、父组件和 Component Set，并核对主题与全部属性组合。
-6. 使用 `Export/kebab-case-name` 标记静态 Artwork；透明资源排除画布背景并保留透明边距，贴边时记录裁切风险。
-7. 使用同一范围重新截图和盘点，只接受确认清单内的差异。
-8. 把完成时间、操作 ID、`highImpactConfirmationSha256`、`sourceVersionBefore` 与 `sourceVersionAfter` 写入 `writebackBoundary`；操作 ID 必须与第二次确认一一对应。无写回时前后版本必须相等。
-
-命名约定：
-
-| 对象 | 约定 | 示例 |
+| 检查 | PASS 条件 | 示例 |
 |---|---|---|
-| 可复用根节点 | PascalCase | `PricingCard` |
-| 内部角色 | 简短英文语义名 | `Header`、`Action` |
-| 状态 | `State/名称` | `State/Loading` |
-| 导出目标 | `Export/kebab-case` | `Export/empty-state-art` |
+| Page Coverage | 每个预期 Page 解析到唯一 Figma Page；`file` 模式还覆盖文件全部 Page | 预期“登录页”没有对应 Page → FAIL |
+| Group Integrity | Group 成员、父子关系和 Asset Boundary 唯一；含视觉内容的 Group 不拆分 | 头像、边框、角标同组 → 整组导出 |
+| Image Group Coverage | 每个图片节点位于其预期组件或 Group 下 | 卡片插图跑到 Page 根节点 → FAIL |
+| State Coverage | 每个上游 State 解析到一个或多个明确节点 | `STATE-ERROR` 没有对应 Frame → FAIL |
+| Variant Coverage | 每个预期轴和值均存在 Definition；允许稀疏组合 | `State=Disabled` 未创建 → FAIL |
 
-## 交接提案
+所有检查结果只允许 `PASS`、`FAIL` 或 `EXCLUDED`。`EXCLUDED` 必须有用户提供的范围理由；未解决的 `FAIL` 触发 `AIH_FIGMA_AUDIT_INCOMPLETE`。
 
-输出 Component Abstraction Proposal，逐项包含：
+## 3. 写回计划与第一道人工门禁
 
-- 抽象决定、语义职责、结构签名和复用依据。
-- Figma 组件名、属性、有限 Variant 值、Variable 和嵌套边界。
-- Figma Text / Boolean / Instance Swap / Variant 到 Lit Property / Attribute / Slot / Event / CSS Custom Property 的建议映射。
-- 每个使用中 Figma Instance 到 Lit Attribute 值的覆盖建议。
-- 每个 Instance 的 Figma Screen Root，以及它解析到的唯一 Product Screen。
-- 全部 Variant Definition 与使用中 Instance 分开列出；未被页面使用的 Definition 仍属于定义覆盖，零使用必须显式记录。
-- 跳过的替换、未解决歧义和裁切风险。
+`writebackPlan` 只允许：
 
-该提案只保存用户确认的抽象意图，不把写回前 Node ID 当作最终来源事实。全部写回完成后必须冻结并重新采集，最终 Component Set、Main Component、Instance 和 Variant 身份只来自正式设计上下文。
+- `rename`
+- `group`
+- `reorder`
+- `replace-component`
+- `create-component`
+- `create-component-set`
+- `create-variant`
+- `create-variable`
+- `detach-instance`
+
+每项操作必须有唯一 ID、目标 Node ID 和原因。默认禁止 Detach Instance；只有 `writebackApproval.detachApprovals` 逐个登记的实例可以 Detach。
+
+`writebackApproval` 的 SHA-256 覆盖完整 `scopeAudit` 哈希、`sourceVersion`、全部操作 ID、批准人和批准时间。审计或计划变化后旧批准立即失效。
+
+## 4. 执行与第二道人工门禁
+
+1. 校验当前 `sourceVersion` 与 Step 2 一致，并复用 Step 2 已保存的内容寻址截图和节点清单；不得重复采集。
+2. 在一次 `use_figma` 批次中只执行获批操作，操作 ID 必须精确相等。
+3. 以一次后置遍历保存写回后截图和节点清单，重新执行五类审计。
+4. 生成带内容哈希的 `writebackReceipt`。
+5. 用户基于写回后 Figma 完成人工验收，生成 `finalFigmaAcceptance`。
+
+前置版本变化时旧证据和批准失效，返回扫描审计。任何计划外变化触发 `AIH_FIGMA_WRITEBACK_UNAPPROVED`。人工拒绝时不得冻结；返回扫描审计，生成新的审计、批准和写回批次。
+
+## 5. Figma-only 组件事实
+
+组件提案只记录：
+
+- 组件边界与最终 Figma Node。
+- Figma Component Property。
+- Variant Axis 与有限值。
+- Content Region（内容区域）。
+- 嵌套组件。
+- 固定、Hug、Fill 和内容驱动的尺寸行为。
+- Definition 与使用中 Instance。
+
+禁止记录或推导 Lit Property、Attribute、Slot、Event、CSS Custom Property、路由或业务状态。Figma → Lit Mapping 由 Product Design 在登记后独立建立。

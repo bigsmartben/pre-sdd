@@ -40,7 +40,7 @@
 - `componentVariantDefinitions` 完整登记 Component Set 的全部 Main Component Definition 与 Lit Attribute，即使某个 Variant 尚未被页面使用也不得遗漏。
 - `componentVariantCoverage` 以 `definitionId` 绑定实际 `usages=[{instanceNodeId,screenId}]`；未使用 Definition 保留空 `usages`，每个使用中的共享组件 Instance 必须且只能出现一次。
 - `componentContracts` 把每个组件收敛为唯一 Lit 接口；存在 Figma 来源时必须把共享组件映射与 Figma Instance 双向绑定到页面实例，`autonomous` 组件则保持无 Figma 身份的提供方中立契约。页面不得复制内部结构绕过该接口。
-- `stateAxes` 为四类状态分别枚举有限值；`stateMatrix` 必须完整分类全部组合。Mock Case 与组件契约测试只能消费这份矩阵，不得维护平行状态清单。
+- `stateAxes` 为四类状态分别枚举有限值；`stateMatrix` 必须完整分类全部组合。UI ViewModel、UI Case Mock 与组件契约测试只能消费这份矩阵，不得维护平行状态清单。
 - `primitive-only` 与 `local-structure` 不得创建 Lit 共享组件映射，避免仅凭视觉相似进行过度抽象。
 
 `renderAssertions` 只检查页面自身健康，例如溢出、裁切和目标可见；`sourceParityAssertions` 检查实现是否遵循指定视觉来源。例如，`guided` 只声明 `typography` 和 `color` 时允许重新组织未覆盖布局，但字体或颜色不匹配必须阻断；`exact` 必须包含整页 `screenshot-match`。

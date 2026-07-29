@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const tierIndex = process.argv.indexOf('--tier');
 const tier = tierIndex >= 0 ? process.argv[tierIndex + 1] : 'all';
-const slow = '(?:browser validator|visual policy supports|exact visual repair|canonical UI repair|Human Visual Acceptance|Component Contract runner|Matrix Mount preserves|incremental validation)';
+const slow = '(?:browser validator|visual policy supports|exact visual repair|canonical UI repair|Human Visual Acceptance|Component Contract runner|Matrix Mount preserves|incremental validation|UI Case Mock runtime)';
 const filterArguments = tier === 'slow'
   ? ['--test-name-pattern=' + slow]
   : tier === 'fast'
@@ -11,6 +11,7 @@ const filterArguments = tier === 'slow'
     : [];
 const paths = [
   resolve(import.meta.dirname, 'product.test.mjs'),
+  resolve(import.meta.dirname, '../../ui-case-mock/tests/ui-case-mock.test.mjs'),
 ];
 const { NODE_TEST_CONTEXT: _parentTestContext, ...environment } = process.env;
 const child = spawnSync(process.execPath, ['--test', ...filterArguments, ...paths], {

@@ -150,7 +150,7 @@ Scope Confirmation 必须逐项列出范围内的视觉节点和组件相关节�
 4. 对照 Figma 检查位置、尺寸、文字、字体、颜色和资源。
 5. 发现问题后进入 2.7。
 
-正式产品预览使用 `?review=0`，不会加载任何 Review Tool（评审工具）；需要不一致标记、MockCase 切换器和交互分支驱动器时统一使用 `?review=1`。未设置 `review` 与 `review=0` 等价。
+正式产品预览使用 `?review=0`，不会加载任何 Review Tool（评审工具）；需要不一致标记、UI Case 切换器和交互分支驱动器时统一使用 `?review=1`。未设置 `review` 与 `review=0` 等价。
 
 ### 2.7 标记反馈并迭代
 

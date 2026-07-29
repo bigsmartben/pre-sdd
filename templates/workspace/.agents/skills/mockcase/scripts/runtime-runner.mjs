@@ -115,6 +115,9 @@ function reviewDecisionFacts(decision, runtime, actor) {
       : [];
     if (
       caseProjections.length === 0
+      || completed.applyStatus !== 'PASS'
+      || completed.rollbackStatus !== 'PASS'
+      || !sameIds(caseProjections.map((item) => item.caseId), [...available.keys()])
       || caseProjections.some((item) =>
         available.get(item.caseId) !== item.projectionDigest)
     ) {
@@ -127,12 +130,80 @@ function reviewDecisionFacts(decision, runtime, actor) {
       decision: 'complete',
       routeId: completed.routeId,
       caseProjections,
+      applyStatus: 'PASS',
+      rollbackStatus: 'PASS',
       status: 'PASS',
     };
   });
 }
 
-async function disposeRuntimePage(page) {
+async function capturePublicState(page, runtime, routeId) {
+  const targets = runtime.cases
+    .filter((item) => item.routeId === routeId)
+    .flatMap((item) => item.effects)
+    .reduce((result, effect) => {
+      const current = result.get(effect.targetInstanceId) ?? {
+        targetInstanceId: effect.targetInstanceId,
+        propertyNames: new Set(),
+        controlIds: new Set(),
+      };
+      for (const assignment of effect.assignments) current.propertyNames.add(assignment.propertyName);
+      if (effect.activation.controlId) current.controlIds.add(effect.activation.controlId);
+      result.set(effect.targetInstanceId, current);
+      return result;
+    }, new Map());
+  const specification = [...targets.values()].map((item) => ({
+    targetInstanceId: item.targetInstanceId,
+    propertyNames: [...item.propertyNames].sort(),
+    controlIds: [...item.controlIds].sort(),
+  })).sort((left, right) => left.targetInstanceId.localeCompare(right.targetInstanceId));
+  const snapshot = await page.evaluate((items) => {
+    const find = (root, selector) => {
+      const direct = root.querySelector(selector);
+      if (direct) return direct;
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue;
+        const nested = find(element.shadowRoot, selector);
+        if (nested) return nested;
+      }
+      return null;
+    };
+    const copy = (value) => {
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch {
+        return String(value);
+      }
+    };
+    return items.map((item) => {
+      const target = find(document, `[data-component-instance-id="${CSS.escape(item.targetInstanceId)}"]`);
+      if (!target) throw Object.assign(new Error('公开组件实例不存在：' + item.targetInstanceId), {
+        code: 'AIH_MOCKCASE_TARGET_MISSING',
+      });
+      return {
+        targetInstanceId: item.targetInstanceId,
+        stateId: target.getAttribute('data-state-id'),
+        componentState: target.getAttribute('data-component-state'),
+        properties: Object.fromEntries(item.propertyNames.map((name) => [name, copy(target[name])])),
+        controls: item.controlIds.map((controlId) => {
+          const control = find(target.shadowRoot ?? target, `[data-control-id="${CSS.escape(controlId)}"]`)
+            ?? find(document, `[data-control-id="${CSS.escape(controlId)}"]`);
+          if (!control) throw Object.assign(new Error('公开 Control 不存在：' + controlId), {
+            code: 'AIH_MOCKCASE_TARGET_MISSING',
+          });
+          return {
+            controlId,
+            value: 'value' in control ? control.value : null,
+            textContent: control.textContent,
+          };
+        }),
+      };
+    });
+  }, specification);
+  return sha256(JSON.stringify(snapshot));
+}
+
+async function disposeRuntimePage(page, beforeDigest, runtime, routeId) {
   const disposed = await page.evaluate(async () => {
     await globalThis.__pspMockcaseRuntimeApi.dispose();
     return {
@@ -145,6 +216,13 @@ async function disposeRuntimePage(page) {
       code: 'AIH_MOCKCASE_ROLLBACK_FAILED',
     });
   }
+  const afterDigest = await capturePublicState(page, runtime, routeId);
+  if (afterDigest !== beforeDigest) {
+    throw Object.assign(new Error(`Route ${routeId} dispose 后公开状态未恢复。`), {
+      code: 'AIH_MOCKCASE_ROLLBACK_FAILED',
+    });
+  }
+  return afterDigest;
 }
 
 async function bundleExtension(context, runtime) {
@@ -286,6 +364,8 @@ export async function runRuntime(mode, options = {}) {
             ), { code: 'AIH_MOCKCASE_COVERAGE_FAILED' });
           }
           await options.onPageReady?.(page, { mode, routeId: route.id });
+          await page.evaluate(() => globalThis.__pspMockcaseRuntimeApi.reset());
+          const beforeDigest = await capturePublicState(page, runtime, route.id);
           for (const caseId of caseIds) {
             try {
               await page.evaluate((id) => globalThis.__pspMockcaseRuntimeApi.apply([id]), caseId);
@@ -301,11 +381,19 @@ export async function runRuntime(mode, options = {}) {
               caseId,
               routeId: route.id,
               projectionDigest: runtimeCase.projectionDigest,
+              applyStatus: 'PASS',
               status: 'PASS',
             });
           }
-          await disposeRuntimePage(page);
-          facts.push({ kind: 'dispose', routeId: route.id, status: 'PASS' });
+          const afterDigest = await disposeRuntimePage(page, beforeDigest, runtime, route.id);
+          facts.push({
+            kind: 'dispose',
+            routeId: route.id,
+            rollbackStatus: 'PASS',
+            beforeDigest,
+            afterDigest,
+            status: 'PASS',
+          });
         } finally {
           await page.close();
         }

@@ -18,11 +18,12 @@ Agent 会读取本地项目绑定和 Manifest（清单），只初始化本次�
 
 ## 初始状态
 
-工作区初始化只创建两个阶段的空目录骨架，不创建用户实例或业务事实。
+工作区初始化只创建三个可独立选择阶段的空目录骨架，不创建用户实例或业务事实。
 
 | Stage（阶段） | Initial Status（初始状态） | Initial Content（初始内容） |
 |---|---|---|
 | Product Design（产品设计） | `uninitialized`（未初始化） | `.gitkeep` 目录标记 |
+| MockCase（可选旁路模拟） | `uninitialized`（未初始化） | `.gitkeep` 目录标记；不预放 Actor、Suite、Evidence 或 Runtime |
 | Architecture Design（架构设计） | `uninitialized`（未初始化） | `.gitkeep` 目录标记 |
 
 只有使用者明确开始某一阶段时，Agent 才能执行 Manifest 登记的初始化 operation（操作）。`uninitialized` 的结构验证通过，只表示空骨架有效，不表示任何产物内容就绪。
@@ -38,6 +39,8 @@ flowchart LR
     V --> C["UI HTML Draft / 可执行界面草稿"]
     C --> R["Review / Repair / 审查与修复"]
     R --> P["Publish UI HTML / 发布并锁定 01"]
+    C -. "可选显式 Handoff" .-> M["MockCase / 独立旁路领域"]
+    I -. "用户直接请求" .-> M
     I --> A["Architecture Design / 独立架构生命周期"]
     U -. "可选：固定版本只读引用" .-> A
 ```
@@ -59,27 +62,47 @@ flowchart LR
 | Use Cases（原子用例） | `01-product-design/.psp/models/use-cases.yaml`：同时拥有 Product Behavior、正式 Interaction Flow 与内部 Low-Fi UI Blueprint | `01-product-design/UC.md` 确定性呈现三部分 |
 | Visual Spec（视觉规格） | `01-product-design/.psp/models/visual-spec.yaml`：提供方中立地定义运行环境、页面、状态渲染、布局、组件状态与 Variant、资源来源和哈希 | `01-product-design/Visual-Spec.md` 确定性呈现全部视觉输入 |
 | UI HTML（可执行界面） | `Canonical-UI-Prototypes/<ACTOR-ID>/` 中的 HTML、CSS、组件与资源；`canonical-ui.ts` 是内部机器索引 | 每个参与者目录的可执行界面；`dist`、Review Marker、截图、Repair Packet、Repair Action Report 与 HTTP 地址只是临时过程证据 |
+| MockCase（独立旁路模拟） | `MockCase/.psp/models/actors/<ACTOR-ID>/{suite,mockdata,mockcases}.json` 隐藏内部模型集合；Runtime Bundle 可重建 | 浏览器 Review 是用户可见投影；Suite JSON 与 Evidence 不进入用户交付清单 |
 | Architecture Design（架构设计） | `02-architecture-design/.psp/models/*.yaml` | `02-architecture-design/README.md`、`02-architecture-design/系统边界.md`、`02-architecture-design/概念建模.md` 与 `02-architecture-design/技术验证/README.md` |
 
 例如，调整一个用例时，Agent 先在临时文件准备包含三部分的完整候选数据，再使用 `apply-product-artifact` 原子提交 `use-cases.yaml` 与 `UC.md`。旧 Wireflow 目录只允许通过显式 `--legacy-wireflow-input` 作为一次性迁移输入；迁移后不会被正常校验、readiness、渲染或 handoff 读取。直接修改目标 YAML/Markdown，或单独运行 `render:product`，都会被视为不符合日常更新协议。Canonical UI 的 `canonical-ui.ts` 合法变化后，使用 `npm run refresh:canonical-ui-projections` 刷新隐藏 JSON；该操作支持 `--dry-run`，只写项目绑定的 `generated-support`，published 阶段必须先 Reopen。
 
-## MockCase 旁路垂直域
+## UC Case、UI Case 与 UI Case Mock
 
-`mockcase` 是独立、可选的旁路垂直域（Side-path Vertical Domain），不属于 `Use Cases → Visual Spec → Canonical UI` 主流程。它只读 Use Cases 与 Canonical UI，通过用户直接操作或显式 Handoff（移交）进入；Handoff 只生成 Receipt（凭证），不会初始化或写入下游。
+三者属于不同覆盖层，不建立“业务用例必须先生成 Mock”的依赖：
 
-每个 Actor 的权威 Suite 由 `suite.json`、`mockdata.json` 和 `mockcases.json` 组成：前者锁定输入和文件摘要，`mockdata.json` 只拥有 Fixture 与网络行为，`mockcases.json` 只拥有 Case 编排和上游公开身份引用。`mockcase-runtime.json` 是可重建的运行投影，不是第四个权威输入。
+| 固定术语 | 责任 | 例子 |
+|---|---|---|
+| UC Case（业务路径用例） | 从 Use Case 的 main、alternate、exception 确定派生；只用于业务路径覆盖分析，不形成新产物 | `UC-001-MAIN`、`UC-001-EXC-01` |
+| UI Interaction Scenario（界面交互场景） | `canonical-ui.ts.scenarios`；验证控件、事件、迁移与恢复 | “点击提交后进入成功态” |
+| Component Visual Case（组件视觉案例） | Visual Spec `visualCases`；声明交互状态 × Variant 的预期视觉 | “Button / hover / primary” |
+| UI ViewModel（界面视图模型） | 为一个 Route 的页面组件实例选择合法 State Matrix Entry | “空列表 + 禁用提交按钮” |
+| UI Case（界面视觉用例） | `ViewModel + Route + Viewport` 的页面组合态 | “桌面端空列表页” |
+| UI Case Mock（界面用例模拟） | 把 UI ViewModel 投影到正式组件，验真状态、变体、属性、Attribute 与 Slot | 切换“加载中页面”并验证截图 |
 
 ```text
-只读分析当前工作区本地事实
-  → 展示覆盖差量、输入哈希和候选哈希
-  → 完整性与漂移校验
-  → MockCase 的 apply-mockcase-candidate 自动原子应用
-  → Resolver 调度结构与运行验证
+Use Case ──→ UC Case 只读覆盖
+    └──────→ UI Interaction Scenario ──→ 行为与恢复验证
+
+Component Visual Case ──→ State Axes + State Matrix
+                                  └──→ UI ViewModel ──→ UI Case ──→ UI Case Mock
 ```
 
-分析和生成候选都不会修改 Use Cases、Scenario、Visual Spec、Canonical UI 或其他正式文件。正式业务事实不足时返回 `AIH_MOCKCASE_UPSTREAM_GAP` 并停止；不得猜测业务分支、响应、文案、组件状态或 Mock Behavior。Mock Behavior 与 Mock Case 分别由独立 Suite 中的 `mockdata.json` 和 `mockcases.json` 持有；Product Design 只提供中性的 Review Host（评审宿主）和公开 DOM 标记，不保存 MockCase 配置。使用者触发 MockCase Skill 后，候选经 Candidate Hash、输入锁和目标摘要校验即可原子应用到目标 Actor Suite，无需二次确认；`canonical-ui.ts` 与 UI HTML 源码必须保持字节级不变。实际依赖或目标 Suite 发生变化时，旧候选以 `AIH_MOCKCASE_CANDIDATE_STALE` 拒绝并自动重新生成。应用成功最多表示映射完成（`MAPPED`），页面运行结果仍需由 MockCase Review Extension（评审扩展）和独立浏览器 Validator（校验器）验证。
+UI ViewModel 不接受任意原始属性值，只能引用 Component Contract 已声明的合法 Matrix Entry。每个页面实例默认 Entry 和每个有限轴值至少由一个 UI Case 覆盖；完整合法笛卡尔组合仍由 State Matrix 与 State Gallery 穷举。UI Case Mock 是 `$product-design` 的 `$ui-case-mock` 子能力，不拥有 Stage、Artifact、Candidate、Handoff、READY 或独立证据生命周期。模板中的 MSW 网络桩保持独立。
 
-例如，可以对 Agent 说：“为 ACTOR-001 补齐支付流程的业务 MockCase，并连续完成生成、应用、可视评审和独立验证；除非缺少无法从权威来源取得的业务事实，否则不要再次询问确认。”
+Analyze（分析）、Review（评审）和 Verify（验证）每次只执行一个明确意图。只有明确请求 Review 并使用 `--headed` 才加载 `review=1` 下的 UI Case 工具；浏览器缺失时只返回安装建议，不自动安装。
+
+独立 `$mockcase` 是另一条可选旁路：它拥有自己的 Stage、Domain、隐藏 Suite、Candidate、Runtime Bundle 和 READY/VERIFIED 证据。用户只请求 Analyze 或 Generate 时保持工作区字节级不变；只有显式写操作或明确“端到端完成 MockCase”才允许初始化和写入。Handoff 只生成 `downstreamAction: NOT_RUN` 的授权 Receipt，不会自动启动下游。
+
+```text
+MockCase/
+└─ .psp/models/actors/ACTOR-001/
+   ├─ suite.json
+   ├─ mockdata.json
+   └─ mockcases.json
+```
+
+Review Extension 支持 request、control-event、input 三类 Activation。请求以 Method + Path + Query + Header 一次完整匹配；Input/Select/Textarea value、公开 `textContent`、组件属性、Behavior 和 active Case 都纳入事务快照。例如切换“错误响应”Case 后，退出评审必须恢复原输入值和组件状态，否则返回 `AIH_MOCKCASE_ROLLBACK_FAILED`，不能形成 READY。
 
 ## 阶段初始化后的关键结构
 
@@ -173,7 +196,7 @@ flowchart LR
 | 阶段 | 用户看到什么 | 系统行为 | 停止点 |
 |---|---|---|---|
 | 1. 首次实现 | 可操作的 Lit 页面 | `$implement-canonical-ui` 根据已登记事实实现页面；Figma 来源先由 `$figma-workflow` 完成确认、冻结、采集和登记 | 页面可运行后停止实现 |
-| 2. 临时预览与反馈 | `canonical-ui-dev` 输出的 `?review=0` 真实 HTTP 地址 | `$product-design` 将它解释为正式产品 UI 的临时预览地址；需要不一致标记、MockCase 切换器或交互分支驱动器时统一使用 `?review=1`。三个工具都只是 Review Tool，不是产品需求、功能、页面、控件或下游实现 | 提供地址后暂停，等待用户反馈或明确要求结束反馈 |
+| 2. 临时预览与反馈 | `canonical-ui-dev` 输出的 `?review=0` 真实 HTTP 地址 | `$product-design` 将它解释为正式产品 UI 的临时预览地址；需要不一致标记、UI Case 切换器或交互分支驱动器时统一使用 `?review=1`。三个工具都只是 Review Tool，不是产品需求、功能、页面、控件或下游实现 | 提供地址后暂停，等待用户反馈或明确要求结束反馈 |
 | 3. 反馈路由与单次修复 | 可追溯的反馈处理结果 | Feedback Packet 只表达反馈。实现类反馈必须先形成机器诊断；用户明确授权后，`$repair-canonical-ui` 才能消费 operation 生成的 Repair Packet，执行一次修改和一次复验 | Repair 后回到临时预览；失败以 `AIH_UI_REPAIR_EXHAUSTED` 停止 |
 | 4. 正式 Review 与发布 | Review Evidence（评审证据），通过后显示“可发布” | 只有用户明确表示“结束反馈并生成正式 Review”时才运行 `canonical-ui-review`；`exact` 模式仍要求用户本人完成 Human Visual Acceptance（人工视觉接受），`autonomous` / `guided` 不新增接受记录 | Review 后停止；只有用户另行明确要求才 Publish |
 
@@ -195,7 +218,7 @@ flowchart LR
 | `implement-canonical-ui` | 根据已登记的产品与视觉事实执行首次或规格驱动的 HTML、CSS 与 Lit 实现；覆盖 autonomous、guided、exact 以及无来源、Figma、截图、导出和其他来源 | 只有 Figma 分支要求冻结证据与组件映射；不得自行进入 Repair 或修改产品语义 |
 | `repair-canonical-ui` | 在用户明确授权后，根据统一 Repair Packet 对 HTML、CSS、Lit 与组件渲染执行一次有边界的实现修复 | 不拥有临时预览、Review、反馈路由、发布；不修改基线、容差、视觉策略、Mock 数据或业务语义 |
 
-例如，用户要求精准还原一个完整 Figma Frame 时，Agent 先使用 Product Design 确认运行环境、`sourceId` 和 `exact`（完全实现）视觉策略。`$figma-workflow` 的第一次确认逐项冻结范围内视觉节点、组件相关节点和当时的 `sourceVersion`；第二次确认逐项冻结组件的语义职责、结构签名、复用依据、反例、有限状态轴和写回清单。全部 Figma 写入完成后才允许唯一一次正式采集，并同时保存原始设计上下文、Component Set 全量定义目录、截图和静态资源。Registration Packet 通过 Component Handshake 把确认提案与最终节点、结构签名、全部已定义 Variant 和实际使用的 Instance 闭合后，Product Design 才登记 Figma ↔ Lit 映射、Variant Definition Coverage（定义覆盖）与 Usage Coverage（使用覆盖）。若确认后来源版本变化，或冻结后再次修改 Figma，旧确认、证据和登记立即失效，必须从只读扫描重新开始。出现来源差异时只由 Repair Packet 驱动独立修复技能修改代码，并用 Repair Action Report 对来源依据和实际修改路径进行交叉校验。像素容差和固定修复原则继续由 Canonical UI Artifact Contract（产物契约）拥有。
+例如，用户要求精准还原一个完整 Figma Frame 时，Agent 先使用 Product Design 确认运行环境、`sourceId`、预期 Page/State/Variant/Screen Binding 和 `exact`（完全实现）视觉策略。`$figma-workflow` 先完成 Page、Group、图片归组、State 与 Variant 的完整审计；第一道人工门禁批准带哈希的写回清单。获批操作执行后重新扫描并保存前后截图，第二道人工门禁验收最终 Figma；只有验收通过才冻结、正式采集并保存原始设计上下文、Component Set 全量定义目录和静态资源。Registration Packet 通过 Component Handshake 把 Figma 组件边界、Property、Variant Axis、Content Region、尺寸行为、全部已定义 Variant 和实际使用的 Instance 闭合后，Product Design 独立登记 Figma ↔ Lit 映射、Variant Definition Coverage（定义覆盖）与 Usage Coverage（使用覆盖）。含视觉内容的 Group 必须作为一个 Asset Boundary 整体导出，CSS 只负责布局和文字排版。最终验收后的来源变化会使旧证据和登记立即失效，并返回 Scan & Audit（扫描审计）。出现来源差异时只由 Repair Packet 驱动独立修复技能修改代码，并用 Repair Action Report 对来源依据和实际修改路径进行交叉校验。像素容差和固定修复原则继续由 Canonical UI Artifact Contract（产物契约）拥有。
 
 ## Agent 内部执行流程
 
@@ -220,12 +243,16 @@ flowchart LR
 | 提交产品内部模型产物 | `npm run apply:product-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 提交 Visual Spec | `npm run apply:visual-spec -- --artifact visual-spec --input <候选文件>` | Use Cases 独立 readiness 已通过；引用缺失时稳定阻断 |
 | 独立验证 Visual Spec | `npm run validate:visual-spec` | 检查 UC 引用、状态/视口覆盖、Variant 组合、资源路径与 SHA-256 |
-| 分析 MockCase 业务覆盖 | `npm run analyze:mockcase -- --actor <ACTOR-ID> --json` | 只读当前工作区本地权威输入；可追加 `--route`、`--use-case` 或 `--scenario` |
-| 生成 MockCase 候选 | `npm run generate:mockcase-candidate -- --actor <ACTOR-ID> --json` | 只生成确定性 Candidate，不修改正式文件；可用 `--mockdata <json>` 提供明确网络事实 |
-| 初始化 MockCase | `npm run init:mockcase -- --actor <ACTOR-ID> --json` | 显式执行 `uninitialized → active` 并创建空 Suite；可选 Receipt 只验证来源 |
-| 应用 MockCase 候选 | `npm run apply:mockcase-candidate -- --actor <ACTOR-ID> --input <candidate.json> --json` | 用户触发 Skill 后无需再次确认；Candidate Hash、输入锁与目标摘要仍作为完整性/并发锁，Actor 级锁原子提交三个权威 JSON |
-| 生成运行投影 | `npm run project:mockcase-runtime -- --actor <ACTOR-ID> --json` | 确定性生成 `mockcase-runtime.json` |
-| 评审 / 独立验证 | `npm run review:mockcase -- ... --headed` / `npm run verify:mockcase ...` | 可视 Review 只有在页面内点击“完成评审”后形成 READY；独立无头浏览器 Validator 才形成 VERIFIED |
+| 分析 UC Case 业务覆盖 | `npm run analyze:uc-case-coverage -- --json` | 只读 Use Cases 与 Interaction Flow；不读取 Canonical UI，不写文件 |
+| 分析 UI Case 视觉覆盖 | `npm run analyze:ui-case-coverage -- --json` | 默认只读检查全部 Actor；可用 `--actor <ACTOR-ID>` 收窄 |
+| UI Case Mock 交互评审 | `npm run review:ui-case-mock -- --actor <ACTOR-ID> --headed` | 仅在明确 Review 意图时启动；不形成独立 READY |
+| UI Case Mock 无头验真 | `npm run verify:ui-case-mock` | 默认执行全部 Actor 的 UI Case × Viewport；可用 `--actor <ACTOR-ID>` 收窄 |
+| 只读分析 MockCase | `npm run analyze:mockcase -- --actor <ACTOR-ID>` | 可未初始化；不写工作区 |
+| 只读生成 MockCase Candidate | `npm run generate:mockcase-candidate -- --actor <ACTOR-ID> [--mockdata <packet>]` | Candidate 放操作系统临时目录；不隐式 Initialize/Apply |
+| 初始化并应用 MockCase | `npm run init:mockcase` / `npm run apply:mockcase-candidate` | 仅显式操作或端到端请求；Suite 只写隐藏模型路径 |
+| 生成 MockCase Runtime | `npm run project:mockcase-runtime -- --actor <ACTOR-ID>` | 至少 MAPPED；Runtime 是可重建机器投影 |
+| MockCase 人工评审 | `npm run review:mockcase -- --actor <ACTOR-ID> --review-url <url> --headed` | 每个 Route 的全部 Case Apply/回滚成功后才形成 READY |
+| MockCase 独立验真 | `npm run verify:mockcase -- --actor <ACTOR-ID> --review-url <url>` | 无头逐 Route/Case 比较 dispose 前后公开状态；只此操作形成 VERIFIED |
 | 提交架构内部模型产物 | `npm run apply:architecture-artifact -- --artifact <id> --input <候选文件>` | 阶段已初始化；可先用同一操作的 `--dry-run` 预检 |
 | 验证产品阶段 | `npm run validate:product` | 按 Resolver 返回顺序执行 |
 | 验证架构阶段 | `npm run validate:architecture` | 按 Resolver 返回顺序执行 |

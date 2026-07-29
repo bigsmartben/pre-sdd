@@ -40,6 +40,8 @@ try {
       canonicalUi: context.upstream.canonicalUiDigest,
     },
     routes: context.canonicalUi.routes.map(({ id, path }) => ({ id, path })),
+    fixtures: context.mockdata.fixtures,
+    behaviors: context.mockdata.behaviors,
     cases: runtimeCases,
   };
   const schemas = await compileSchemas(context.root);

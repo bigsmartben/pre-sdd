@@ -1,5 +1,5 @@
 export const canonicalUi = {
-  version: '11.0.0',
+  version: '12.0.0',
   actor: 'ACTOR-001',
   draft: {
     version: '0.1.0',
@@ -26,7 +26,7 @@ export const canonicalUi = {
     },
     tools: [
       { id: 'REVIEW-TOOL-INCONSISTENCY-ANNOTATOR', kind: 'inconsistency-annotator', delivery: 'built-in' },
-      { id: 'REVIEW-TOOL-MOCKCASE-SWITCHER', kind: 'mockcase-switcher', delivery: 'review-extension' },
+      { id: 'REVIEW-TOOL-UI-CASE-SWITCHER', kind: 'ui-case-switcher', delivery: 'review-extension' },
       { id: 'REVIEW-TOOL-INTERACTION-BRANCH-DRIVER', kind: 'interaction-branch-driver', delivery: 'built-in' },
     ],
   },
@@ -76,6 +76,8 @@ export const canonicalUi = {
   componentContracts: [],
   stateAxes: [],
   stateMatrix: [],
+  uiViewModels: [],
+  uiCases: [],
   controls: [
     { id: 'CONTROL-001', componentId: 'COMPONENT-001', label: '模拟成功' },
     { id: 'CONTROL-002', componentId: 'COMPONENT-001', label: '模拟错误' },

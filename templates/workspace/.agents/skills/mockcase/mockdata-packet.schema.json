@@ -16,6 +16,7 @@
         "properties": {
           "scenarioId": {"$ref": "mockcases.schema.json#/$defs/id"},
           "stateMatrixEntryId": {"$ref": "mockcases.schema.json#/$defs/id"},
+          "activation": {"$ref": "mockcases.schema.json#/$defs/activation"},
           "dataBindings": {
             "type": "array",
             "uniqueItems": true,

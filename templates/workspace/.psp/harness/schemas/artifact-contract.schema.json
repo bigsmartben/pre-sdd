@@ -24,7 +24,7 @@
       "properties": {
         "stage": {"$ref": "#/$defs/identifier"},
         "internalModelFormat": {"enum": ["yaml", "json", "typescript"]},
-        "outputRole": {"enum": ["user-artifact", "generated-support"]},
+        "outputRole": {"enum": ["user-artifact", "generated-support", "internal-model-set"]},
         "purpose": {"type": "string", "minLength": 1},
         "inputs": {
           "type": "object",
