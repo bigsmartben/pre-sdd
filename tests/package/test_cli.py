@@ -49,11 +49,39 @@ class InitializeWorkspaceTests(unittest.TestCase):
                 "package.json",
                 "psp.project.yaml",
                 ".agents/skills",
+                ".agents/skills/lit-ui/contracts/framework.yaml",
+                ".agents/skills/lit-ui/templates/Mapping.html",
+                ".agents/skills/lit-ui-workflow/SKILL.md",
+                ".agents/skills/implement-lit-ui/SKILL.md",
+                ".agents/skills/use-case-generation/contract.yaml",
                 "01-product-design",
                 "02-architecture-design",
             ]:
                 self.assertTrue((target / relative).exists(), relative)
             self.assertFalse((target / "workspace").exists())
+            for forbidden in [
+                "Mapping.html",
+                "src/ui",
+                "UIHTML",
+                "node_modules",
+                "dist",
+                ".vite",
+            ]:
+                self.assertFalse(
+                    (target / forbidden).exists(),
+                    f"PRODUCT_INSTANCE_IN_SCAFFOLD or SCAFFOLD_BUILD_OUTPUT_LEAK: {forbidden}",
+                )
+
+    def test_initialized_snapshot_exactly_matches_template(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "workspace"
+            target.mkdir()
+            cli.initialize_workspace(str(target), TEMPLATE_ROOT)
+            self.assertEqual(
+                snapshot(target),
+                snapshot(TEMPLATE_ROOT),
+                "LIT_UI_INIT_SNAPSHOT_MISMATCH",
+            )
 
     def test_conflict_lists_paths_and_has_zero_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -5,8 +5,6 @@ import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, extname, resolve, sep } from 'node:path';
 import {
-  artifactPaths,
-  artifactDefinition,
   loadProject,
   readJson,
   repositoryFile,
@@ -55,10 +53,10 @@ function packetFile(packetPath, relativePath) {
   return target;
 }
 
-function areaFile(areaDirectory, relativePath) {
-  const target = resolve(areaDirectory, ...relativePath.split('/'));
-  if (!within(areaDirectory, target)) {
-    throw Object.assign(new Error('目标越出 Canonical UI Area：' + relativePath), { code: 'AIH_ASSET_CLOSURE_FAILED' });
+function sourceFile(sourceDirectory, relativePath) {
+  const target = resolve(sourceDirectory, ...relativePath.split('/'));
+  if (!within(sourceDirectory, target)) {
+    throw Object.assign(new Error('目标越出 Figma 来源目录：' + relativePath), { code: 'AIH_ASSET_CLOSURE_FAILED' });
   }
   return target;
 }
@@ -167,28 +165,27 @@ function validateHandshake(plan, context, registration, evidence) {
   }
 }
 
-async function loadArea(actor) {
+async function loadSourceDirectory(actor, create = false) {
   const project = await loadProject(root);
   if (project.stages?.['product-design']?.status !== 'active') {
     block('AIH_STAGE_UNINITIALIZED', 'Figma Asset Operation 只允许在 active Product Design 阶段执行。', 'product-design');
   }
-  const paths = artifactPaths(project, 'canonical-ui-prototype', 'product-design');
-  const areaDirectory = repositoryFile(root, paths.authorityRoot + '/' + actor);
-  try {
-    await access(areaDirectory);
-  } catch {
-    block('AIH_ASSET_CLOSURE_FAILED', 'Canonical UI 参与者 Area 不存在：' + actor, paths.authorityRoot);
+  const productRoot = project.stages['product-design'].root;
+  const sourceDirectory = repositoryFile(root, `${productRoot}/inputs/figma/${actor}`);
+  if (create) await mkdir(sourceDirectory, { recursive: true });
+  else {
+    try {
+      await access(sourceDirectory);
+    } catch {
+      block('AIH_ASSET_CLOSURE_FAILED', 'Figma 参与者来源目录不存在：' + actor, `${productRoot}/inputs/figma`);
+    }
   }
-  const artifact = artifactDefinition(project, 'canonical-ui-prototype', 'product-design');
-  if (!artifact || artifact.authorityKind !== 'area-set') {
-    block('AIH_ASSET_CLOSURE_FAILED', 'Canonical UI Artifact 未绑定 area-set。', 'canonical-ui-prototype');
-  }
-  return areaDirectory;
+  return sourceDirectory;
 }
 
-async function readAreaReference(areaDirectory, reference, role) {
+async function readSourceReference(sourceDirectory, reference, role) {
   try {
-    const path = areaFile(areaDirectory, reference.path);
+    const path = sourceFile(sourceDirectory, reference.path);
     const content = await readFile(path);
     if (sha256(content) !== reference.sha256) {
       block('AIH_SOURCE_INTEGRITY_FAILED', 'Registration 引用文件哈希不匹配：' + role, reference.path);
@@ -216,21 +213,21 @@ async function validateRegistration(actor, registrationPath) {
   if (!await validatePacket('.agents/skills/figma-workflow/source-registration.schema.json', registration, 'Registration Packet', 'AIH_SOURCE_INTEGRITY_FAILED')) {
     return null;
   }
-  const areaDirectory = await loadArea(actor);
+  const sourceDirectory = await loadSourceDirectory(actor);
   if (blockers.length > 0) return null;
   const evidenceReference = { path: registration.evidencePath, sha256: registration.evidenceSha256 };
   const [capture, context, receipt, evidence] = await Promise.all([
-    readAreaReference(areaDirectory, registration.capturePlan, 'Capture Plan'),
-    readAreaReference(areaDirectory, registration.designContext, 'Design Context'),
-    readAreaReference(areaDirectory, registration.ingestReceipt, 'Ingest Receipt'),
-    readAreaReference(areaDirectory, evidenceReference, 'Evidence'),
+    readSourceReference(sourceDirectory, registration.capturePlan, 'Capture Plan'),
+    readSourceReference(sourceDirectory, registration.designContext, 'Design Context'),
+    readSourceReference(sourceDirectory, registration.ingestReceipt, 'Ingest Receipt'),
+    readSourceReference(sourceDirectory, evidenceReference, 'Evidence'),
   ]);
   if (!capture || !context || !receipt || !evidence) return null;
   const [planValid, contextValid, receiptValid, evidenceValid] = await Promise.all([
     validatePacket('.agents/skills/figma-workflow/capture-plan.schema.json', capture.value, 'Capture Plan', 'AIH_SOURCE_CAPTURE_BLOCKED'),
     validatePacket('.agents/skills/figma-workflow/figma-design-context.schema.json', context.value, 'Design Context', 'AIH_VISUAL_SOURCE_INCOMPLETE'),
     validatePacket('.agents/skills/figma-workflow/ingest-receipt.schema.json', receipt.value, 'Ingest Receipt', 'AIH_ASSET_CLOSURE_FAILED'),
-    validatePacket('.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json', evidence.value, 'Evidence', 'AIH_SOURCE_INTEGRITY_FAILED'),
+    validatePacket('.agents/skills/figma-workflow/design-source-evidence.schema.json', evidence.value, 'Evidence', 'AIH_SOURCE_INTEGRITY_FAILED'),
   ]);
   if (!planValid || !contextValid || !receiptValid || !evidenceValid) return null;
 
@@ -344,7 +341,7 @@ async function ingest(actor, capturePlanPath, acquisitionPath) {
     block('AIH_ASSET_MISSING', 'Acquisition Packet 未覆盖全部计划 Asset。', 'files');
   }
 
-  const areaDirectory = await loadArea(actor);
+  const sourceDirectory = await loadSourceDirectory(actor, true);
   if (blockers.length > 0) return null;
   const verified = [];
   const destinations = new Set();
@@ -409,7 +406,7 @@ async function ingest(actor, capturePlanPath, acquisitionPath) {
     } catch (error) {
       block('AIH_ASSET_CLOSURE_FAILED', '无法验证 Asset：' + error.message, nodeId);
     }
-    const target = areaFile(areaDirectory, file.targetPath);
+    const target = sourceFile(sourceDirectory, file.targetPath);
     try {
       const existingHash = sha256(await readFile(target));
       if (existingHash !== file.sha256 && existingHash !== planned.previousSha256) {
@@ -455,8 +452,8 @@ async function ingest(actor, capturePlanPath, acquisitionPath) {
     status: 'PASS',
   };
   const writes = [
-    { target: areaFile(areaDirectory, formalPlanPath), content: planContent },
-    { target: areaFile(areaDirectory, formalReceiptPath), content: Buffer.from(JSON.stringify(receipt, null, 2) + '\n') },
+    { target: sourceFile(sourceDirectory, formalPlanPath), content: planContent },
+    { target: sourceFile(sourceDirectory, formalReceiptPath), content: Buffer.from(JSON.stringify(receipt, null, 2) + '\n') },
     ...verified.map((item) => ({ target: item.target, source: item.sourcePath })),
   ];
   for (const write of writes) {

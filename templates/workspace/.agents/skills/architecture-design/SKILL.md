@@ -49,7 +49,7 @@ Technical Validation 的真实代码固定放在 `技术验证/cases/EXP-NNN.cas
 ## 领域约束
 
 - 架构设计与产品设计生命周期解耦；不得以 Product Design readiness、发布状态或任何移交概念阻断 Architecture 初始化、编辑或 readiness。
-- `capabilities`（Use Cases）只能成为 Architecture Package 显式选择的固定版本只读引用；Canonical UI Prototype 不是架构输入、依赖或移交来源。
+- `capabilities`（Use Cases）只能成为 Architecture Package 显式选择的固定版本只读引用；Mapping、Lit UI Spec 与 UIHTML 不是架构输入、依赖或移交来源。
 - Architecture operation 与 Validator 不得修改、补齐、发布、重开或锁定 Product Design 文件和状态。例如引用版本漂移时只返回 `AIH_REFERENCE_UNRESOLVED`，不得自动重跑 01 readiness 或改写引用版本。
 - 当前仓库不声明工作区外消费者或外部框架生命周期；架构产物通过本地严格门禁后结束当前范围，后续消费必须由用户另行明确。
 - 固定输入目录、权威模型和正式输出必须保持分离：`inputRoot` 保存支撑输入，`.psp/models/` 保存权威结构化模型，`user-artifact` 保存正式 Markdown 投影。

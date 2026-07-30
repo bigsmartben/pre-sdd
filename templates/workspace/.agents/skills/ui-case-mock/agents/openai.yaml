@@ -1,4 +1,0 @@
-interface:
-  display_name: "UI Case Mock"
-  short_description: "分析并验真 UI Case 的组件视觉状态投影"
-  default_prompt: "Use $ui-case-mock for exactly one explicit Analyze, Review, or Verify operation. Default an unspecified trigger to read-only Analyze; never infer Review, Verify, installation, lifecycle, or write authorization."

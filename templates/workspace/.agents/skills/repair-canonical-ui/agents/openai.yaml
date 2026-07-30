@@ -1,4 +1,0 @@
-interface:
-  display_name: "修复 Canonical UI"
-  short_description: "按统一诊断执行一次有边界的 HTML、CSS 与 Lit 实现修复"
-  default_prompt: "Use $repair-canonical-ui only after an explicit user repair request: never treat a Review Feedback Packet as repair authorization, start one registered repair session, apply its schema-valid Repair Packet once within the allowed implementation paths, revalidate the same session, and return control to $product-design without starting Preview, Review, Publish, or another attempt."

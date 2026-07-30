@@ -1,4 +1,3 @@
-import { mkdir, rmdir } from 'node:fs/promises';
 import { stringify as stringifyYaml } from 'yaml';
 import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
 import {
@@ -6,7 +5,6 @@ import {
   artifactPaths,
   loadProject,
   readStructured,
-  repositoryFile,
   repositoryRootFrom,
   stringifyStructured,
 } from '../../../runtime/project.mjs';
@@ -16,7 +14,6 @@ const root = repositoryRootFrom(import.meta.dirname);
 const stageId = 'product-design';
 const json = process.argv.includes('--json');
 let result;
-let createdPrototypeRoot = null;
 
 try {
   const project = await loadProject(root);
@@ -49,13 +46,6 @@ try {
   const nextProject = structuredClone(project);
   nextProject.stages[stageId].status = 'active';
   writes.push({ target: 'psp.project.yaml', content: stringifyYaml(nextProject) });
-  const prototypeRoot = artifactPaths(project, 'canonical-ui-prototype', stageId)?.authorityRoot;
-  if (!prototypeRoot) {
-    throw Object.assign(new Error('Product Design 缺少 Canonical UI 集合路径。'), {
-      code: 'AIH_PROJECT_BINDING_INVALID',
-    });
-  }
-  createdPrototypeRoot = await mkdir(repositoryFile(root, prototypeRoot), { recursive: true });
   const transactionId = await commitManagedWrites({
     root,
     ownerId: 'product-design-initialize',
@@ -72,7 +62,6 @@ try {
     blockers: [],
   };
 } catch (error) {
-  if (createdPrototypeRoot) await rmdir(createdPrototypeRoot).catch(() => {});
   result = {
     status: 'BLOCKED',
     stage: stageId,

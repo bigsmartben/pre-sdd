@@ -12,7 +12,7 @@ import {
 
 const LABELS = {
   capabilities: 'UC Specification',
-  'canonical-ui-prototype': 'Canonical UI Prototype',
+  'lit-ui-delivery': 'Lit UI Delivery',
   'system-boundary': '系统边界',
   'conceptual-model': '概念建模',
   'technical-validation': '技术验证',

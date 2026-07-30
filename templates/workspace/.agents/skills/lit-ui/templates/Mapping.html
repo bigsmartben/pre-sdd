@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lit UI Mapping</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 76rem; margin: 0 auto; padding: 2rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #8888; padding: .6rem; text-align: left; vertical-align: top; }
+    [data-status="gap"], [data-status="stale"] { color: #b42318; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Mapping.html（契约映射表）</h1>
+    <p>此文件同时是人类评审界面与唯一机器校验载体；它不是 UIHTML 的运行输入。</p>
+    <section id="mapping-summary" aria-label="映射摘要"></section>
+    <table>
+      <thead><tr><th>概念</th><th>类型</th><th>来源</th><th>可观察契约</th><th>状态</th></tr></thead>
+      <tbody id="mapping-concepts"></tbody>
+    </table>
+    <section><h2>待澄清问题</h2><ol id="mapping-questions"></ol></section>
+  </main>
+  <script id="psp-mapping-data" type="application/json">
+{"schemaVersion":"psp.dev/mapping/v1","mappingVersion":"0.1.0","sources":{"figma":{"version":"","contentHash":""},"uc":{"version":"","contentHash":""}},"concepts":[],"questions":[],"confirmation":null}
+  </script>
+  <script>
+    const model = JSON.parse(document.querySelector('#psp-mapping-data').textContent);
+    document.querySelector('#mapping-summary').textContent =
+      `版本 ${model.mappingVersion}；确认状态：${model.confirmation?.status ?? '未确认'}`;
+    const rows = document.querySelector('#mapping-concepts');
+    for (const concept of model.concepts) {
+      const row = document.createElement('tr');
+      row.dataset.status = concept.status;
+      for (const value of [
+        `${concept.name} (${concept.conceptId})`,
+        concept.kind,
+        concept.sourceRefs.join(', '),
+        JSON.stringify(concept.observableContract),
+        concept.status,
+      ]) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.append(cell);
+      }
+      rows.append(row);
+    }
+    const questions = document.querySelector('#mapping-questions');
+    for (const question of model.questions.filter((item) => item.status === 'open')) {
+      const item = document.createElement('li');
+      item.textContent = `${question.conceptId ?? '未绑定'}：${question.text}`;
+      questions.append(item);
+    }
+  </script>
+</body>
+</html>

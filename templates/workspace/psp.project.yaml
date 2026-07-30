@@ -30,22 +30,26 @@ stages:
           - path: Visual-Spec.md
             role: user-artifact
             projection: visual-spec-document
-      canonical-ui-prototype:
-        format: typescript
-        contract: .agents/skills/product-design/canonical-ui-prototype/contract.yaml
-        schema: .agents/skills/product-design/canonical-ui-prototype/schema.json
-        authority:
-          kind: area-set
-          area: canonical-ui-prototypes
-          semanticEntry: src/spec/canonical-ui.ts
-          partitionKey: actor
-        memberProjections:
-          - root: .psp/models/canonical-ui-prototypes
-            member: canonical-ui-prototype.json
-            role: generated-support
-    areas:
-      canonical-ui-prototypes:
-        root: Canonical-UI-Prototypes
+    litUiDelivery:
+      frameworkContract: .agents/skills/lit-ui/contracts/framework.yaml
+      mapping:
+        contract: .agents/skills/lit-ui/contracts/mapping.yaml
+        template: .agents/skills/lit-ui/templates/Mapping.html
+        role: user-confirmation-artifact
+      implementation:
+        template: .agents/skills/lit-ui/template
+        authorityRoot: src/ui
+        entry: src/ui/main.ts
+      uihtml:
+        outputRoot: UIHTML
+        role: product-delivery
+      review:
+        entry: src/review/review-main.ts
+        outputRoot: .psp/review-dist
+        role: independent-tool
+      cases:
+        contract: .agents/skills/use-case-generation/contract.yaml
+        role: validation-data
   mockcase:
     status: uninitialized
     root: MockCase
@@ -54,25 +58,10 @@ stages:
         format: json
         contract: .agents/skills/mockcase/contract.yaml
         schema: .agents/skills/mockcase/suite.schema.json
-        memberSchemas:
-          mockdata.json: .agents/skills/mockcase/mockdata.schema.json
-          mockcases.json: .agents/skills/mockcase/mockcases.schema.json
-        authority:
-          kind: area-set
-          area: mockcase-models
-          semanticEntry: suite.json
-          companionEntries:
-            - mockdata.json
-            - mockcases.json
-          partitionKey: actor
-        memberProjections:
-          - root: runtime
-            member: mockcase-runtime.json
-            role: runtime-projection
-            projection: mockcase-runtime
-    areas:
-      mockcase-models:
-        root: .psp/models/actors
+        internalModel: suite.json
+        input:
+          path: Cases/ui-cases.json
+          role: read-only-neutral-input
   architecture-design:
     status: uninitialized
     root: 02-architecture-design

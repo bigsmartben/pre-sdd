@@ -1,0 +1,3 @@
+interface:
+  display_name: "Implement Lit UI"
+  short_description: "Implement confirmed Mapping concepts as native Lit modules"

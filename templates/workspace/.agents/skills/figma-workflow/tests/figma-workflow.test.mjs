@@ -366,11 +366,10 @@ async function runIngest(plan = validPlan()) {
 async function runRegistration(mutator = () => {}) {
   const session = await mkdtemp(resolve(tmpdir(), 'figma-registration-'));
   const workspace = resolve(session, 'workspace');
-  const area = resolve(workspace, '01-product-design/Canonical-UI-Prototypes/ACTOR-001');
+  const area = resolve(workspace, '01-product-design/inputs/figma/ACTOR-001');
   const source = resolve(area, 'design-sources/DESIGN-SOURCE-001');
   await Promise.all([
     mkdir(resolve(workspace, '.agents/skills/figma-workflow'), { recursive: true }),
-    mkdir(resolve(workspace, '.agents/skills/product-design/canonical-ui-prototype'), { recursive: true }),
     mkdir(resolve(area, 'public/assets/DESIGN-SOURCE-001'), { recursive: true }),
     mkdir(source, { recursive: true }),
   ]);
@@ -381,8 +380,8 @@ async function runRegistration(mutator = () => {}) {
     ...['capture-plan.schema.json', 'figma-design-context.schema.json', 'ingest-receipt.schema.json', 'source-registration.schema.json']
       .map((name) => copyFile(resolve(skillRoot, name), resolve(workspace, '.agents/skills/figma-workflow', name))),
     copyFile(
-      resolve(repositoryRoot, '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'),
-      resolve(workspace, '.agents/skills/product-design/canonical-ui-prototype/design-source-evidence.schema.json'),
+      resolve(repositoryRoot, '.agents/skills/figma-workflow/design-source-evidence.schema.json'),
+      resolve(workspace, '.agents/skills/figma-workflow/design-source-evidence.schema.json'),
     ),
   ]);
 

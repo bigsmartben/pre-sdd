@@ -1,65 +1,25 @@
-apiVersion: psp.dev/v1
-kind: ArtifactContract
-metadata:
-  id: mockcase-suite
-  version: 2.0.0
-spec:
-  stage: mockcase
-  internalModelFormat: json
-  outputRole: internal-model-set
-  purpose: 在隐藏模型目录中按 Actor 管理独立的 MockData 事实、MockCase 场景编排、输入锁和确定性浏览器运行投影；JSON Suite 不属于用户交付物。
-  references:
-    - stage: product-design
-      artifact: capabilities
-      required: true
-      access: read-only
-      fixedVersionField: inputLock.capabilitiesDigest
-      lifecycleControl: none
-    - stage: product-design
-      artifact: canonical-ui-prototype
-      required: true
-      access: read-only
-      fixedVersionField: inputLock.canonicalUiDigest
-      lifecycleControl: none
-  owns:
-    - MockCase/.psp/models/actors/ACTOR-NNN/suite.json 输入锁与组合文件摘要
-    - mockdata.json Fixture 与可追溯的请求响应行为事实
-    - mockcases.json Case、Data Binding、Effect 与 State Matrix 引用
-    - 确定性 Runtime Bundle、Review Extension 与验证证据
-  excludes:
-    - JSON Suite 作为 user-artifact 或正式用户交付物
-    - Use Cases、Visual Spec、Canonical UI 与 UI HTML 写入
-    - Product Design readiness、review、publish 或 reopen
-    - 自动初始化、自动 Apply、自动开始下游或业务就绪声明
-    - 浏览器 Plugin 文件系统写入
-    - 私有 DOM、私有组件状态或未登记 Control 修改
-  domainRules:
-    - mockdata-model-source-only
-    - mockcase-orchestration-only
-    - actor-partition-isolated
-    - candidate-deterministic
-    - candidate-latest-upstream-incremental-diff
-    - state-matrix-selection-recovery-first-and-never-guessed
-    - suite-atomic-write
-    - component-contract-public-property-projection-only
-    - complete-request-matcher-selects-one-behavior
-    - request-control-event-input-activations
-    - public-observable-transaction-rollback
-    - ready-evidence-covers-all-routes-and-cases
-    - partial-coverage-never-ready
-    - headed-review-requires-user-decision
-    - mapped-ready-verified-separated
-  projections:
-    - id: mockcase-runtime
-      outputRole: runtime-projection
-      readOnly: true
-      sources:
-        - suite.json
-        - mockdata.json
-        - mockcases.json
-        - product-design/capabilities
-        - product-design/canonical-ui-prototype
-  readiness:
-    requiredStatus: ready
-    requireNoGaps: true
-    requireAllGates: true
+apiVersion: psp.dev/mockcase/v2
+kind: MockCaseContract
+inputs:
+  uiCases:
+    contract: .agents/skills/use-case-generation/contract.yaml
+    role: read-only-neutral-input
+outputs:
+  suite:
+    owns: [fixtures, mock-scenarios, review-status]
+  evidence:
+    owns: [review-and-verification-results]
+boundaries:
+  - MockCase never edits UC, Mapping, Lit modules, or UIHTML.
+  - MockCase never imports into the product entry.
+  - Mock adapters implement the same Port contract as real adapters.
+  - Applying a candidate requires explicit user authorization and an exact input digest.
+blockerCodes:
+  contract: MOCKCASE_CONTRACT_INVALID
+  operation: MOCKCASE_OPERATION_INVALID
+  staleInput: MOCKCASE_INPUT_STALE
+  productCoupling: MOCKCASE_PRODUCT_COUPLED
+  applyAuthorization: MOCKCASE_APPLY_NOT_AUTHORIZED
+  reviewAuthorization: MOCKCASE_REVIEW_NOT_AUTHORIZED
+  reviewEvidence: MOCKCASE_REVIEW_EVIDENCE_INVALID
+  notReviewed: MOCKCASE_NOT_REVIEWED

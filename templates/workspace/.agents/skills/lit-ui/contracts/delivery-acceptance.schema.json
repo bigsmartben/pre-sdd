@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "psp.dev/uihtml-acceptance/v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "standalone",
+    "interactions",
+    "motions",
+    "visualComparisons",
+    "productHash",
+    "productHashAfterReviewCaseChange"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "psp.dev/uihtml-acceptance/v1" },
+    "standalone": {
+      "type": "object",
+      "required": ["opened", "assetsResolved"],
+      "properties": {
+        "opened": { "type": "boolean" },
+        "assetsResolved": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "interactions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["route", "event", "expectedState", "passed"],
+        "properties": {
+          "route": { "type": "string", "pattern": "^/" },
+          "event": { "type": "string", "minLength": 1 },
+          "expectedState": { "type": "string", "minLength": 1 },
+          "passed": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "motions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["conceptId", "timingPassed", "interruptionPassed", "reducedMotionPassed"],
+        "properties": {
+          "conceptId": { "type": "string", "minLength": 1 },
+          "timingPassed": { "type": "boolean" },
+          "interruptionPassed": { "type": "boolean" },
+          "reducedMotionPassed": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "visualComparisons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["figmaNodeId", "viewport", "differenceRatio", "threshold"],
+        "properties": {
+          "figmaNodeId": { "type": "string", "pattern": "^[0-9]+:[0-9]+$" },
+          "viewport": { "type": "string", "minLength": 1 },
+          "differenceRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+          "threshold": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "productHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "productHashAfterReviewCaseChange": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

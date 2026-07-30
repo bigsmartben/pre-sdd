@@ -2,10 +2,9 @@ import {
   outputDrift,
   writeExpectedOutputs,
 } from './lib/rendering.mjs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { loadProject, repositoryFile, repositoryRootFrom } from '../../../runtime/project.mjs';
-import { canonicalExpectedOutputs, canonicalOutputDrift } from '../canonical-ui-prototype/scripts/project.mjs';
 
 const root = repositoryRootFrom(resolve(import.meta.dirname, '..'));
 const stageId = 'product-design';
@@ -39,10 +38,7 @@ try {
         }],
       };
   } else if (check) {
-    const drift = [
-      ...await outputDrift(root, project, stageId),
-      ...await canonicalOutputDrift(root, project),
-    ];
+    const drift = await outputDrift(root, project, stageId);
     result = {
       status: drift.length === 0 ? 'PASS' : 'BLOCKED',
       mode: 'check',
@@ -62,10 +58,7 @@ try {
       }],
     };
   } else {
-    const outputs = [
-      ...await writeExpectedOutputs(root, project, stageId),
-      ...await canonicalExpectedOutputs(root, project),
-    ];
+    const outputs = await writeExpectedOutputs(root, project, stageId);
     for (const output of outputs.filter((item) => item.authorityPath)) {
       const absolute = repositoryFile(root, output.output);
       await mkdir(dirname(absolute), { recursive: true });

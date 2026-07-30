@@ -27,7 +27,7 @@
 
 ## 3. 实现边界
 
-本技能只以 `visualNodeCatalog` 判定节点能否标记为 `layout`：节点不得含可见 Paint、Stroke、Effect、Mask 或 Raster。CSS 属性级 Allowlist 与 `AIH_ASSET_CSS_BYPASS` 由 `$implement-canonical-ui` 及其 Validator 所有，本技能不重复定义。
+本技能只以 `visualNodeCatalog` 判定节点能否标记为 `layout`：节点不得含可见 Paint、Stroke、Effect、Mask 或 Raster。产品级视觉还原由 `$implement-lit-ui` 及其 Validator 所有，本技能不重复定义。
 
 ## 4. 正式采集
 
@@ -59,4 +59,4 @@ Registration Packet 只保存 Figma 来源事实：
 - Asset 与 Asset Boundary 闭包。
 - 明确 gap。
 
-交回 Product Design 前，以 Registration 模式运行 `ingest-assets.mjs` 做只读闭包校验。不得在本技能中创建 Canonical UI ID、Lit 接口或 Figma → Lit Mapping。
+交回 Product Design 前，以 Registration 模式运行 `ingest-assets.mjs` 做只读闭包校验。不得在本技能中创建业务 conceptId、Lit 接口或 Figma → Lit 实现映射；Figma 与 UC 的解释只进入后续 `Mapping.html` 澄清。

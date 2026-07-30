@@ -1,4 +1,4 @@
 interface:
   display_name: "Product Design Domain"
-  short_description: "将产品与设计来源转为可执行规范界面并通过机器验收"
-  default_prompt: "Use $product-design to route normal implementation to $implement-canonical-ui, return the actual canonical-ui-dev temporary preview when runnable, pause for schema-valid Feedback Packets or the user's explicit request to finish feedback, route only a validator-generated Repair Packet to $repair-canonical-ui after explicit repair authorization, create formal Review Evidence only through canonical-ui-review, and stop at publish-ready until the user separately requests Publish."
+  short_description: "将 UC 与视觉来源澄清为 Mapping，并路由到真实 Lit 交付"
+  default_prompt: "Use $product-design to preserve UC and visual-source authority, route Figma acquisition to $figma-workflow, route clarification and exact user confirmation to $lit-ui-workflow, and only then route native Lit implementation to $implement-lit-ui."

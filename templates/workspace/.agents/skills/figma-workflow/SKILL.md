@@ -1,6 +1,6 @@
 ---
 name: figma-workflow
-description: 将用户指定的 Figma 文件或选区按契约完成来源接收、完整扫描审计、一次获批写回、写回后人工验收、最终冻结、设计上下文采集、静态资源导入和来源登记。用户要求检查或整理 Figma 页面、Group、图片归组、组件、状态、Variant，或为 Canonical UI 精确实现准备可验证 Figma 来源时使用；本技能只返回 Figma 来源事实与登记包，不创建产品状态、Lit 接口或 HTML/CSS 实现。
+description: 将用户指定的 Figma 文件或选区按契约完成来源接收、完整扫描审计、一次获批写回、写回后人工验收、最终冻结、设计上下文采集、静态资源导入和来源登记。用户要求检查或整理 Figma 页面、Group、图片归组、组件、状态、Variant，或为 Mapping.html 准备可验证 Figma 来源时使用；本技能只返回 Figma 来源事实与登记包，不创建业务事实、Lit 接口或 HTML/CSS 实现。
 ---
 
 # Figma 工作流
@@ -14,7 +14,7 @@ description: 将用户指定的 Figma 文件或选区按契约完成来源接收
 - 在写回后取得最终人工验收。
 - 冻结、采集、导入 Asset（静态资源）并形成 Registration Packet（登记包）。
 
-Product Design 提供 `sourceId`、业务 Screen、预期 Page、State、Variant、Viewport 和 Scenario；本技能只验证这些事实在 Figma 中的覆盖，不从名称或外观推断业务语义，也不得选择或改变视觉策略。Product Design 独立建立 Figma → Lit Mapping；`$implement-canonical-ui` 独立拥有 Lit 组件与页面正常实现。本技能不得输出 Lit Property、Attribute、Slot、Event，不得写 HTML、CSS、路由或 `canonical-ui.ts`。
+Product Design 提供 `sourceId` 与待核对的感知范围；本技能只验证视觉事实在 Figma 中的覆盖，不从名称或外观推断业务语义，也不得选择或改变业务策略。`$lit-ui-workflow` 独立建立 Figma + UC → `Mapping.html` 的解释并请求用户确认；`$implement-lit-ui` 只在确认后拥有 Lit 组件与页面实现。本技能不得输出业务 State/Event，不得写 HTML、CSS 或路由。
 
 ## 关键原则
 
@@ -41,7 +41,7 @@ Product Design 提供 `sourceId`、业务 Screen、预期 Page、State、Variant
 | Design Context | `figma-design-context.schema.json` |
 | Acquisition Packet | `acquisition-packet.schema.json` |
 | Ingest Receipt | `ingest-receipt.schema.json` |
-| Evidence | `../product-design/canonical-ui-prototype/design-source-evidence.schema.json` |
+| Evidence | `design-source-evidence.schema.json` |
 | Registration Packet | `source-registration.schema.json` |
 
 结构由上述 Schema 定义；跨文件闭包由 `scripts/ingest-assets.mjs` 定义。Workflow Request 是 Step 1 到 Step 2 之间不落盘的输入检查表，不创建额外 Schema 或文件。
