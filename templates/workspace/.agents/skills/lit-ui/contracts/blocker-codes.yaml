@@ -8,10 +8,13 @@ codes:
   MAPPING_AUTHORITY_DUPLICATED: parallel mapping authority exists
   MAPPING_GAPS_OPEN: mapping has an unresolved gap or question
   MAPPING_CONFIRMATION_STALE: confirmation does not bind current source and mapping hashes
+  MAPPING_RECONFIRMATION_REQUIRED: changed source or Mapping requires a new confirmation
+  MAPPING_USER_CONFIRMATION_REQUIRED: confirmation lacks a non-empty user identity or valid UTC timestamp
   MAPPING_LEAKS_IMPLEMENTATION_DETAIL: mapping contains code or DOM details
   MAPPING_STATE_LAYER_COLLISION: state layers were merged without user confirmation
   MAPPING_SOURCE_AUTHORITY_VIOLATION: visual and business sources exceeded their authority
   MAPPING_QUESTION_UNBOUND: clarification question lacks a stable conceptId
+  MAPPING_ARTIFACT_MISSING: strict validation cannot find the project Mapping.html
   LIT_IMPLEMENTATION_NOT_AUTHORIZED: implementation was requested before confirmation
   LIT_MODULE_AUTHORITY_MISSING: native Lit module authority is incomplete
   LIT_DIRECT_BUILD_FAILED: src/ui/main.ts cannot build directly

@@ -29,6 +29,7 @@ function bump(version) {
   return parts.join('.');
 }
 
+const USER_IDENTITY = /^user:\S+$/;
 const operation = argument('operation', 'validate');
 const workspace = resolve(argument('root', process.cwd()));
 const mappingPath = resolve(workspace, argument('mapping', '01-product-design/Lit-UI/Mapping.html'));
@@ -54,6 +55,7 @@ try {
     const blockers = validateMapping(model).filter((item) => ![
       'MAPPING_GAPS_OPEN',
       'MAPPING_CONFIRMATION_STALE',
+      'MAPPING_USER_CONFIRMATION_REQUIRED',
     ].includes(item.code));
     if (blockers.length) report('BLOCKED', blockers);
     else {
@@ -70,7 +72,10 @@ try {
     if (packet.questions) model.questions = packet.questions;
     model.mappingVersion = bump(model.mappingVersion);
     model.confirmation = model.confirmation ? { ...model.confirmation, status: 'stale' } : null;
-    const blockers = validateMapping(model).filter((item) => item.code !== 'MAPPING_CONFIRMATION_STALE');
+    const blockers = validateMapping(model).filter((item) => ![
+      'MAPPING_CONFIRMATION_STALE',
+      'MAPPING_USER_CONFIRMATION_REQUIRED',
+    ].includes(item.code));
     const invalid = blockers.filter((item) => item.code !== 'MAPPING_GAPS_OPEN');
     if (invalid.length) report('BLOCKED', invalid);
     else {
@@ -84,9 +89,12 @@ try {
   } else if (operation === 'confirm') {
     const html = await readFile(mappingPath, 'utf8');
     const model = extractMapping(html);
-    const blockers = validateMapping(model).filter((item) => item.code !== 'MAPPING_CONFIRMATION_STALE');
+    const blockers = validateMapping(model).filter((item) => ![
+      'MAPPING_CONFIRMATION_STALE',
+      'MAPPING_USER_CONFIRMATION_REQUIRED',
+    ].includes(item.code));
     const confirmedBy = argument('confirmed-by', '');
-    if (!confirmedBy.startsWith('user:')) {
+    if (!USER_IDENTITY.test(confirmedBy)) {
       blockers.push({ code: 'MAPPING_USER_CONFIRMATION_REQUIRED', message: 'confirmed-by 必须是 user:<identity>。' });
     }
     if (blockers.length) report('BLOCKED', blockers);
@@ -104,6 +112,9 @@ try {
     const blockers = validateMapping(model);
     const implementationAuthorized = blockers.length === 0;
     if (operation === 'authorize-implementation' && !implementationAuthorized) {
+      if (blockers.some((item) => item.code === 'MAPPING_CONFIRMATION_STALE')) {
+        blockers.unshift({ code: 'MAPPING_RECONFIRMATION_REQUIRED', message: '来源或 Mapping 已变化，必须重新确认。' });
+      }
       blockers.unshift({ code: 'LIT_IMPLEMENTATION_NOT_AUTHORIZED', message: 'Mapping 尚未有效确认，禁止生成 Lit UI Spec。' });
     }
     report(blockers.length ? 'BLOCKED' : 'PASS', blockers, { implementationAuthorized });

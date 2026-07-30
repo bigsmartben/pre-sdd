@@ -1,8 +1,19 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
 import { validateCases } from '../../use-case-generation/scripts/validate.mjs';
+
+const suiteSchema = JSON.parse(await readFile(new URL('../suite.schema.json', import.meta.url), 'utf8'));
+const validateSuiteSchema = new Ajv2020({
+  allErrors: true,
+  strict: false,
+  validateFormats: false,
+}).compile(suiteSchema);
+const USER_IDENTITY = /^user:\S+$/;
+const UTC_TIMESTAMP = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z$/;
+const OPERATIONS = new Set(['analyze', 'initialize', 'apply', 'review', 'verify']);
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -15,8 +26,17 @@ function digest(content) {
 
 function validateSuite(suite, cases, inputDigest) {
   const blockers = [];
-  if (suite?.schemaVersion !== 'psp.dev/mockcase-suite/v2') {
-    blockers.push({ code: 'MOCKCASE_CONTRACT_INVALID', message: 'MockCase Suite 版本无效。' });
+  if (JSON.stringify(suite)?.match(/(?:domSelector|querySelector|stateMatrix|runtimeOperation)/i)) {
+    blockers.push({ code: 'MOCKCASE_PRODUCT_COUPLED', message: 'MockCase 不得改写产品 DOM 或成为产品状态模型。' });
+  }
+  if (!validateSuiteSchema(suite)) {
+    for (const error of validateSuiteSchema.errors ?? []) {
+      blockers.push({
+        code: 'MOCKCASE_CONTRACT_INVALID',
+        message: `MockCase Suite Schema 无效：${error.message ?? error.keyword}。`,
+        location: error.instancePath || 'suite',
+      });
+    }
     return blockers;
   }
   if (suite.inputLock?.uiCasesDigest !== inputDigest) {
@@ -32,8 +52,27 @@ function validateSuite(suite, cases, inputDigest) {
       if (!fixtures.has(id)) blockers.push({ code: 'MOCKCASE_FIXTURE_MISSING', message: `未知 Fixture：${id}` });
     }
   }
-  if (JSON.stringify(suite).match(/(?:domSelector|querySelector|stateMatrix|runtimeOperation)/i)) {
-    blockers.push({ code: 'MOCKCASE_PRODUCT_COUPLED', message: 'MockCase 不得改写产品 DOM 或成为产品状态模型。' });
+  return blockers;
+}
+
+function validateReviewEvidence(evidence, suite, suiteDigest, inputDigest) {
+  const blockers = [];
+  if (
+    evidence?.schemaVersion !== 'psp.dev/mockcase-evidence/v2'
+    || evidence.suiteVersion !== suite.version
+    || evidence.suiteDigest !== suiteDigest
+    || evidence.uiCasesDigest !== inputDigest
+    || !USER_IDENTITY.test(evidence.reviewedBy ?? '')
+    || !UTC_TIMESTAMP.test(evidence.reviewedAt ?? '')
+    || Number.isNaN(Date.parse(evidence.reviewedAt ?? ''))
+  ) {
+    blockers.push({
+      code: 'MOCKCASE_REVIEW_EVIDENCE_INVALID',
+      message: 'Review Evidence 未绑定当前 Suite、UI Cases、用户身份或有效时间。',
+    });
+  }
+  if (!['reviewed', 'verified'].includes(suite.status)) {
+    blockers.push({ code: 'MOCKCASE_NOT_REVIEWED', message: 'Suite 尚未完成用户 Review。' });
   }
   return blockers;
 }
@@ -54,7 +93,9 @@ try {
     const inputDigest = digest(casesSource);
     const operation = argument('operation', 'analyze');
     const suitePath = argument('suite', 'MockCase/suite.json');
-    if (operation === 'analyze') {
+    if (!OPERATIONS.has(operation)) {
+      output('BLOCKED', [{ code: 'MOCKCASE_OPERATION_INVALID', message: `未知 MockCase 操作：${operation}` }]);
+    } else if (operation === 'analyze') {
       output('PASS', [], {
         inputDigest,
         businessCases: cases.businessCases.map((item) => item.caseId),
@@ -78,7 +119,8 @@ try {
       output('PASS', [], { suite: suitePath });
     } else {
       const candidatePath = resolve(root, argument('candidate', suitePath));
-      const suite = JSON.parse(await readFile(candidatePath, 'utf8'));
+      const candidateSource = await readFile(candidatePath);
+      const suite = JSON.parse(candidateSource);
       const blockers = validateSuite(suite, cases, inputDigest);
       if (blockers.length) output('BLOCKED', blockers);
       else if (operation === 'apply') {
@@ -93,25 +135,47 @@ try {
           output('PASS', [], { suite: suitePath });
         }
       } else if (operation === 'review') {
+        const reviewedSuite = { ...suite, status: 'reviewed' };
+        const suiteContent = JSON.stringify(reviewedSuite, null, 2) + '\n';
         const evidence = {
           schemaVersion: 'psp.dev/mockcase-evidence/v2',
-          suiteVersion: suite.version,
+          suiteVersion: reviewedSuite.version,
+          suiteDigest: digest(Buffer.from(suiteContent)),
           uiCasesDigest: inputDigest,
           reviewedBy: argument('reviewed-by', ''),
           reviewedAt: new Date().toISOString(),
         };
-        if (!evidence.reviewedBy.startsWith('user:')) {
+        if (!USER_IDENTITY.test(evidence.reviewedBy)) {
           output('BLOCKED', [{ code: 'MOCKCASE_REVIEW_NOT_AUTHORIZED', message: 'reviewed-by 必须是 user:<identity>。' }]);
         } else {
           await commitManagedWrites({
             root,
             ownerId: 'mockcase-review',
-            writes: [{ target: 'MockCase/review-evidence.json', content: JSON.stringify(evidence, null, 2) + '\n' }],
+            writes: [
+              { target: suitePath, content: suiteContent },
+              { target: 'MockCase/review-evidence.json', content: JSON.stringify(evidence, null, 2) + '\n' },
+            ],
           });
           output('PASS', [], { evidence: 'MockCase/review-evidence.json' });
         }
-      } else {
-        output('PASS', [], { suite: suitePath, inputDigest });
+      } else if (operation === 'verify') {
+        let evidence;
+        try {
+          evidence = JSON.parse(await readFile(resolve(root, argument('evidence', 'MockCase/review-evidence.json')), 'utf8'));
+        } catch (error) {
+          output('BLOCKED', [{
+            code: 'MOCKCASE_REVIEW_EVIDENCE_INVALID',
+            message: error instanceof Error ? error.message : String(error),
+          }]);
+        }
+        if (evidence) {
+          const evidenceBlockers = validateReviewEvidence(evidence, suite, digest(candidateSource), inputDigest);
+          output(
+            evidenceBlockers.length ? 'BLOCKED' : 'PASS',
+            evidenceBlockers,
+            { suite: suitePath, inputDigest },
+          );
+        }
       }
     }
   }

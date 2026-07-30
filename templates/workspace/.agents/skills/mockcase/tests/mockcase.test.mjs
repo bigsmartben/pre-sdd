@@ -28,15 +28,27 @@ async function workspace() {
     businessCases: [{
       caseId: 'BUSINESS-CASE-SUBMIT',
       name: '提交',
-      sourceRefs: ['uc:UC-1', 'mapping:PAGE-1', 'framework:Route'],
-      steps: [{ kind: 'port', conceptId: 'PORT-SUBMIT', sourceRef: 'uc:UC-1' }],
+      sourceRefs: ['uc:UC-1', 'mapping:FLOW-1', 'framework:Route'],
+      steps: [
+        { kind: 'route', conceptId: 'ROUTE-SUBMIT', sourceRef: 'mapping:FLOW-1' },
+        { kind: 'page', conceptId: 'PAGE-SUBMIT', sourceRef: 'mapping:FLOW-1' },
+        { kind: 'component', conceptId: 'COMPONENT-SUBMIT', sourceRef: 'mapping:FLOW-1' },
+        { kind: 'event', conceptId: 'EVENT-SUBMIT', sourceRef: 'uc:UC-1' },
+        { kind: 'port', conceptId: 'PORT-SUBMIT', sourceRef: 'uc:UC-1' },
+        { kind: 'state', conceptId: 'STATE-SUBMITTED', sourceRef: 'uc:UC-1' },
+      ],
     }],
     componentCases: [{
       caseId: 'COMPONENT-CASE-BUTTON',
       name: '按钮',
       componentConceptId: 'COMPONENT-BUTTON',
       sourceRefs: ['uc:UC-1', 'mapping:COMPONENT-BUTTON', 'framework:Component'],
-      checks: [{ kind: 'event', sourceRef: 'uc:UC-1' }],
+      checks: [
+        { kind: 'property', value: 'busy', sourceRef: 'mapping:COMPONENT-BUTTON' },
+        { kind: 'component-state', value: 'busy', sourceRef: 'mapping:COMPONENT-BUTTON' },
+        { kind: 'event', value: 'submit-requested', sourceRef: 'uc:UC-1' },
+        { kind: 'viewport', value: '1440x900', sourceRef: 'mapping:COMPONENT-BUTTON' },
+      ],
     }],
     gaps: [],
   }));
@@ -69,6 +81,8 @@ test('MockCase locks neutral UI Cases and requires exact apply/review authorizat
   assert.ok(reviewDenied.output.blockers.some((item) => item.code === 'MOCKCASE_REVIEW_NOT_AUTHORIZED'));
   const reviewed = run(root, ['--operation', 'review', '--reviewed-by', 'user:test']);
   assert.equal(reviewed.output.status, 'PASS', reviewed.stderr);
+  const verified = run(root, ['--operation', 'verify']);
+  assert.equal(verified.output.status, 'PASS', verified.stderr);
 });
 
 test('MockCase refuses DOM/state runtime instructions and stale case locks', async () => {
@@ -85,4 +99,21 @@ test('MockCase refuses DOM/state runtime instructions and stale case locks', asy
   await writeFile(resolve(root, 'candidate.json'), JSON.stringify(suite));
   const stale = run(root, ['--operation', 'verify', '--candidate', 'candidate.json']);
   assert.ok(stale.output.blockers.some((item) => item.code === 'MOCKCASE_INPUT_STALE'));
+});
+
+test('MockCase verify rejects schema-invalid suites, missing review evidence, and unknown operations', async () => {
+  const root = await workspace();
+  run(root, ['--operation', 'initialize']);
+  const suite = JSON.parse(await readFile(resolve(root, 'MockCase/suite.json'), 'utf8'));
+  delete suite.version;
+  delete suite.status;
+  await writeFile(resolve(root, 'invalid-suite.json'), JSON.stringify(suite));
+  const invalid = run(root, ['--operation', 'verify', '--candidate', 'invalid-suite.json']);
+  assert.ok(invalid.output.blockers.some((item) => item.code === 'MOCKCASE_CONTRACT_INVALID'));
+
+  const unreviewed = run(root, ['--operation', 'verify']);
+  assert.ok(unreviewed.output.blockers.some((item) => item.code === 'MOCKCASE_REVIEW_EVIDENCE_INVALID'));
+
+  const unknown = run(root, ['--operation', 'surprise']);
+  assert.ok(unknown.output.blockers.some((item) => item.code === 'MOCKCASE_OPERATION_INVALID'));
 });

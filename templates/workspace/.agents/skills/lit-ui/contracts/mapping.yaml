@@ -22,11 +22,15 @@ implementationDetailKeys:
   - selector
 confirmation:
   requiresNoGap: true
-  binds: [mappingVersion, mappingContentHash, figmaVersion, figmaContentHash, ucVersion, ucContentHash]
+  requiresIdentityPattern: "user:<non-empty-identity>"
+  requiresUtcTimestamp: true
+  binds: [confirmedBy, confirmedAt, mappingVersion, mappingContentHash, figmaVersion, figmaContentHash, ucVersion, ucContentHash]
 blockerCodes:
   duplicatedAuthority: MAPPING_AUTHORITY_DUPLICATED
   gapsOpen: MAPPING_GAPS_OPEN
   confirmationStale: MAPPING_CONFIRMATION_STALE
+  reconfirmationRequired: MAPPING_RECONFIRMATION_REQUIRED
+  userConfirmationRequired: MAPPING_USER_CONFIRMATION_REQUIRED
   implementationDetail: MAPPING_LEAKS_IMPLEMENTATION_DETAIL
   stateLayerCollision: MAPPING_STATE_LAYER_COLLISION
   sourceAuthority: MAPPING_SOURCE_AUTHORITY_VIOLATION

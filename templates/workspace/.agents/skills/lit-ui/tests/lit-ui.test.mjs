@@ -11,6 +11,7 @@ import {
   renderMapping,
   validateMapping,
 } from '../scripts/lib/mapping.mjs';
+import { hashUihtml } from '../scripts/hash-uihtml.mjs';
 
 const skillRoot = resolve(import.meta.dirname, '..');
 const repositoryRoot = resolve(skillRoot, '..', '..', '..', '..', '..');
@@ -92,6 +93,10 @@ test('Mapping.html is the single readable and machine-valid confirmation artifac
   assert.deepEqual(validateMapping(model), []);
   assert.match(html, /Mapping\.html（契约映射表）/);
   assert.doesNotMatch(html, /(?:sourcePath|className|litTag|domSelector)/);
+
+  const forged = modelFixture();
+  forged.confirmation = confirmationFor(forged, 'agent:forged');
+  assert.ok(validateMapping(forged).some((item) => item.code === 'MAPPING_USER_CONFIRMATION_REQUIRED'));
 });
 
 test('Mapping validator reports paired gap, stale, detail, source and state-layer failures', () => {
@@ -166,6 +171,12 @@ test('workflow requires clarification and exact user confirmation before impleme
   ]);
   assert.equal(agentConfirmation.output.status, 'BLOCKED');
   assert.ok(agentConfirmation.output.blockers.some((item) => item.code === 'MAPPING_USER_CONFIRMATION_REQUIRED'));
+
+  const emptyUserConfirmation = run(script, root, [
+    '--operation', 'confirm', '--mapping', mapping, '--confirmed-by', 'user:', '--json',
+  ]);
+  assert.equal(emptyUserConfirmation.output.status, 'BLOCKED');
+  assert.ok(emptyUserConfirmation.output.blockers.some((item) => item.code === 'MAPPING_USER_CONFIRMATION_REQUIRED'));
 
   const confirmed = run(script, root, [
     '--operation', 'confirm', '--mapping', mapping, '--confirmed-by', 'user:fixture', '--json',
@@ -257,6 +268,16 @@ test('conformance validator detects generic IR, invalid dependency, product-owne
   const positive = run(validator, root, ['--root', root, '--json']);
   assert.equal(positive.output.status, 'PASS', JSON.stringify(positive.output));
 
+  const strict = run(validator, root, ['--root', root, '--strict', '--json']);
+  assert.equal(strict.output.status, 'BLOCKED');
+  assert.ok(strict.output.blockers.some((item) => item.code === 'MAPPING_ARTIFACT_MISSING'));
+
+  await writeFile(resolve(root, 'src/adapters/real/browser-host-adapter.ts'), 'export class BrokenRealHostAdapter {}');
+  await writeFile(resolve(root, 'src/testing/mock-host-adapter.ts'), 'export class BrokenMockHostAdapter {}');
+  await writeFile(resolve(root, 'vite.product.config.ts'), `
+    import './src/review/review-main.ts';
+    export default { build: { outDir: '.psp/review-dist' } };
+  `);
   await writeFile(resolve(root, 'src/ui/components/canonical-ui.ts'), 'export const table = {};');
   await writeFile(resolve(root, 'src/ui/components/bad.ts'), "import type { ProductRoute } from '../routes/index.js';");
   await writeFile(resolve(root, 'src/review/owns-route.ts'), 'export interface ProductRoute { path: string }');
@@ -267,7 +288,10 @@ test('conformance validator detects generic IR, invalid dependency, product-owne
   for (const code of [
     'GENERIC_UI_IR_REINTRODUCED',
     'LITSPEC_DEPENDENCY_INVALID',
+    'PORT_ADAPTER_CONTRACT_MISMATCH',
     'REVIEW_TOOL_PRODUCT_OWNERSHIP',
+    'REVIEW_TOOL_FAILURE_PROPAGATED',
+    'REVIEW_TOOL_HASH_LEAK',
     'NON_PRODUCT_DEPENDENCY_IN_UIHTML',
   ]) assert.ok(codes.has(code), JSON.stringify(negative.output));
 });
@@ -275,17 +299,20 @@ test('conformance validator detects generic IR, invalid dependency, product-owne
 test('UIHTML delivery acceptance has stable interaction, motion, visual, runtime, and hash blockers', async () => {
   const root = await temporary('uihtml-acceptance-');
   const script = resolve(skillRoot, 'scripts', 'validate-delivery.mjs');
+  await mkdir(resolve(root, 'UIHTML'), { recursive: true });
+  await writeFile(resolve(root, 'UIHTML/index.html'), '<!doctype html><html><body><main>ready</main></body></html>');
+  const productHash = await hashUihtml(resolve(root, 'UIHTML'));
   const good = {
     schemaVersion: 'psp.dev/uihtml-acceptance/v1',
     standalone: { opened: true, assetsResolved: true },
     interactions: [{ route: '/', event: 'submit-requested', expectedState: 'success', passed: true }],
     motions: [{ conceptId: 'MOTION-SUBMIT', timingPassed: true, interruptionPassed: true, reducedMotionPassed: true }],
     visualComparisons: [{ figmaNodeId: '10:20', viewport: '1440x900', differenceRatio: 0.01, threshold: 0.02 }],
-    productHash: sha('c'),
-    productHashAfterReviewCaseChange: sha('c'),
+    productHash,
+    productHashAfterReviewCaseChange: productHash,
   };
   await writeFile(resolve(root, 'report.json'), JSON.stringify(good));
-  assert.equal(run(script, root, ['--report', 'report.json']).output.status, 'PASS');
+  assert.equal(run(script, root, ['--report', 'report.json', '--uihtml', 'UIHTML']).output.status, 'PASS');
 
   const bad = structuredClone(good);
   bad.standalone.opened = false;
@@ -294,7 +321,7 @@ test('UIHTML delivery acceptance has stable interaction, motion, visual, runtime
   bad.visualComparisons[0].differenceRatio = 1;
   bad.productHashAfterReviewCaseChange = sha('d');
   await writeFile(resolve(root, 'report.json'), JSON.stringify(bad));
-  const result = run(script, root, ['--report', 'report.json']);
+  const result = run(script, root, ['--report', 'report.json', '--uihtml', 'UIHTML']);
   const codes = new Set(result.output.blockers.map((item) => item.code));
   for (const code of [
     'UIHTML_RUNTIME_DEP_MISSING',
@@ -303,4 +330,29 @@ test('UIHTML delivery acceptance has stable interaction, motion, visual, runtime
     'UIHTML_VISUAL_PARITY_FAILED',
     'UIHTML_HASH_BOUNDARY_INVALID',
   ]) assert.ok(codes.has(code));
+
+  const schemaInvalid = structuredClone(good);
+  schemaInvalid.standalone.opened = 'yes';
+  schemaInvalid.interactions[0].passed = 'yes';
+  schemaInvalid.visualComparisons[0].differenceRatio = 999;
+  delete schemaInvalid.visualComparisons[0].threshold;
+  await writeFile(resolve(root, 'report.json'), JSON.stringify(schemaInvalid));
+  const invalidResult = run(script, root, ['--report', 'report.json', '--uihtml', 'UIHTML']);
+  assert.equal(invalidResult.output.status, 'BLOCKED');
+  assert.ok(invalidResult.output.blockers.some((item) => item.code === 'UIHTML_RUNTIME_DEP_MISSING'));
+  assert.ok(invalidResult.output.blockers.some((item) => item.code === 'UIHTML_VISUAL_PARITY_FAILED'));
+
+  await writeFile(
+    resolve(root, 'UIHTML/index.html'),
+    '<!doctype html><html><body><main>ready</main><script src="/missing.js"></script></body></html>',
+  );
+  const runtimeBad = structuredClone(good);
+  runtimeBad.productHash = await hashUihtml(resolve(root, 'UIHTML'));
+  runtimeBad.productHashAfterReviewCaseChange = runtimeBad.productHash;
+  await writeFile(resolve(root, 'report.json'), JSON.stringify(runtimeBad));
+  const runtimeResult = run(script, root, ['--report', 'report.json', '--uihtml', 'UIHTML']);
+  assert.equal(runtimeResult.output.status, 'BLOCKED');
+  assert.ok(runtimeResult.output.blockers.some((item) => (
+    item.code === 'UIHTML_RUNTIME_DEP_MISSING' && item.message.includes('404')
+  )));
 });

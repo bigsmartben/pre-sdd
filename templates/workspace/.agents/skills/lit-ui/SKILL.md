@@ -25,7 +25,8 @@ There is no Preview Artifact, public code-plan Artifact, hidden mapping projecti
 3. Keep Route URL ownership in `routes/`, rendering in `pages/`, reusable interaction in `components/`, business I/O in `ports/`, and typed communication in `events/`.
 4. Inject real and Mock adapters at the composition boundary. Page and Component code must not inspect the environment.
 5. Build the product and Review Tools with their separate Vite entries.
-6. Run `validate:lit-ui`; treat every reported blocker code as blocking.
-7. Deliver only `UIHTML/` as the product bundle. Review output and Case data remain outside its hash boundary.
+6. Run `validate:lit-ui`; strict validation auto-discovers the confirmed `01-product-design/Lit-UI/Mapping.html` and actual `UIHTML/` boundary.
+7. Run `validate:uihtml`; it applies the delivery Schema, binds the current UIHTML hash, launches every declared Route in headless Chromium, and fails on missing assets or runtime errors.
+8. Deliver only `UIHTML/` as the product bundle. Review output and Case data remain outside its hash boundary.
 
 Review Tools use `ReviewDriver` to locate, observe, and dispatch against stable `conceptId` values. A tool failure must never prevent the product entry from loading.

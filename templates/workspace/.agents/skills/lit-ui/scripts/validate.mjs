@@ -30,15 +30,23 @@ function add(blockers, code, message, location) {
 
 const root = resolve(argument('root', process.cwd()));
 const scaffoldMode = process.argv.includes('--scaffold');
+const strictMode = process.argv.includes('--strict');
 const capabilityRoot = resolve(root, '.agents/skills/lit-ui');
 const templateRoot = resolve(capabilityRoot, 'template');
 const implementationRoot = resolve(root, argument('implementation', 'src/ui'));
 const implementation = scaffoldMode && !(await exists(implementationRoot))
   ? resolve(templateRoot, 'src/ui')
   : implementationRoot;
-const reviewRoot = resolve(root, argument('review', await exists(resolve(root, 'src/review')) ? 'src/review' : '.agents/skills/lit-ui/template/src/review'));
-const mappingArgument = argument('mapping', '');
-const uihtmlArgument = argument('uihtml', '');
+const usesTemplateImplementation = implementation === resolve(templateRoot, 'src/ui');
+const sourceRoot = usesTemplateImplementation ? resolve(templateRoot, 'src') : resolve(implementation, '..');
+const reviewRoot = resolve(root, argument(
+  'review',
+  await exists(resolve(sourceRoot, 'review'))
+    ? relative(root, resolve(sourceRoot, 'review'))
+    : '.agents/skills/lit-ui/template/src/review',
+));
+const mappingArgument = argument('mapping', strictMode ? '01-product-design/Lit-UI/Mapping.html' : '');
+const uihtmlArgument = argument('uihtml', strictMode ? 'UIHTML' : '');
 const blockers = [];
 
 const requiredCapabilityFiles = [
@@ -91,14 +99,14 @@ if (!(await exists(resolve(implementation, 'main.ts')))) {
 }
 
 const adapterFiles = [
-  resolve(templateRoot, 'src/adapters/real/browser-host-adapter.ts'),
-  resolve(templateRoot, 'src/testing/mock-host-adapter.ts'),
-  resolve(templateRoot, 'src/adapters/real/fetch-service-adapter.ts'),
-  resolve(templateRoot, 'src/testing/mock-service-adapter.ts'),
-  resolve(templateRoot, 'src/testing/port-contract.ts'),
+  resolve(sourceRoot, 'adapters/real/browser-host-adapter.ts'),
+  resolve(sourceRoot, 'testing/mock-host-adapter.ts'),
+  resolve(sourceRoot, 'adapters/real/fetch-service-adapter.ts'),
+  resolve(sourceRoot, 'testing/mock-service-adapter.ts'),
+  resolve(sourceRoot, 'testing/port-contract.ts'),
 ];
 if ((await Promise.all(adapterFiles.map(exists))).some((value) => !value)) {
-  add(blockers, 'PORT_ADAPTER_CONTRACT_MISMATCH', '缺少真实/Mock Adapter 或共同 Contract Test。', 'lit-ui/template/src');
+  add(blockers, 'PORT_ADAPTER_CONTRACT_MISMATCH', '缺少真实/Mock Adapter 或共同 Contract Test。', relative(root, sourceRoot));
 } else {
   const [realHost, mockHost, realService, mockService] = await Promise.all(
     adapterFiles.slice(0, 4).map((path) => readFile(path, 'utf8')),
@@ -109,7 +117,7 @@ if ((await Promise.all(adapterFiles.map(exists))).some((value) => !value)) {
     || !realService.includes('implements ServicePort')
     || !mockService.includes('implements ServicePort')
   ) {
-    add(blockers, 'PORT_ADAPTER_CONTRACT_MISMATCH', '真实与 Mock Adapter 未实现同一 Host/Service Port。', 'lit-ui/template/src');
+    add(blockers, 'PORT_ADAPTER_CONTRACT_MISMATCH', '真实与 Mock Adapter 未实现同一 Host/Service Port。', relative(root, sourceRoot));
   }
 }
 const eventContractPath = resolve(implementation, 'events/index.ts');
@@ -189,8 +197,12 @@ const reviewSource = (await Promise.all((await regularFiles(reviewRoot)).map((pa
 if (!reviewSource.includes('conceptId')) {
   add(blockers, 'REVIEW_MARK_UNBOUND', 'Review 标记未绑定稳定 conceptId。', relative(root, reviewRoot));
 }
-const productConfigPath = resolve(templateRoot, 'vite.product.config.ts');
-const reviewConfigPath = resolve(templateRoot, 'vite.review.config.ts');
+const configRoot = usesTemplateImplementation ? templateRoot : root;
+const productConfigPath = resolve(configRoot, 'vite.product.config.ts');
+const reviewConfigPath = resolve(configRoot, 'vite.review.config.ts');
+if (!(await exists(productConfigPath)) || !(await exists(reviewConfigPath))) {
+  add(blockers, 'LIT_DIRECT_BUILD_FAILED', '缺少项目实际 Product/Review Vite 配置。', relative(root, configRoot));
+}
 if (await exists(productConfigPath) && await exists(reviewConfigPath)) {
   const [productConfig, reviewConfig] = await Promise.all([
     readFile(productConfigPath, 'utf8'),
@@ -206,11 +218,15 @@ if (await exists(productConfigPath) && await exists(reviewConfigPath)) {
 
 if (mappingArgument) {
   const mappingPath = resolve(root, mappingArgument);
-  const siblings = await regularFiles(resolve(mappingPath, '..'));
-  const parallel = siblings
-    .filter((path) => path !== mappingPath && /(?:Preview\.html|mapping\.json)$/i.test(path))
-    .map((path) => relative(root, path));
-  blockers.push(...validateMapping(await readMapping(mappingPath), { parallelArtifacts: parallel }));
+  if (!(await exists(mappingPath))) {
+    add(blockers, 'MAPPING_ARTIFACT_MISSING', 'Mapping.html 不存在。', mappingArgument);
+  } else {
+    const siblings = await regularFiles(resolve(mappingPath, '..'));
+    const parallel = siblings
+      .filter((path) => path !== mappingPath && /(?:Preview\.html|mapping\.json)$/i.test(path))
+      .map((path) => relative(root, path));
+    blockers.push(...validateMapping(await readMapping(mappingPath), { parallelArtifacts: parallel }));
+  }
 }
 
 if (uihtmlArgument) {
@@ -245,6 +261,7 @@ for (const path of await regularFiles(capabilityRoot)) {
 if (scaffoldMode) {
   for (const path of [
     resolve(root, 'Mapping.html'),
+    resolve(root, '01-product-design/Lit-UI/Mapping.html'),
     resolve(root, 'src/ui'),
     resolve(root, 'UIHTML'),
   ]) {

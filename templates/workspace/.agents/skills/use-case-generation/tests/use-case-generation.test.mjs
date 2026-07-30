@@ -19,11 +19,20 @@ function fixture() {
     businessCases: [{
       caseId: 'BUSINESS-CASE-SUBMIT',
       name: '提交订单',
-      sourceRefs: ['uc:UC-1', 'mapping:PAGE-CHECKOUT', 'framework:Route'],
+      sourceRefs: [
+        'uc:UC-1',
+        'mapping:ROUTE-CHECKOUT',
+        'mapping:PAGE-CHECKOUT',
+        'mapping:COMPONENT-SUBMIT',
+        'framework:Route',
+      ],
       steps: [
-        { kind: 'route', conceptId: 'ROUTE-CHECKOUT', sourceRef: 'mapping:PAGE-CHECKOUT' },
+        { kind: 'route', conceptId: 'ROUTE-CHECKOUT', sourceRef: 'mapping:ROUTE-CHECKOUT' },
+        { kind: 'page', conceptId: 'PAGE-CHECKOUT', sourceRef: 'mapping:PAGE-CHECKOUT' },
+        { kind: 'component', conceptId: 'COMPONENT-SUBMIT', sourceRef: 'mapping:COMPONENT-SUBMIT' },
         { kind: 'event', conceptId: 'EVENT-SUBMIT', sourceRef: 'uc:UC-1' },
         { kind: 'port', conceptId: 'PORT-SUBMIT', sourceRef: 'uc:UC-1' },
+        { kind: 'state', conceptId: 'STATE-SUBMITTED', sourceRef: 'uc:UC-1' },
       ],
     }],
     componentCases: [{
@@ -32,8 +41,10 @@ function fixture() {
       componentConceptId: 'COMPONENT-SUBMIT',
       sourceRefs: ['uc:UC-1', 'mapping:COMPONENT-SUBMIT', 'framework:Component'],
       checks: [
+        { kind: 'property', value: 'busy', sourceRef: 'mapping:COMPONENT-SUBMIT' },
         { kind: 'component-state', value: 'busy', sourceRef: 'mapping:COMPONENT-SUBMIT' },
         { kind: 'event', value: 'submit-requested', sourceRef: 'uc:UC-1' },
+        { kind: 'viewport', value: '1440x900', sourceRef: 'mapping:COMPONENT-SUBMIT' },
       ],
     }],
     gaps: [],
@@ -58,6 +69,16 @@ test('Business and Component Cases are layered, traceable neutral validation dat
   const runtime = fixture();
   runtime.componentCases[0].checks[0].domSelector = '#submit';
   assert.ok(validateCases(runtime).some((item) => item.code === 'UI_CASE_RUNTIME_DEP'));
+
+  const schemaInvalid = fixture();
+  delete schemaInvalid.businessCases[0].name;
+  delete schemaInvalid.businessCases[0].steps[0].conceptId;
+  delete schemaInvalid.componentCases[0].componentConceptId;
+  assert.ok(validateCases(schemaInvalid).some((item) => item.code === 'UI_CASE_CONTRACT_INVALID'));
+
+  const incomplete = fixture();
+  incomplete.businessCases[0].steps = incomplete.businessCases[0].steps.slice(0, 1);
+  assert.ok(validateCases(incomplete).some((item) => item.code === 'UI_CASE_LAYER_COLLISION'));
 });
 
 test('generator writes only validated case data in an OS temporary workspace', async () => {

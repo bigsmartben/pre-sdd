@@ -1,6 +1,15 @@
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import Ajv2020 from 'ajv/dist/2020.js';
+
+const schema = JSON.parse(readFileSync(new URL('../cases.schema.json', import.meta.url), 'utf8'));
+const validateSchema = new Ajv2020({
+  allErrors: true,
+  strict: false,
+  validateFormats: false,
+}).compile(schema);
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -13,8 +22,24 @@ function blocker(code, message, location) {
 
 export function validateCases(model) {
   const blockers = [];
-  if (model?.schemaVersion !== 'psp.dev/ui-cases/v1') {
-    return [blocker('UI_CASE_CONTRACT_INVALID', '用例契约版本无效。')];
+  if (JSON.stringify(model)?.match(/(?:domSelector|querySelector|runtimeOperation|setAttribute|setProperty)/i)) {
+    blockers.push(blocker('UI_CASE_RUNTIME_DEP', '用例不得成为改写 DOM 或产品状态的运行模型。'));
+  }
+  if (!validateSchema(model)) {
+    for (const error of validateSchema.errors ?? []) {
+      blockers.push(blocker(
+        'UI_CASE_CONTRACT_INVALID',
+        `用例 Schema 无效：${error.message ?? error.keyword}。`,
+        error.instancePath || 'cases',
+      ));
+    }
+  }
+  if (
+    model?.schemaVersion !== 'psp.dev/ui-cases/v1'
+    || !Array.isArray(model.businessCases)
+    || !Array.isArray(model.componentCases)
+  ) {
+    return blockers;
   }
   const businessKinds = new Set(['route', 'page', 'component', 'event', 'port', 'state']);
   const componentKinds = new Set(['property', 'attribute', 'slot', 'component-state', 'event', 'motion', 'viewport']);
@@ -29,11 +54,12 @@ export function validateCases(model) {
     }
     for (const [index, item] of cases.entries()) {
       const location = `${layer}Cases[${index}]`;
+      if (!item || typeof item !== 'object') continue;
       if (!item.caseId?.startsWith(prefix) || allIds.has(item.caseId)) {
         blockers.push(blocker('UI_CASE_LAYER_COLLISION', '用例 ID 必须体现唯一所属层。', `${location}.caseId`));
       }
       allIds.add(item.caseId);
-      const refs = new Set(item.sourceRefs ?? []);
+      const refs = new Set(Array.isArray(item.sourceRefs) ? item.sourceRefs.filter((ref) => typeof ref === 'string') : []);
       for (const source of ['uc:', 'mapping:', 'framework:']) {
         if (![...refs].some((ref) => ref.startsWith(source))) {
           blockers.push(blocker('UI_CASE_TRACEABILITY_MISSING', `用例缺少 ${source.slice(0, -1)} 追溯。`, location));
@@ -44,7 +70,32 @@ export function validateCases(model) {
         blockers.push(blocker('UI_CASE_CONTRACT_INVALID', '用例必须包含可验证事实。', location));
         continue;
       }
+      const presentKinds = new Set(facts.map((fact) => fact?.kind).filter(Boolean));
+      if (layer === 'business') {
+        const missingKinds = [...businessKinds].filter((kind) => !presentKinds.has(kind));
+        if (missingKinds.length) {
+          blockers.push(blocker(
+            'UI_CASE_LAYER_COLLISION',
+            `Business Case 必须覆盖 Route→Page→Component→Event→Port→State；缺少 ${missingKinds.join(', ')}。`,
+            location,
+          ));
+        }
+      } else {
+        const hasInput = ['property', 'attribute', 'slot'].some((kind) => presentKinds.has(kind));
+        const missingKinds = ['component-state', 'event', 'viewport'].filter((kind) => !presentKinds.has(kind));
+        if (!hasInput || missingKinds.length) {
+          blockers.push(blocker(
+            'UI_CASE_LAYER_COLLISION',
+            `Component Case 必须覆盖输入、Component State、Event 与 Viewport；缺少 ${[
+              ...(!hasInput ? ['property/attribute/slot'] : []),
+              ...missingKinds,
+            ].join(', ')}。`,
+            location,
+          ));
+        }
+      }
       for (const [factIndex, fact] of facts.entries()) {
+        if (!fact || typeof fact !== 'object') continue;
         const allowed = layer === 'business' ? businessKinds : componentKinds;
         if (!allowed.has(fact.kind)) {
           blockers.push(blocker('UI_CASE_LAYER_COLLISION', `${fact.kind} 不属于 ${layer} Case。`, `${location}[${factIndex}]`));
@@ -67,13 +118,10 @@ export function validateCases(model) {
     }
   }
   if (!Array.isArray(model.gaps)) blockers.push(blocker('UI_CASE_CONTRACT_INVALID', 'gaps 必须为数组。'));
-  if (JSON.stringify(model).match(/(?:domSelector|querySelector|runtimeOperation|setAttribute|setProperty)/i)) {
-    blockers.push(blocker('UI_CASE_RUNTIME_DEP', '用例不得成为改写 DOM 或产品状态的运行模型。'));
-  }
   return blockers;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const model = JSON.parse(await readFile(resolve(argument('input', 'Cases/ui-cases.json')), 'utf8'));
     const blockers = validateCases(model);

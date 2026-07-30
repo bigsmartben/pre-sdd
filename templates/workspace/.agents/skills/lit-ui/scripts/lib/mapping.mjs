@@ -10,6 +10,8 @@ const IMPLEMENTATION_VALUE = /(?:^|[/\\])src[/\\]|\.tsx?\b|querySelector|documen
 const STATUS_VALUES = new Set(['proposed', 'confirmed', 'gap', 'rejected', 'stale']);
 const KINDS = new Set(['page', 'region', 'component', 'component-instance', 'state', 'event', 'transition', 'route', 'motion', 'port']);
 const STATE_LAYERS = new Set(['business', 'interaction', 'page', 'component']);
+const USER_IDENTITY = /^user:\S+$/;
+const UTC_TIMESTAMP = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z$/;
 
 export function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -155,7 +157,7 @@ export function validateMapping(model, options = {}) {
           relation.kind === 'same-as'
           && target?.kind === 'state'
           && target.stateLayer !== concept.stateLayer
-          && relation.confirmedBy !== 'user'
+          && !USER_IDENTITY.test(relation.confirmedBy ?? '')
         ) {
           blockers.push(blocker(
             'MAPPING_STATE_LAYER_COLLISION',
@@ -177,6 +179,18 @@ export function validateMapping(model, options = {}) {
 
   const confirmation = model.confirmation;
   const expected = mappingContentHash(model);
+  if (
+    !confirmation
+    || !USER_IDENTITY.test(confirmation.confirmedBy ?? '')
+    || !UTC_TIMESTAMP.test(confirmation.confirmedAt ?? '')
+    || Number.isNaN(Date.parse(confirmation.confirmedAt ?? ''))
+  ) {
+    blockers.push(blocker(
+      'MAPPING_USER_CONFIRMATION_REQUIRED',
+      'Mapping 必须由非空 user:<identity> 在有效 UTC 时间确认。',
+      'confirmation',
+    ));
+  }
   if (
     !confirmation
     || confirmation.status !== 'confirmed'

@@ -143,6 +143,8 @@ test('L06 project and scripts expose the Mapping to Lit to UIHTML chain without 
   for (const command of Object.values(workspacePackage.scripts)) {
     assert.doesNotMatch(command, /refresh-projections|canonical-ui-prototype|ui-case-mock/);
   }
+  assert.match(workspacePackage.scripts['validate:lit-ui'], /--strict/);
+  assert.match(workspacePackage.scripts['check:strict'], /validate:uihtml/);
 
   const workspace = await workspaceFixture();
   await symlink(resolve(repositoryRoot, 'node_modules'), resolve(workspace, 'node_modules'), 'junction');

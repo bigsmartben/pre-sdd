@@ -56,8 +56,8 @@
     "mapping:update": "node .agents/skills/lit-ui/scripts/mapping-workflow.mjs --operation update",
     "mapping:confirm": "node .agents/skills/lit-ui/scripts/mapping-workflow.mjs --operation confirm",
     "mapping:authorize": "node .agents/skills/lit-ui/scripts/mapping-workflow.mjs --operation authorize-implementation",
-    "validate:lit-ui": "node .agents/skills/lit-ui/scripts/validate.mjs",
-    "validate:uihtml": "node .agents/skills/lit-ui/scripts/validate-delivery.mjs",
+    "validate:lit-ui": "node .agents/skills/lit-ui/scripts/validate.mjs --strict",
+    "validate:uihtml": "node .agents/skills/lit-ui/scripts/validate-delivery.mjs --uihtml UIHTML",
     "hash:uihtml": "node .agents/skills/lit-ui/scripts/hash-uihtml.mjs",
     "render:product": "node .agents/skills/product-design/scripts/render.mjs",
     "render:architecture": "node .agents/skills/architecture-design/scripts/render.mjs",
@@ -70,6 +70,6 @@
     "test:architecture": "node --test .agents/skills/architecture-design/tests/*.test.mjs",
     "test": "npm run test:product && npm run test:mockcase && npm run test:architecture",
     "check": "npm test && npm run validate:product && npm run validate:architecture",
-    "check:strict": "npm test && npm run validate:product:strict && npm run validate:architecture:strict && npm run validate:lit-ui"
+    "check:strict": "npm test && npm run validate:product:strict && npm run validate:architecture:strict && npm run validate:lit-ui && npm run validate:uihtml"
   }
 }
