@@ -1,3 +1,4 @@
+import '../ui/main.js';
 import './inconsistency-annotator.js';
 import { DomObservationAdapter } from './observer-adapter.js';
 import type { InconsistencyAnnotator } from './inconsistency-annotator.js';

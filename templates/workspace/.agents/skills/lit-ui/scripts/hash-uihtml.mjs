@@ -14,7 +14,7 @@ async function files(directory) {
   return output;
 }
 
-export async function hashUihtml(rootArgument = 'UIHTML') {
+export async function hashDirectory(rootArgument = 'UIHTML') {
   const root = resolve(rootArgument);
   const hash = createHash('sha256');
   for (const path of (await files(root)).sort()) {
@@ -25,6 +25,8 @@ export async function hashUihtml(rootArgument = 'UIHTML') {
   }
   return `sha256:${hash.digest('hex')}`;
 }
+
+export const hashUihtml = hashDirectory;
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const rootIndex = process.argv.indexOf('--uihtml');

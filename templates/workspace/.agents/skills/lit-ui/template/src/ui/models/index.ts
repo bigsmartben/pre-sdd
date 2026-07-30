@@ -1,4 +1,4 @@
-export type ConceptId = string & { readonly __conceptId: unique symbol };
+export type VisualItemId = string & { readonly __visualItemId: unique symbol };
 
 export interface UiError {
   readonly code: string;

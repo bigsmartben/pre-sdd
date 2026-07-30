@@ -61,13 +61,20 @@ function parseChunks(buffer) {
   return chunks;
 }
 
-export async function analyzePng(path, { edgeMargin = 2 } = {}) {
-  const chunks = parseChunks(await readFile(path));
+export function inspectPng(buffer) {
+  const chunks = parseChunks(buffer);
   const header = chunks.find((chunk) => chunk.type === 'IHDR')?.data;
-  if (!header) throw new Error('缺少 IHDR');
-
+  if (!header || header.length !== 13) throw new Error('缺少有效 IHDR');
+  if (!chunks.some((chunk) => chunk.type === 'IDAT')) throw new Error('缺少 IDAT');
+  if (!chunks.some((chunk) => chunk.type === 'IEND')) throw new Error('缺少 IEND');
   const width = header.readUInt32BE(0);
   const height = header.readUInt32BE(4);
+  if (width < 1 || height < 1) throw new Error('PNG width/height 无效');
+  return { chunks, header, width, height };
+}
+
+export async function analyzePng(path, { edgeMargin = 2 } = {}) {
+  const { chunks, header, width, height } = inspectPng(await readFile(path));
   const bitDepth = header[8];
   const colorType = header[9];
   const interlace = header[12];

@@ -1,0 +1,17 @@
+{
+  "apiVersion": "psp.dev/v1",
+  "kind": "FunctionalDeliveryBaseline",
+  "metadata": {
+    "artifactId": "FUNCTIONAL-DELIVERY-BASELINE",
+    "revision": 1,
+    "status": "draft"
+  },
+  "items": [],
+  "gaps": [
+    {
+      "gapId": "FDB-GAP-001",
+      "baselineItemRef": null,
+      "reason": "尚未逐项决定 VISUAL 或 USER_PATH 交付层级"
+    }
+  ]
+}

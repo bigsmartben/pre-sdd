@@ -1,0 +1,4 @@
+interface:
+  display_name: "Visual Spec"
+  short_description: "编译并验证机器视觉规格清单"
+  default_prompt: "Use $visual-spec to compile ready Product Use Cases, Functional Delivery Baseline, and optional Test Case Catalog into the provider-neutral Visual Spec Checklist."

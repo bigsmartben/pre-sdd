@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "psp.dev/visual-spec/v1",
+  "metadata": {
+    "artifactId": "VISUAL-SPEC-CHECKLIST",
+    "revision": 1,
+    "status": "draft"
+  },
+  "sourceLocks": [],
+  "items": [],
+  "gaps": [
+    {
+      "code": "VSC_SOURCE_NOT_READY",
+      "baselineItemRef": null,
+      "reason": "上游机器事实尚未准备完成",
+      "missingDimensions": []
+    }
+  ]
+}

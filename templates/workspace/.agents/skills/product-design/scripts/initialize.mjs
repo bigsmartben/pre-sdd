@@ -23,9 +23,8 @@ try {
       code: 'AIH_STAGE_ALREADY_INITIALIZED',
     });
   }
-
   const writes = [];
-  for (const artifactId of ['capabilities', 'visual-spec']) {
+  for (const artifactId of ['capabilities', 'functional-delivery-baseline']) {
     const definition = artifactDefinition(project, artifactId, stageId);
     const paths = artifactPaths(project, artifactId, stageId);
     if (!definition?.template || !definition.schema || !paths?.authorityPath) {
@@ -34,15 +33,11 @@ try {
       });
     }
     const data = await readStructured(root, definition.template, definition.format);
-    writes.push({
-      target: paths.authorityPath,
-      content: stringifyStructured(data, definition.format),
-    });
+    writes.push({ target: paths.authorityPath, content: stringifyStructured(data, definition.format) });
     for (const output of await preparedArtifactOutputs(root, project, stageId, artifactId, data)) {
       writes.push({ target: output.output, content: output.content });
     }
   }
-
   const nextProject = structuredClone(project);
   nextProject.stages[stageId].status = 'active';
   writes.push({ target: 'psp.project.yaml', content: stringifyYaml(nextProject) });
@@ -51,16 +46,7 @@ try {
     ownerId: 'product-design-initialize',
     writes,
   });
-  result = {
-    status: 'PASS',
-    stage: stageId,
-    transactionId,
-    files: writes
-      .map((item) => item.target)
-      .filter((path) => path !== 'psp.project.yaml')
-      .sort(),
-    blockers: [],
-  };
+  result = { status: 'PASS', stage: stageId, transactionId, files: writes.map((item) => item.target).sort(), blockers: [] };
 } catch (error) {
   result = {
     status: 'BLOCKED',
@@ -71,10 +57,6 @@ try {
 }
 
 if (json) console.log(JSON.stringify(result, null, 2));
-else if (result.status === 'PASS') {
-  console.log('[PASS] Product Design 初始产物已建立。');
-  for (const path of result.files) console.log('  ' + path);
-} else {
-  for (const blocker of result.blockers) console.error('[' + blocker.code + '] ' + blocker.message);
-}
+else if (result.status === 'PASS') console.log('[PASS] Product Use Cases 与 Functional Delivery Baseline 已初始化。');
+else for (const blocker of result.blockers) console.error(`[${blocker.code}] ${blocker.message}`);
 if (result.status !== 'PASS') process.exitCode = 1;

@@ -32,15 +32,16 @@ class DistributionTests(unittest.TestCase):
                 self.assertIn("sdd_pre/cli.py", names)
                 self.assertIn("sdd_pre/_workspace/AGENTS.md", names)
                 for required in [
+                    "sdd_pre/_workspace/.agents/skills/visual-spec/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json",
+                    "sdd_pre/_workspace/.agents/skills/user-path-cases/schemas/test-case-catalog.schema.json",
+                    "sdd_pre/_workspace/.agents/skills/figma-workflow/schemas/figma-coverage.schema.json",
                     "sdd_pre/_workspace/.agents/skills/lit-ui/SKILL.md",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui/contracts/framework.yaml",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui/contracts/mapping.yaml",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui/templates/Mapping.html",
+                    "sdd_pre/_workspace/.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json",
+                    "sdd_pre/_workspace/.agents/skills/lit-ui/schemas/review-findings.schema.json",
                     "sdd_pre/_workspace/.agents/skills/lit-ui/scripts/validate.mjs",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui-workflow/SKILL.md",
                     "sdd_pre/_workspace/.agents/skills/implement-lit-ui/SKILL.md",
-                    "sdd_pre/_workspace/.agents/skills/repair-lit-ui/SKILL.md",
-                    "sdd_pre/_workspace/.agents/skills/use-case-generation/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/repair-visual-delivery/SKILL.md",
                     "sdd_pre/_workspace/.agents/skills/mockcase/runtime/mock-service-adapter.ts",
                 ]:
                     self.assertIn(required, names, f"LIT_UI_SCAFFOLD_INCOMPLETE: {required}")
@@ -72,7 +73,7 @@ class DistributionTests(unittest.TestCase):
                         f"SCAFFOLD_BUILD_OUTPUT_LEAK or PRODUCT_INSTANCE_IN_SCAFFOLD: {forbidden_segment}",
                     )
                 for forbidden_prefix in [
-                    "sdd_pre/_workspace/Mapping.html",
+                    "sdd_pre/_workspace/.psp/visual-spec/",
                     "sdd_pre/_workspace/src/ui/",
                     "sdd_pre/_workspace/UIHTML/",
                 ]:
@@ -90,9 +91,10 @@ class DistributionTests(unittest.TestCase):
                     for name in names
                 }
                 for required in [
-                    "templates/workspace/.agents/skills/lit-ui/contracts/framework.yaml",
-                    "templates/workspace/.agents/skills/lit-ui/templates/Mapping.html",
-                    "templates/workspace/.agents/skills/use-case-generation/contract.yaml",
+                    "templates/workspace/.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json",
+                    "templates/workspace/.agents/skills/figma-workflow/schemas/figma-coverage.schema.json",
+                    "templates/workspace/.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json",
+                    "templates/workspace/.agents/skills/user-path-cases/schemas/test-case-catalog.schema.json",
                 ]:
                     self.assertIn(required, suffixes, f"LIT_UI_SCAFFOLD_INCOMPLETE: {required}")
 

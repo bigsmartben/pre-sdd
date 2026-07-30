@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "psp.dev/visual-spec/v1",
+  "metadata": {
+    "artifactId": "MOCK-SCENARIO-SUITE",
+    "revision": 1,
+    "status": "draft"
+  },
+  "pathPlanLock": {
+    "artifactId": "USER-PATH-PLAN",
+    "path": ".psp/visual-spec/user-path-plan.json",
+    "revision": 1,
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "scenarios": [],
+  "gaps": []
+}

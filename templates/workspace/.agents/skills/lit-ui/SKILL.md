@@ -1,32 +1,39 @@
 ---
 name: lit-ui
-description: Build confirmed Mapping.html decisions as real Lit modules and deliver isolated UIHTML.
+description: 基于 Ready Visual Spec 与 Figma Evidence 实现真实 Lit L1/L2、唯一 Review Delivery（评审交付）和隔离的生产 UIHTML。
 ---
 
 # Lit UI
 
-Use this skill for the project chain:
+## 权威实现
 
-`Figma + UC → Mapping.html → user confirmation → Lit UI Spec → UIHTML`
+真实权威是工作区 `src/ui/` 下的 Lit/TypeScript 模块。L1 `VISUAL` 覆盖所有 Checklist 项；只有 `USER_PATH` 项追加 L2。Review/Test Build（评审/测试构建）与生产 UIHTML 必须绑定同一份 `src/ui` commit 和 digest。
 
-## Authorities
+具体例子：按钮默认、hover、disabled、loading 属于 L1；“库存不足 → 修改数量 → 提交成功”属于按需 L2。两者都运行真实 `src/ui`，不复制一份评审 UI。
 
-- `contracts/framework.yaml` defines reusable LitSpec concepts and dependency rules.
-- A project `Mapping.html` defines perceptual concepts, source interpretation, gaps, and the exact user confirmation.
-- Real modules under `src/ui/{models,components,pages,routes,events,motions,ports}` own implementation.
-- `UIHTML/` is the standalone product delivery and never reads Mapping, Review Tools, Mock, or Cases.
+## 机器产物
 
-There is no Preview Artifact, public code-plan Artifact, hidden mapping projection, or generic UI runtime IR.
+- `.psp/visual-spec/lit-visual-coverage.json`
+- `.psp/visual-spec/user-path-coverage.json`（仅有 L2 时）
+- `.psp/visual-spec/delivery-manifest.json`
+- `.psp/visual-spec/review-findings.json`
+- `.psp/visual-spec/uihtml-production.json`
 
-## Workflow
+唯一正式人类评审入口由 `delivery-manifest.json` 导航真实 Lit。Marker（标记工具）以 `itemId` 为主键；L2 还记录 `testCaseId` 和 `pathStepId`。
 
-1. Use `$lit-ui-workflow` until `authorize-implementation` returns `PASS`.
-2. Copy only the engineering skeleton from `template/`; replace placeholders with project modules that implement the confirmed Mapping.
-3. Keep Route URL ownership in `routes/`, rendering in `pages/`, reusable interaction in `components/`, business I/O in `ports/`, and typed communication in `events/`.
-4. Inject real and Mock adapters at the composition boundary. Page and Component code must not inspect the environment.
-5. Build the product and Review Tools with their separate Vite entries.
-6. Run `validate:lit-ui`; strict validation auto-discovers the confirmed `01-product-design/Lit-UI/Mapping.html` and actual `UIHTML/` boundary.
-7. Run `validate:uihtml`; it applies the delivery Schema, binds the current UIHTML hash, launches every declared Route in headless Chromium, and fails on missing assets or runtime errors.
-8. Deliver only `UIHTML/` as the product bundle. Review output and Case data remain outside its hash boundary.
+## 运行隔离
 
-Review Tools use `ReviewDriver` to locate, observe, and dispatch against stable `conceptId` values. A tool failure must never prevent the product entry from loading.
+- Review/Test 只替换 Adapter（适配器）并增加导航和 Marker。
+- 生产入口只使用真实 Adapter。
+- Delivery 前必须把 `src/ui`、`src/product-main.ts` 与 `src/adapters/real` 提交到同一 Git commit；Review Build 和 Product Build 都由 Vite 实际构建。
+- 成功的 Product Build 自动记录 `uihtml-production.json`，不得用手写 UIHTML 或单独记录命令伪造构建来源。
+- UIHTML Bundle 不得包含或读取 Visual Spec、Figma Evidence、Finding、Mock、Case、Path Plan、Review Tool。
+- Mock 或评审代码泄漏生产构建时必须阻断。
+
+## 状态
+
+- L1：`pending → implemented → reviewing → accepted → stale`
+- L2：`not-required | pending → implemented → verifying → accepted → stale`
+- Finding：`open → triaged → repairing → resolved → verified → closed`
+
+旧视觉载体、旧状态或旧实现入口统一返回 `LEGACY_VISUAL_WORKFLOW_FORBIDDEN`。

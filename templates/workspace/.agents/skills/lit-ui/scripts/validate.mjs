@@ -1,290 +1,368 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
-import { basename, extname, relative, resolve } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import { readMapping, validateMapping } from './lib/mapping.mjs';
+import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { artifactPaths, loadProject, repositoryFile, repositoryRootFrom } from '../../../runtime/project.mjs';
+import {
+  isLegacyVisualInput,
+  sha256,
+  stableJson,
+  validateWithSchema,
+} from '../../visual-spec/scripts/lib/visual-spec.mjs';
+import { hashDirectory } from './hash-uihtml.mjs';
+import { productionSourceGraph } from './lib/source-graph.mjs';
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : fallback;
 }
 
-async function exists(path) {
-  try { await stat(path); return true; } catch { return false; }
-}
-
-async function regularFiles(root) {
-  if (!(await exists(root))) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const output = [];
-  for (const entry of entries) {
-    const path = resolve(root, entry.name);
-    if (entry.isDirectory()) output.push(...await regularFiles(path));
-    else if (entry.isFile()) output.push(path);
-  }
-  return output;
-}
-
-function add(blockers, code, message, location) {
-  blockers.push({ code, message, ...(location ? { location } : {}) });
-}
-
-const root = resolve(argument('root', process.cwd()));
-const scaffoldMode = process.argv.includes('--scaffold');
-const strictMode = process.argv.includes('--strict');
-const capabilityRoot = resolve(root, '.agents/skills/lit-ui');
-const templateRoot = resolve(capabilityRoot, 'template');
-const implementationRoot = resolve(root, argument('implementation', 'src/ui'));
-const implementation = scaffoldMode && !(await exists(implementationRoot))
-  ? resolve(templateRoot, 'src/ui')
-  : implementationRoot;
-const usesTemplateImplementation = implementation === resolve(templateRoot, 'src/ui');
-const sourceRoot = usesTemplateImplementation ? resolve(templateRoot, 'src') : resolve(implementation, '..');
-const reviewRoot = resolve(root, argument(
-  'review',
-  await exists(resolve(sourceRoot, 'review'))
-    ? relative(root, resolve(sourceRoot, 'review'))
-    : '.agents/skills/lit-ui/template/src/review',
-));
-const mappingArgument = argument('mapping', strictMode ? '01-product-design/Lit-UI/Mapping.html' : '');
-const uihtmlArgument = argument('uihtml', strictMode ? 'UIHTML' : '');
+const root = repositoryRootFrom(import.meta.dirname);
+const phase = argument('phase', 'review');
 const blockers = [];
+const stale = new Set();
 
-const requiredCapabilityFiles = [
-  'contracts/framework.yaml',
-  'contracts/mapping.yaml',
-  'contracts/blocker-codes.yaml',
-  'templates/Mapping.html',
-  'scripts/mapping-workflow.mjs',
-  'scripts/validate.mjs',
-  'template/src/ui/main.ts',
-  'template/src/review/review-main.ts',
-];
-for (const item of requiredCapabilityFiles) {
-  if (!(await exists(resolve(capabilityRoot, item)))) {
-    add(blockers, 'LIT_UI_SCAFFOLD_INCOMPLETE', 'Lit UI 能力快照缺少必要文件。', item);
-  }
+function ownerValidation(script, code) {
+  const result = spawnSync(process.execPath, [resolve(root, script)], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: { ...process.env, PSP_REPOSITORY_ROOT: root },
+  });
+  if (result.status !== 0) blockers.push({
+    code,
+    message: result.stdout || result.stderr,
+  });
 }
 
-const frameworkPath = resolve(capabilityRoot, 'contracts/framework.yaml');
-if (await exists(frameworkPath)) {
-  const framework = parseYaml(await readFile(frameworkPath, 'utf8'));
-  const owners = new Map();
-  for (const [concept, definition] of Object.entries(framework.concepts ?? {})) {
-    for (const responsibility of definition.owns ?? []) {
-      if (owners.has(responsibility)) {
-        add(
-          blockers,
-          'LITSPEC_RESPONSIBILITY_COLLISION',
-          `${responsibility} 同时由 ${owners.get(responsibility)} 与 ${concept} 拥有。`,
-          'contracts/framework.yaml',
-        );
-      } else owners.set(responsibility, concept);
+async function artifact(project, stage, id, schema) {
+  const path = artifactPaths(project, id, stage)?.authorityPath;
+  if (!path) throw Object.assign(new Error(`Registry 未绑定 ${stage}.${id}`), { code: 'VISUAL_SPEC_SOURCE_LOCK_INVALID' });
+  const bytes = await readFile(repositoryFile(root, path));
+  const data = JSON.parse(bytes);
+  if (isLegacyVisualInput(data, path)) {
+    throw Object.assign(new Error(`旧视觉产物禁止进入 Lit：${path}`), { code: 'LEGACY_VISUAL_WORKFLOW_FORBIDDEN' });
+  }
+  blockers.push(...await validateWithSchema(root, schema, data));
+  return { path, bytes, digest: sha256(bytes), data };
+}
+
+try {
+  const project = await loadProject(root);
+  if (process.argv.includes('--scaffold')) {
+    for (const schema of [
+      '.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json',
+      '.agents/skills/lit-ui/schemas/user-path-coverage.schema.json',
+      '.agents/skills/lit-ui/schemas/delivery-manifest.schema.json',
+      '.agents/skills/lit-ui/schemas/review-findings.schema.json',
+      '.agents/skills/lit-ui/schemas/uihtml-production.schema.json',
+    ]) {
+      JSON.parse(await readFile(repositoryFile(root, schema), 'utf8'));
     }
-  }
-  if (!(framework.forbidden ?? []).includes('centralized-ui-table')) {
-    add(blockers, 'GENERIC_UI_IR_REQUIRED', 'Framework 未明确禁止集中式 UI 总表。', 'contracts/framework.yaml');
-  }
-  if (framework.projectData || framework.routes || framework.pages) {
-    add(blockers, 'PROJECT_DATA_IN_FRAMEWORK_CONTRACT', 'Framework Contract 含具体项目事实。', 'contracts/framework.yaml');
-  }
-}
-
-for (const directory of ['models', 'components', 'pages', 'routes', 'events', 'motions', 'ports']) {
-  if (!(await exists(resolve(implementation, directory)))) {
-    add(blockers, 'LIT_MODULE_AUTHORITY_MISSING', `缺少真实模块目录 ${directory}。`, relative(root, implementation));
-  }
-}
-if (!(await exists(resolve(implementation, 'main.ts')))) {
-  add(blockers, 'LIT_MODULE_AUTHORITY_MISSING', '缺少 src/ui/main.ts 直接组合入口。', relative(root, implementation));
-}
-
-const adapterFiles = [
-  resolve(sourceRoot, 'adapters/real/browser-host-adapter.ts'),
-  resolve(sourceRoot, 'testing/mock-host-adapter.ts'),
-  resolve(sourceRoot, 'adapters/real/fetch-service-adapter.ts'),
-  resolve(sourceRoot, 'testing/mock-service-adapter.ts'),
-  resolve(sourceRoot, 'testing/port-contract.ts'),
-];
-if ((await Promise.all(adapterFiles.map(exists))).some((value) => !value)) {
-  add(blockers, 'PORT_ADAPTER_CONTRACT_MISMATCH', '缺少真实/Mock Adapter 或共同 Contract Test。', relative(root, sourceRoot));
-} else {
-  const [realHost, mockHost, realService, mockService] = await Promise.all(
-    adapterFiles.slice(0, 4).map((path) => readFile(path, 'utf8')),
-  );
-  if (
-    !realHost.includes('implements HostPort')
-    || !mockHost.includes('implements HostPort')
-    || !realService.includes('implements ServicePort')
-    || !mockService.includes('implements ServicePort')
-  ) {
-    add(blockers, 'PORT_ADAPTER_CONTRACT_MISMATCH', '真实与 Mock Adapter 未实现同一 Host/Service Port。', relative(root, sourceRoot));
-  }
-}
-const eventContractPath = resolve(implementation, 'events/index.ts');
-if (!(await exists(eventContractPath)) || !(await readFile(eventContractPath, 'utf8')).includes('HostEventMap')) {
-  add(blockers, 'HOST_EVENT_CONTRACT_MISSING', '缺少稳定类型化 HostEventMap。', relative(root, eventContractPath));
-}
-
-const moduleFiles = await regularFiles(implementation);
-const forbiddenModelNames = /(?:canonical[-_.]?ui|lit[-_.]?ui[-_.]?spec|generic[-_.]?ui[-_.]?(?:model|ir)|state[-_.]?matrix)/i;
-for (const path of moduleFiles) {
-  const name = basename(path);
-  const text = await readFile(path, 'utf8');
-  if (forbiddenModelNames.test(name)) {
-    add(blockers, 'GENERIC_UI_IR_REINTRODUCED', '发现集中式 UI 总表替身。', relative(root, path));
-  }
-  if (/\bcanonicalUi\b|canonical-ui|src\/spec\/canonical/i.test(text)) {
-    add(blockers, 'CANONICAL_UI_RUNTIME_DEP_REMAINS', '产品运行代码仍依赖迁移前集中模型。', relative(root, path));
-  }
-  const aggregateKeys = new Set(
-    [...text.matchAll(/\b(routes|pages|components|states|events|motions|ports)\s*:/g)].map((match) => match[1]),
-  );
-  if (/\bexport\s+const\b/.test(text) && aggregateKeys.size >= 4) {
-    add(blockers, 'GENERIC_UI_IR_REINTRODUCED', '发现把多个核心概念聚合为同构 UI 总表的导出。', relative(root, path));
-  }
-  if (/(?:Mapping\.html|psp-mapping-data|business-cases|component-cases|src\/review)/i.test(text)) {
-    add(blockers, 'GENERIC_UI_IR_RUNTIME_DEP', '产品运行模块依赖 Mapping、Case 或 Review 数据。', relative(root, path));
-  }
-  const importer = relative(implementation, path).split(/[\\/]/)[0];
-  for (const match of text.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
-    const target = match[1].match(/(?:^|\/)(models|components|pages|routes|events|motions|ports)(?:\/|$)/)?.[1];
-    const allowed = {
-      routes: new Set(['pages', 'models']),
-      pages: new Set(['components', 'events', 'motions', 'ports', 'models']),
-      components: new Set(['events', 'motions', 'models']),
-      events: new Set(['models']),
-      motions: new Set(['models']),
-      ports: new Set(['models', 'events']),
-      models: new Set(),
-    }[importer];
-    if (allowed && target && target !== importer && !allowed.has(target)) {
-      add(blockers, 'LITSPEC_DEPENDENCY_INVALID', `${importer} 不得依赖 ${target}。`, relative(root, path));
-    }
-  }
-  if (['components', 'pages'].includes(importer) && /\b(?:isMock|mockMode|environment\s*===\s*['"]mock)/i.test(text)) {
-    add(blockers, 'LIT_COMPONENT_MOCK_COUPLED', 'Page/Component 不得按 Mock 环境分支。', relative(root, path));
-  }
-  if (importer === 'routes' && /\b(?:render|html)\s*(?:\(|`)/.test(text)) {
-    add(blockers, 'LIT_ROUTE_PAGE_COLLISION', 'Route 不得拥有 Page 渲染。', relative(root, path));
-  }
-}
-
-const projectPath = resolve(root, 'psp.project.yaml');
-if (await exists(projectPath)) {
-  const projectSource = await readFile(projectPath, 'utf8');
-  if (/memberProjections:[\s\S]{0,500}(?:canonical|ui[-_ ]?ir)|\.psp\/models\/canonical/i.test(projectSource)) {
-    add(blockers, 'HIDDEN_UI_IR_REMAINS', '项目仍声明隐藏 UI 投影。', 'psp.project.yaml');
-  }
-  if (/semanticEntry:\s*src\/spec\/|canonical-ui-prototype/i.test(projectSource)) {
-    add(blockers, 'CANONICAL_UI_RUNTIME_DEP_REMAINS', '项目仍绑定迁移前语义入口。', 'psp.project.yaml');
-  }
-}
-const packagePath = resolve(root, 'package.json');
-if (await exists(packagePath)) {
-  const packageSource = await readFile(packagePath, 'utf8');
-  if (/refresh[^"\n]*(?:projection|canonical)/i.test(packageSource)) {
-    add(blockers, 'CANONICAL_PROJECTION_REFRESH_REQUIRED', '脚本仍要求刷新迁移前投影。', 'package.json');
-  }
-}
-
-for (const path of await regularFiles(reviewRoot)) {
-  const text = await readFile(path, 'utf8');
-  if (/\b(?:ProductRoute|ServicePort|BusinessState)\b/.test(text) || /src\/ui\/(?:routes|ports)/.test(text)) {
-    add(blockers, 'REVIEW_TOOL_PRODUCT_OWNERSHIP', 'Review Tool 不得拥有产品 Route、State 或 Port。', relative(root, path));
-  }
-}
-const reviewSource = (await Promise.all((await regularFiles(reviewRoot)).map((path) => readFile(path, 'utf8')))).join('\n');
-if (!reviewSource.includes('conceptId')) {
-  add(blockers, 'REVIEW_MARK_UNBOUND', 'Review 标记未绑定稳定 conceptId。', relative(root, reviewRoot));
-}
-const configRoot = usesTemplateImplementation ? templateRoot : root;
-const productConfigPath = resolve(configRoot, 'vite.product.config.ts');
-const reviewConfigPath = resolve(configRoot, 'vite.review.config.ts');
-if (!(await exists(productConfigPath)) || !(await exists(reviewConfigPath))) {
-  add(blockers, 'LIT_DIRECT_BUILD_FAILED', '缺少项目实际 Product/Review Vite 配置。', relative(root, configRoot));
-}
-if (await exists(productConfigPath) && await exists(reviewConfigPath)) {
-  const [productConfig, reviewConfig] = await Promise.all([
-    readFile(productConfigPath, 'utf8'),
-    readFile(reviewConfigPath, 'utf8'),
-  ]);
-  if (/review(?:\.html|-main|\/review)/i.test(productConfig)) {
-    add(blockers, 'REVIEW_TOOL_FAILURE_PROPAGATED', '产品入口依赖 Review Tool。', relative(root, productConfigPath));
-  }
-  if (productConfig.match(/outDir:\s*['"]([^'"]+)/)?.[1] === reviewConfig.match(/outDir:\s*['"]([^'"]+)/)?.[1]) {
-    add(blockers, 'REVIEW_TOOL_HASH_LEAK', '产品与 Review 共用输出/哈希边界。', relative(root, productConfigPath));
-  }
-}
-
-if (mappingArgument) {
-  const mappingPath = resolve(root, mappingArgument);
-  if (!(await exists(mappingPath))) {
-    add(blockers, 'MAPPING_ARTIFACT_MISSING', 'Mapping.html 不存在。', mappingArgument);
   } else {
-    const siblings = await regularFiles(resolve(mappingPath, '..'));
-    const parallel = siblings
-      .filter((path) => path !== mappingPath && /(?:Preview\.html|mapping\.json)$/i.test(path))
-      .map((path) => relative(root, path));
-    blockers.push(...validateMapping(await readMapping(mappingPath), { parallelArtifacts: parallel }));
+    const checklist = await artifact(project, 'visual-spec', 'checklist', '.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json');
+    const authorization = await artifact(project, 'visual-spec', 'ready-authorization', '.agents/skills/visual-spec/schemas/ready-authorization.schema.json');
+    const figmaCoverage = await artifact(project, 'figma-workflow', 'figma-coverage', '.agents/skills/figma-workflow/schemas/figma-coverage.schema.json');
+    const figmaEvidence = await artifact(project, 'figma-workflow', 'figma-evidence', '.agents/skills/figma-workflow/schemas/figma-evidence.schema.json');
+    const l1 = await artifact(project, 'lit-ui', 'lit-visual-coverage', '.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json');
+    ownerValidation('.agents/skills/visual-spec/scripts/validate.mjs', 'LVC_SOURCE_NOT_READY');
+    ownerValidation('.agents/skills/figma-workflow/scripts/validate.mjs', 'LVC_SOURCE_NOT_READY');
+    if (
+      checklist.data.metadata?.status !== 'ready'
+      || authorization.data.status !== 'ready'
+      || figmaCoverage.data.metadata?.status !== 'ready'
+      || figmaEvidence.data.metadata?.status !== 'ready'
+      || l1.data.metadata?.status !== 'ready'
+      || (checklist.data.gaps ?? []).length
+      || (figmaCoverage.data.gaps ?? []).length
+      || (figmaEvidence.data.gaps ?? []).length
+    ) blockers.push({ code: 'LVC_SOURCE_NOT_READY', message: 'L1 只接受 Ready 且无 Gap 的 Checklist、Authorization 与 Figma 证据。' });
+    blockers.push(...(await productionSourceGraph(root)).blockers);
+    const actualSrcUiDigest = await hashDirectory(repositoryFile(root, 'src/ui'));
+    if (l1.data.litSource?.srcUiDigest !== actualSrcUiDigest) {
+      blockers.push({ code: 'LVC_LIT_SOURCE_DIGEST_INVALID', message: 'L1 Coverage 未绑定实际 src/ui 字节。' });
+    }
+    const needsL2 = (checklist.data.items ?? []).some((item) => item.requiredDeliveryLevel === 'USER_PATH');
+    let l2 = null;
+    let plan = null;
+    let mock = null;
+    if (needsL2) {
+      plan = await artifact(project, 'user-path-cases', 'user-path-plan', '.agents/skills/user-path-cases/schemas/user-path-plan.schema.json');
+      mock = await artifact(project, 'mockcase', 'mock-scenario-suite', '.agents/skills/mockcase/schemas/mock-scenario-suite.schema.json');
+      l2 = await artifact(project, 'lit-ui', 'user-path-coverage', '.agents/skills/lit-ui/schemas/user-path-coverage.schema.json');
+      ownerValidation('.agents/skills/user-path-cases/scripts/validate.mjs', 'UPC_SOURCE_NOT_READY');
+      ownerValidation('.agents/skills/mockcase/scripts/workflow.mjs', 'UPC_SOURCE_NOT_READY');
+    }
+    const sourceMap = new Map([
+      ['VISUAL-SPEC-READY-AUTHORIZATION', authorization],
+      ['FIGMA-COVERAGE', figmaCoverage],
+      ['FIGMA-EVIDENCE', figmaEvidence],
+    ]);
+    if (
+      new Set((l1.data.sourceLocks ?? []).map((lock) => lock.artifactId)).size !== 3
+      || [...sourceMap.keys()].some((id) => !(l1.data.sourceLocks ?? []).some((lock) => lock.artifactId === id))
+    ) blockers.push({ code: 'LVC_SOURCE_LOCK_INVALID', message: 'L1 Source Lock 集合不完整或重复。' });
+    if (
+      authorization.data.checklist?.path !== checklist.path
+      || authorization.data.checklist?.revision !== checklist.data.metadata.revision
+      || authorization.data.checklist?.digest !== checklist.digest
+      || authorization.data.figmaCoverage?.path !== figmaCoverage.path
+      || authorization.data.figmaCoverage?.revision !== figmaCoverage.data.metadata.revision
+      || authorization.data.figmaCoverage?.digest !== figmaCoverage.digest
+      || authorization.data.figmaEvidence?.path !== figmaEvidence.path
+      || authorization.data.figmaEvidence?.revision !== figmaEvidence.data.metadata.revision
+      || authorization.data.figmaEvidence?.digest !== figmaEvidence.digest
+    ) blockers.push({ code: 'LVC_READY_AUTHORIZATION_STALE', message: 'Ready Authorization 未绑定当前 Checklist/Figma 证据。' });
+    for (const lock of l1.data.sourceLocks ?? []) {
+      const source = sourceMap.get(lock.artifactId);
+      if (!source || lock.path !== source.path) blockers.push({ code: 'LVC_SOURCE_LOCK_INVALID', message: `${lock.artifactId} Source Lock 非正式路径。` });
+      else if (lock.revision !== (source.data.metadata?.revision ?? source.data.revision) || lock.digest !== source.digest) {
+        for (const item of l1.data.items ?? []) stale.add(item.itemId);
+      }
+    }
+    const checklistIds = new Set((checklist.data.items ?? []).map((item) => item.itemId));
+    const l1ById = new Map((l1.data.items ?? []).map((item) => [item.itemId, item]));
+    if (l1ById.size !== (l1.data.items ?? []).length) {
+      blockers.push({ code: 'LVC_ITEM_SCOPE_INVALID', message: 'L1 Coverage 包含重复 itemId。' });
+    }
+    for (const itemId of l1ById.keys()) {
+      if (!checklistIds.has(itemId)) blockers.push({
+        code: 'LVC_ITEM_SCOPE_INVALID',
+        message: `L1 Coverage 擅自扩大 Checklist：${itemId}`,
+      });
+    }
+    for (const item of checklist.data.items ?? []) {
+      const coverage = l1ById.get(item.itemId);
+      if (!coverage || coverage.status !== 'accepted') blockers.push({
+        code: 'LVC_ITEM_NOT_ACCEPTED',
+        message: `L1 未 accepted：${item.itemId}`,
+      });
+      if (coverage) {
+        for (const [requiredKey, actualKey] of [
+          ['viewports', 'viewports'],
+          ['states', 'states'],
+          ['variants', 'variants'],
+          ['contentCases', 'contentCases'],
+          ['tokens', 'tokenRefs'],
+          ['assets', 'assetRefs'],
+          ['motions', 'motionRefs'],
+        ]) {
+          const actual = new Set(coverage[actualKey] ?? []);
+          for (const value of item.dimensions?.[requiredKey] ?? []) {
+            if (!actual.has(value)) blockers.push({ code: 'LVC_DIMENSION_MISSING', message: `${item.itemId} 缺少 ${requiredKey}:${value}` });
+          }
+        }
+      }
+    }
+    if (needsL2) {
+      if (
+        plan.data.metadata?.status !== 'ready'
+        || mock.data.metadata?.status !== 'ready'
+        || l2.data.metadata?.status !== 'ready'
+        || (plan.data.gaps ?? []).length
+        || (mock.data.gaps ?? []).length
+      ) blockers.push({ code: 'UPC_SOURCE_NOT_READY', message: 'L2 只接受 Ready 且无 Gap 的 Path Plan 与 Mock Suite。' });
+      if (l2.data.litSource?.srcUiDigest !== l1.data.litSource?.srcUiDigest || l2.data.litSource?.commit !== l1.data.litSource?.commit) {
+        blockers.push({ code: 'UPC_LIT_SOURCE_MISMATCH', message: 'L2 与 L1 未绑定同一份 src/ui。' });
+      }
+      const l2Sources = new Map([
+        ['USER-PATH-PLAN', plan],
+        ['LIT-VISUAL-COVERAGE', l1],
+        ['MOCK-SCENARIO-SUITE', mock],
+      ]);
+      if (
+        new Set((l2.data.sourceLocks ?? []).map((lock) => lock.artifactId)).size !== 3
+        || [...l2Sources.keys()].some((id) => !(l2.data.sourceLocks ?? []).some((lock) => lock.artifactId === id))
+      ) blockers.push({ code: 'UPC_SOURCE_LOCK_INVALID', message: 'L2 Source Lock 集合不完整或重复。' });
+      for (const lock of l2.data.sourceLocks ?? []) {
+        const source = l2Sources.get(lock.artifactId);
+        if (
+          !source
+          || lock.path !== source.path
+          || lock.revision !== source.data.metadata.revision
+          || lock.digest !== source.digest
+        ) blockers.push({ code: 'UPC_SOURCE_LOCK_INVALID', message: `${lock.artifactId} 未绑定当前 L2 来源。` });
+      }
+      const planById = new Map((plan.data.paths ?? []).map((item) => [item.pathId, item]));
+      const scenarios = new Map((mock.data.scenarios ?? []).map((item) => [item.scenarioId, item]));
+      const l2ById = new Map((l2.data.paths ?? []).map((item) => [item.pathId, item]));
+      if (planById.size !== (plan.data.paths ?? []).length || l2ById.size !== (l2.data.paths ?? []).length) {
+        blockers.push({ code: 'UPC_PATH_REF_INVALID', message: 'Path Plan 或 L2 Coverage 包含重复 pathId。' });
+      }
+      for (const planned of plan.data.paths ?? []) {
+        if (!l2ById.has(planned.pathId)) blockers.push({
+          code: 'UPC_PATH_NOT_ACCEPTED',
+          message: `L2 遗漏 Path Plan 路径：${planned.pathId}`,
+        });
+      }
+      for (const path of l2.data.paths ?? []) {
+        const planned = planById.get(path.pathId);
+        if (
+          !planned
+          || planned.testCaseRef !== path.testCaseRef
+          || JSON.stringify([...planned.checklistItemRefs].sort()) !== JSON.stringify([...path.checklistItemRefs].sort())
+        ) {
+          blockers.push({ code: 'UPC_PATH_REF_INVALID', message: `L2 未绑定正式 Path Plan：${path.pathId}` });
+        }
+        if (path.status !== 'accepted' || path.steps.some((step) => step.passed !== true)) {
+          blockers.push({ code: 'UPC_PATH_NOT_ACCEPTED', message: `L2 路径未 accepted：${path.pathId}` });
+        }
+        const plannedSteps = new Map((planned?.steps ?? []).map((step) => [step.pathStepId, step]));
+        const l1Targets = new Set(
+          (path.checklistItemRefs ?? [])
+            .map((itemId) => l1ById.get(itemId))
+            .filter(Boolean)
+            .map((item) => `${item.route ?? ''}\u0000${item.component}`),
+        );
+        if (
+          plannedSteps.size !== (path.steps ?? []).length
+          || (planned?.steps ?? []).length !== (path.steps ?? []).length
+        ) blockers.push({ code: 'UPC_PATH_STEP_INVALID', message: `${path.pathId} 的步骤集合与 Path Plan 不一致。` });
+        for (const step of path.steps ?? []) {
+          const plannedStep = plannedSteps.get(step.pathStepId);
+          if (
+            !plannedStep
+            || plannedStep.checkpoint !== step.checkpoint
+            || plannedStep.assertion !== step.assertion
+            || !(planned?.scenarioSlots ?? []).includes(step.scenarioSlot)
+          ) blockers.push({ code: 'UPC_PATH_STEP_INVALID', message: `${path.pathId} 的步骤未闭合到 Path Plan：${step.pathStepId}` });
+          if (!l1Targets.has(`${step.route}\u0000${step.component}`)) {
+            blockers.push({
+              code: 'UPC_L1_REQUIRED',
+              message: `${path.pathId} 的步骤未运行关联 L1 route/component：${step.pathStepId}`,
+            });
+          }
+          if (!scenarios.has(step.scenarioSlot) || scenarios.get(step.scenarioSlot).status !== 'ready') {
+            blockers.push({ code: 'UPC_MOCK_SCENARIO_NOT_READY', message: `${path.pathId} 缺少 Ready Mock：${step.scenarioSlot}` });
+          }
+        }
+        for (const itemId of path.checklistItemRefs ?? []) {
+          if (l1ById.get(itemId)?.status !== 'accepted') blockers.push({ code: 'UPC_L1_REQUIRED', message: `${path.pathId} 绕过 L1：${itemId}` });
+        }
+        const expectedTraceDigest = sha256(Buffer.from(stableJson({
+          pathId: path.pathId,
+          testCaseRef: path.testCaseRef,
+          checklistItemRefs: [...path.checklistItemRefs].sort(),
+          steps: path.steps,
+        })));
+        if (path.traceDigest !== expectedTraceDigest) blockers.push({
+          code: 'UPC_TRACE_DIGEST_INVALID',
+          message: `${path.pathId} traceDigest 不是实际路径步骤的摘要。`,
+        });
+      }
+    }
+    if ((l1.data.gaps ?? []).length || (l2?.data.gaps ?? []).length) blockers.push({ code: 'LVC_GAP_OPEN', message: 'Lit Coverage 仍有 Gap。' });
+
+    if (phase === 'delivery' || phase === 'product') {
+      const delivery = await artifact(project, 'lit-ui', 'delivery-manifest', '.agents/skills/lit-ui/schemas/delivery-manifest.schema.json');
+      const findings = await artifact(project, 'lit-ui', 'review-findings', '.agents/skills/lit-ui/schemas/review-findings.schema.json');
+      if (delivery.data.litSource?.srcUiDigest !== l1.data.litSource?.srcUiDigest || delivery.data.litSource?.commit !== l1.data.litSource?.commit) {
+        blockers.push({ code: 'VSD_LIT_SOURCE_MISMATCH', message: 'Delivery 与 L1 未绑定同一份 src/ui。' });
+      }
+      if (delivery.data.reviewBuild?.digest !== await hashDirectory(repositoryFile(root, delivery.data.reviewBuild?.path ?? '.psp/review-dist'))) {
+        blockers.push({ code: 'VSD_REVIEW_BUILD_STALE', message: 'Delivery 未绑定当前真实 Lit Review Build。' });
+      }
+      const deliverySources = new Map([
+        ['VISUAL-SPEC-CHECKLIST', checklist],
+        ['FIGMA-COVERAGE', figmaCoverage],
+        ['FIGMA-EVIDENCE', figmaEvidence],
+        ['LIT-VISUAL-COVERAGE', l1],
+        ...(l2 ? [['USER-PATH-COVERAGE', l2]] : []),
+      ]);
+      if (
+        new Set((delivery.data.sourceLocks ?? []).map((lock) => lock.artifactId)).size !== deliverySources.size
+        || [...deliverySources.keys()].some((id) => !(delivery.data.sourceLocks ?? []).some((lock) => lock.artifactId === id))
+      ) blockers.push({ code: 'VSD_SOURCE_LOCK_INVALID', message: 'Delivery Source Lock 集合不完整或重复。' });
+      for (const lock of delivery.data.sourceLocks ?? []) {
+        const source = deliverySources.get(lock.artifactId);
+        if (
+          !source
+          || lock.path !== source.path
+          || lock.revision !== source.data.metadata.revision
+          || lock.digest !== source.digest
+        ) blockers.push({ code: 'VSD_SOURCE_LOCK_INVALID', message: `${lock.artifactId} 未绑定当前交付来源。` });
+      }
+      const deliveredItems = new Map((delivery.data.items ?? []).map((item) => [item.itemId, item]));
+      if (deliveredItems.size !== (delivery.data.items ?? []).length) {
+        blockers.push({ code: 'VSD_ITEM_SCOPE_INVALID', message: 'Delivery 包含重复 itemId。' });
+      }
+      for (const itemId of deliveredItems.keys()) {
+        if (!checklistIds.has(itemId)) blockers.push({
+          code: 'VSD_ITEM_SCOPE_INVALID',
+          message: `Delivery 擅自扩大 Checklist：${itemId}`,
+        });
+      }
+      for (const item of checklist.data.items ?? []) {
+        if (deliveredItems.get(item.itemId)?.deliveryLevel !== item.requiredDeliveryLevel) {
+          blockers.push({ code: 'VSD_ITEM_MISSING', message: `Delivery 缺少 Checklist item：${item.itemId}` });
+        }
+      }
+      if (
+        findings.data.deliveryLock?.revision !== delivery.data.metadata.revision
+        || findings.data.deliveryLock?.digest !== delivery.digest
+      ) {
+        blockers.push({ code: 'RVW_DELIVERY_STALE', message: 'Finding 未绑定当前 Delivery。' });
+      }
+      const findingsById = new Set((findings.data.findings ?? []).map((finding) => finding.findingId));
+      if (findingsById.size !== (findings.data.findings ?? []).length) {
+        blockers.push({ code: 'RVW_CONTEXT_INVALID', message: 'Review Findings 包含重复 findingId。' });
+      }
+      const validFigmaEvidenceRefs = new Set([
+        ...(figmaCoverage.data.items ?? []).flatMap((item) => (item.anchors ?? []).map((anchor) => anchor.nodeId)),
+        ...(figmaEvidence.data.assets ?? []).map((item) => item.assetId),
+        ...(figmaEvidence.data.tokens ?? []).map((item) => item.tokenId),
+        ...(figmaEvidence.data.motions ?? []).map((item) => item.motionId),
+      ]);
+      for (const finding of findings.data.findings ?? []) {
+        const deliveredItem = deliveredItems.get(finding.itemId);
+        const currentObservation = ['open', 'triaged', 'repairing'].includes(finding.status);
+        if (
+          currentObservation
+          && (
+            !deliveredItem
+            || deliveredItem.route !== finding.route
+            || deliveredItem.component !== finding.component
+            || finding.litSource?.commit !== delivery.data.litSource?.commit
+            || finding.litSource?.srcUiDigest !== delivery.data.litSource?.srcUiDigest
+            || finding.litSource?.reviewBuildDigest !== delivery.data.reviewBuild?.digest
+            || (finding.figmaEvidenceRefs ?? []).some((ref) => !validFigmaEvidenceRefs.has(ref))
+          )
+        ) blockers.push({ code: 'RVW_CONTEXT_INVALID', message: `${finding.findingId} 未闭合到当前 Delivery/Figma/Lit。` });
+        if (finding.level === 'L2' && currentObservation) {
+          const path = (l2?.data.paths ?? []).find((entry) => (
+            entry.testCaseRef === finding.testCaseId
+            && entry.checklistItemRefs?.includes(finding.itemId)
+            && entry.steps?.some((step) => step.pathStepId === finding.pathStepId)
+          ));
+          if (!path) blockers.push({ code: 'RVW_CONTEXT_INVALID', message: `${finding.findingId} 的 L2 Test Case/Step 无效。` });
+        }
+        if (finding.status === 'closed' && (!finding.rootCause || !finding.repair || !finding.verification)) {
+          blockers.push({ code: 'RVW_CLOSE_FORBIDDEN', message: `${finding.findingId} 未闭合根因、修复与人工复验。` });
+        }
+        const repairVerification = process.argv.includes('--allow-resolved-findings')
+          && ['resolved', 'verified'].includes(finding.status);
+        if (
+          finding.status !== 'closed'
+          && !repairVerification
+          && !process.argv.includes('--allow-open-findings')
+        ) {
+          blockers.push({ code: 'RVW_FINDING_OPEN', message: `${finding.findingId} 尚未关闭。` });
+        }
+        try {
+          const screenshot = await readFile(repositoryFile(root, finding.screenshot.path));
+          if (sha256(screenshot) !== finding.screenshot.digest) blockers.push({ code: 'RVW_SCREENSHOT_STALE', message: `${finding.findingId} 截图摘要不匹配。` });
+        } catch {
+          blockers.push({ code: 'RVW_SCREENSHOT_MISSING', message: `${finding.findingId} 截图不可读。` });
+        }
+      }
+      if (phase === 'product' && delivery.data.metadata.status !== 'accepted') {
+        blockers.push({ code: 'VSD_DELIVERY_NOT_ACCEPTED', message: '生产 UIHTML 要求 Delivery 已人工 accepted。' });
+      }
+    }
   }
+} catch (error) {
+  blockers.unshift({ code: error.code || 'LVC_VALIDATION_FAILED', message: error.message });
 }
 
-if (uihtmlArgument) {
-  const uihtmlRoot = resolve(root, uihtmlArgument);
-  const productFiles = await regularFiles(uihtmlRoot);
-  if (!productFiles.length) add(blockers, 'UIHTML_RUNTIME_DEP_MISSING', 'UIHTML 产物为空。', uihtmlArgument);
-  for (const path of productFiles) {
-    if (!['.html', '.css', '.js', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.woff', '.woff2'].includes(extname(path).toLowerCase())) continue;
-    const text = await readFile(path, 'utf8').catch(() => '');
-    if (/(?:review-tools|review-main)/i.test(text)) {
-      add(blockers, 'REVIEW_TOOL_IN_UIHTML', 'UIHTML 包含 Review Tool。', relative(root, path));
-    }
-    if (/(?:mock-adapter|MockServiceAdapter|MockHostAdapter)/i.test(text)) {
-      add(blockers, 'MOCK_ADAPTER_IN_UIHTML', 'UIHTML 包含 Mock Adapter。', relative(root, path));
-    }
-    if (/(?:business-cases|component-cases|BUSINESS-CASE-|COMPONENT-CASE-)/i.test(text)) {
-      add(blockers, 'UI_CASE_RUNTIME_DEP', 'UIHTML 依赖 Case 数据。', relative(root, path));
-    }
-    if (/(?:Mapping\.html|psp-mapping-data|review-tools|review-main|mock-adapter|business-cases|component-cases|generic-ui-ir)/i.test(text)) {
-      add(blockers, 'NON_PRODUCT_DEPENDENCY_IN_UIHTML', 'UIHTML 含非产品依赖。', relative(root, path));
-    }
-  }
-}
-
-const controlPlaneNames = /(?:harness\.manifest|resolver|profile|run-gate|handoff|receipt-registry)/i;
-for (const path of await regularFiles(capabilityRoot)) {
-  if (controlPlaneNames.test(basename(path))) {
-    add(blockers, 'CENTRAL_UI_CONTROL_PLANE_REINTRODUCED', '发现中央生命周期控制面文件。', relative(root, path));
-  }
-}
-
-if (scaffoldMode) {
-  for (const path of [
-    resolve(root, 'Mapping.html'),
-    resolve(root, '01-product-design/Lit-UI/Mapping.html'),
-    resolve(root, 'src/ui'),
-    resolve(root, 'UIHTML'),
-  ]) {
-    if (await exists(path)) {
-      add(blockers, 'PRODUCT_INSTANCE_IN_SCAFFOLD', '脚手架模板含真实项目实例。', relative(root, path));
-    }
-  }
-}
-
-for (const path of await regularFiles(resolve(root, '.agents/skills/lit-ui'))) {
-  const relativePath = relative(root, path);
-  if (/(?:node_modules|[\\/](?:dist|UIHTML|\.vite|runtime-evidence)[\\/])/.test(relativePath)) {
-    add(blockers, 'SCAFFOLD_BUILD_OUTPUT_LEAK', '能力模板包含依赖、构建或运行证据。', relativePath);
-  }
-}
-
-const status = blockers.length ? 'BLOCKED' : 'PASS';
-const output = { status, blockers, checks: {
-  framework: blockers.some((item) => item.code.startsWith('LITSPEC_')) ? 'FAIL' : 'PASS',
-  mapping: mappingArgument ? (blockers.some((item) => item.code.startsWith('MAPPING_')) ? 'FAIL' : 'PASS') : 'NOT_RUN',
-  modules: blockers.some((item) => item.code.startsWith('LIT_') || item.code.startsWith('GENERIC_')) ? 'FAIL' : 'PASS',
-  review: blockers.some((item) => item.code.startsWith('REVIEW_')) ? 'FAIL' : 'PASS',
-  uihtml: uihtmlArgument ? (blockers.some((item) => item.code.includes('UIHTML')) ? 'FAIL' : 'PASS') : 'NOT_RUN',
-}};
-console.log(JSON.stringify(output));
-process.exitCode = status === 'PASS' ? 0 : 1;
+const status = blockers.length ? 'BLOCKED' : stale.size ? 'STALE' : 'PASS';
+console.log(JSON.stringify({ status, phase, blockers, staleItems: [...stale].sort() }));
+if (status !== 'PASS') process.exitCode = 1;

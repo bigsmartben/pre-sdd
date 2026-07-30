@@ -1,0 +1,16 @@
+{
+  "apiVersion": "psp.dev/v1",
+  "kind": "TestCaseCatalog",
+  "metadata": {
+    "artifactId": "TEST-CASE-CATALOG",
+    "revision": 1,
+    "status": "draft"
+  },
+  "testCases": [],
+  "gaps": [
+    {
+      "gapId": "TC-GAP-001",
+      "reason": "尚未建立 USER_PATH 所需的 Test Case"
+    }
+  ]
+}

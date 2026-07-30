@@ -1,3 +1,4 @@
 interface:
   display_name: "Implement Lit UI"
-  short_description: "Implement confirmed Mapping concepts as native Lit modules"
+  short_description: "从 Ready Checklist 实现真实 Lit L1/L2"
+  default_prompt: "Use $implement-lit-ui to implement every L1 item and only the declared L2 user paths in one real src/ui, with review/test adapters isolated from production."

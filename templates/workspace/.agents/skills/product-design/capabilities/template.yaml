@@ -1,6 +1,8 @@
 apiVersion: psp.dev/v1
 kind: UseCaseSpecification
 metadata:
+  artifactId: PRODUCT-USE-CASES
+  revision: 1
   status: draft
   version: 0.1.0
 intent:

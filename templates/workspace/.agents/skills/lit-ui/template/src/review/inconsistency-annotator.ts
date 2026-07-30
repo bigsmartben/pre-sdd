@@ -14,8 +14,8 @@ export class InconsistencyAnnotator extends LitElement implements ReviewTool {
     this.driver = undefined;
   }
 
-  highlight(conceptId: string): void {
-    const target = this.driver?.locate(conceptId);
+  highlight(itemId: string): void {
+    const target = this.driver?.locate(itemId);
     target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 
@@ -23,8 +23,8 @@ export class InconsistencyAnnotator extends LitElement implements ReviewTool {
     return html`<aside aria-label="不一致标记">
       <h2>Review Tools</h2>
       ${this.marks.map((mark) => html`
-        <button type="button" @click=${() => this.highlight(mark.conceptId)}>
-          ${mark.kind} · ${mark.conceptId}: ${mark.note}
+        <button type="button" @click=${() => this.highlight(mark.itemId)}>
+          ${mark.level} · ${mark.kind} · ${mark.itemId}: ${mark.note}
         </button>
       `)}
     </aside>`;

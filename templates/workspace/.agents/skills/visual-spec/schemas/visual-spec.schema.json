@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/visual-spec/v1/visual-spec.schema.json",
+  "title": "Provider-neutral Visual Spec Requirement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "requirementId", "requirementRefs", "target", "requiredDeliveryLevel", "dimensions"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/visual-spec/v1"},
+    "requirementId": {"type": "string", "pattern": "^VSR-[A-Z0-9-]+$"},
+    "requirementRefs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9-]+$"}
+    },
+    "target": {"$ref": "#/$defs/target"},
+    "requiredDeliveryLevel": {"enum": ["VISUAL", "USER_PATH"]},
+    "dimensions": {"$ref": "#/$defs/dimensions"},
+    "dependency": {"$ref": "#/$defs/dependency"},
+    "gap": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/gap"}
+      ]
+    }
+  },
+  "$defs": {
+    "kind": {"enum": ["PAGE", "COMPONENT", "STATE", "VARIANT", "VIEWPORT", "TOKEN", "ASSET", "MOTION"]},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "name"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/kind"},
+        "ref": {"type": "string", "pattern": "^[A-Z][A-Z0-9-]+$"},
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["viewports", "states", "variants", "contentCases", "tokens", "assets", "motions"],
+      "properties": {
+        "viewports": {"$ref": "#/$defs/names"},
+        "states": {"$ref": "#/$defs/names"},
+        "variants": {"$ref": "#/$defs/names"},
+        "contentCases": {"$ref": "#/$defs/names"},
+        "tokens": {"$ref": "#/$defs/names"},
+        "assets": {"$ref": "#/$defs/names"},
+        "motions": {"$ref": "#/$defs/names"}
+      }
+    },
+    "names": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "revision", "digest"],
+      "properties": {
+        "artifactId": {"type": "string", "pattern": "^[A-Z][A-Z0-9-]+$"},
+        "revision": {"type": "integer", "minimum": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "missingDimensions", "reason"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^VSC_[A-Z0-9_]+$"},
+        "missingDimensions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

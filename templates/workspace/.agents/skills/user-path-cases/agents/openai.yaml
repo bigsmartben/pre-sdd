@@ -1,0 +1,4 @@
+interface:
+  display_name: "User Path Cases"
+  short_description: "维护 Test Case 并编译 L2 路径计划"
+  default_prompt: "Use $user-path-cases to maintain source-backed Test Cases and compile USER_PATH Checklist items into a machine L2 User Path Plan."

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Figma 工作流"
-  short_description: "审计、受控写回并封存可验证的 Figma 来源"
-  default_prompt: "Use $figma-workflow to audit the requested Figma scope, execute one approved writeback batch, obtain final human acceptance, freeze and capture the source, and return a Figma-only registration packet."
+  display_name: "Figma Evidence"
+  short_description: "将 Checklist 绑定为 Figma Coverage 与证据"
+  default_prompt: "Use $figma-workflow to bind each ready Visual Spec Checklist item to explicit Figma node, state, variant, viewport, asset, token, and motion evidence without changing product scope."

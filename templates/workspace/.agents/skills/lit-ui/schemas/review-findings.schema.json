@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/review-findings.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metadata", "deliveryLock", "findings"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/visual-spec/v1"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "revision", "status"],
+      "properties": {
+        "artifactId": {"const": "REVIEW-FINDINGS"},
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["active", "clear", "stale"]}
+      }
+    },
+    "deliveryLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "path", "revision", "digest"],
+      "properties": {
+        "artifactId": {"const": "VISUAL-SPEC-DELIVERY"},
+        "path": {"const": ".psp/visual-spec/delivery-manifest.json"},
+        "revision": {"type": "integer", "minimum": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    },
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["findingId", "status", "level", "itemId", "route", "component", "viewport", "state", "testCaseId", "pathStepId", "figmaEvidenceRefs", "litSource", "screenshot", "description", "rootCause", "repair", "verification"],
+      "properties": {
+        "findingId": {"type": "string", "pattern": "^RVW-[0-9]{4}$"},
+        "status": {"enum": ["open", "triaged", "repairing", "resolved", "verified", "closed"]},
+        "level": {"enum": ["L1", "L2"]},
+        "itemId": {"type": "string", "pattern": "^VSI-FDBI-[0-9]{3}-[A-Z]+-[0-9]{2}$"},
+        "route": {"type": ["string", "null"], "pattern": "^/"},
+        "component": {"type": "string", "minLength": 1},
+        "viewport": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "minLength": 1},
+        "testCaseId": {"type": ["string", "null"], "pattern": "^TC-[0-9]{3}$"},
+        "pathStepId": {"type": ["string", "null"], "pattern": "^UP-TC-[0-9]{3}-STEP-[0-9]{2}$"},
+        "figmaEvidenceRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "litSource": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit", "srcUiDigest", "reviewBuildDigest"],
+          "properties": {
+            "commit": {"type": "string", "pattern": "^[a-f0-9]{7,64}$"},
+            "srcUiDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+            "reviewBuildDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "screenshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "digest"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "description": {"type": "string", "minLength": 1},
+        "rootCause": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["category", "authorityPath", "confirmedBy"],
+              "properties": {
+                "category": {"enum": ["SCHEMA", "CHECKLIST_BASELINE", "FIGMA_SOURCE", "FIGMA_BINDING", "LIT_L1", "MOCK_ADAPTER", "LIT_L2", "REVIEW_TOOL"]},
+                "authorityPath": {"type": "string", "minLength": 1},
+                "confirmedBy": {"type": "string", "minLength": 1}
+              }
+            }
+          ]
+        },
+        "repair": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["authorityPath", "revision", "digest"],
+              "properties": {
+                "authorityPath": {"type": "string", "minLength": 1},
+                "revision": {"type": "integer", "minimum": 1},
+                "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+              }
+            }
+          ]
+        },
+        "verification": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["machinePassed", "humanVerifiedBy", "verifiedAt"],
+              "properties": {
+                "machinePassed": {"const": true},
+                "humanVerifiedBy": {"type": "string", "minLength": 1},
+                "verifiedAt": {"type": "string", "format": "date-time"}
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"level": {"const": "L1"}}, "required": ["level"]},
+          "then": {"properties": {"testCaseId": {"type": "null"}, "pathStepId": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"level": {"const": "L2"}}, "required": ["level"]},
+          "then": {"properties": {"testCaseId": {"type": "string"}, "pathStepId": {"type": "string"}}}
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["triaged", "repairing", "resolved", "verified", "closed"]}}, "required": ["status"]},
+          "then": {"properties": {"rootCause": {"type": "object"}}}
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["resolved", "verified", "closed"]}}, "required": ["status"]},
+          "then": {"properties": {"repair": {"type": "object"}}}
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["verified", "closed"]}}, "required": ["status"]},
+          "then": {"properties": {"verification": {"type": "object"}}}
+        }
+      ]
+    }
+  }
+}

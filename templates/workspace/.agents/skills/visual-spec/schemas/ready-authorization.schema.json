@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/visual-spec/v1/ready-authorization.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactId", "revision", "status", "checklist", "sourceLocks", "figmaCoverage", "figmaEvidence"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/visual-spec/v1"},
+    "artifactId": {"const": "VISUAL-SPEC-READY-AUTHORIZATION"},
+    "revision": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["ready", "stale"]},
+    "checklist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "revision", "digest"],
+      "properties": {
+        "path": {"const": ".psp/visual-spec/checklist.json"},
+        "revision": {"type": "integer", "minimum": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    },
+    "sourceLocks": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "path", "revision", "digest"],
+        "properties": {
+          "artifactId": {"enum": ["PRODUCT-USE-CASES", "FUNCTIONAL-DELIVERY-BASELINE", "TEST-CASE-CATALOG"]},
+          "path": {"type": "string", "minLength": 1},
+          "revision": {"type": "integer", "minimum": 1},
+          "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "figmaCoverage": {"$ref": "#/$defs/artifactLock"},
+    "figmaEvidence": {"$ref": "#/$defs/artifactLock"}
+  },
+  "$defs": {
+    "artifactLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "revision", "digest"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    }
+  }
+}
