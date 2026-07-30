@@ -49,18 +49,19 @@ class InitializeWorkspaceTests(unittest.TestCase):
                 "package.json",
                 "psp.project.yaml",
                 ".agents/skills",
-                ".agents/skills/lit-ui/contracts/framework.yaml",
-                ".agents/skills/lit-ui/templates/Mapping.html",
-                ".agents/skills/lit-ui-workflow/SKILL.md",
+                ".agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json",
+                ".agents/skills/figma-workflow/schemas/figma-coverage.schema.json",
+                ".agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json",
                 ".agents/skills/implement-lit-ui/SKILL.md",
-                ".agents/skills/use-case-generation/contract.yaml",
+                ".agents/skills/user-path-cases/schemas/test-case-catalog.schema.json",
+                ".agents/skills/repair-visual-delivery/SKILL.md",
                 "01-product-design",
                 "02-architecture-design",
             ]:
                 self.assertTrue((target / relative).exists(), relative)
             self.assertFalse((target / "workspace").exists())
             for forbidden in [
-                "Mapping.html",
+                ".psp/visual-spec",
                 "src/ui",
                 "UIHTML",
                 "node_modules",

@@ -1,20 +1,20 @@
 import type { ProductObservation, ReviewDriver } from './review-host.js';
 
 export class DomObservationAdapter implements ReviewDriver {
-  locate(conceptId: string): Element | null {
-    for (const element of document.querySelectorAll('[data-concept-id]')) {
-      if (element.getAttribute('data-concept-id') === conceptId) return element;
+  locate(itemId: string): Element | null {
+    for (const element of document.querySelectorAll('[data-visual-item-id]')) {
+      if (element.getAttribute('data-visual-item-id') === itemId) return element;
     }
     return null;
   }
 
-  observe(conceptId: string): ProductObservation | null {
-    const element = this.locate(conceptId);
+  observe(itemId: string): ProductObservation | null {
+    const element = this.locate(itemId);
     if (!element) return null;
-    return { conceptId, state: Object.freeze({ text: element.textContent ?? '', hidden: element.hasAttribute('hidden') }) };
+    return { itemId, state: Object.freeze({ text: element.textContent ?? '', hidden: element.hasAttribute('hidden') }) };
   }
 
-  dispatch(conceptId: string, event: Event): boolean {
-    return this.locate(conceptId)?.dispatchEvent(event) ?? false;
+  dispatch(itemId: string, event: Event): boolean {
+    return this.locate(itemId)?.dispatchEvent(event) ?? false;
   }
 }

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Product Design Domain"
-  short_description: "将 UC 与视觉来源澄清为 Mapping，并路由到真实 Lit 交付"
-  default_prompt: "Use $product-design to preserve UC and visual-source authority, route Figma acquisition to $figma-workflow, route clarification and exact user confirmation to $lit-ui-workflow, and only then route native Lit implementation to $implement-lit-ui."
+  display_name: "Product Design"
+  short_description: "维护产品用例与功能交付基线"
+  default_prompt: "Use $product-design to maintain source-backed Product Use Cases and the VISUAL/USER_PATH Functional Delivery Baseline, then route ready inputs to $visual-spec."

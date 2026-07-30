@@ -7,7 +7,7 @@ spec:
   stage: product-design
   internalModelFormat: yaml
   outputRole: user-artifact
-  purpose: 以单一 Use Case 规格原子维护产品行为、正式交互流程与内部 Low-Fi UI Blueprint，并确定性生成 UC.md。
+  purpose: 以单一 Use Case 规格原子维护产品行为、正式交互流程与内部 Low-Fi UI Blueprint，并确定性生成 UC.md；机器产物身份固定为 PRODUCT-USE-CASES，任何落盘字节变化前必须递增 metadata.revision。
   owns:
     - 产品名称、产品意图、Actor 与产品范围
     - 稳定 Use Case 的目标、触发、前置条件、结果保证、主场景及备选或异常场景

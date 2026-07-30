@@ -1,17 +1,20 @@
 export interface ProductObservation {
-  readonly conceptId: string;
+  readonly itemId: string;
   readonly state: Readonly<Record<string, unknown>>;
 }
 
 export interface ReviewDriver {
-  locate(conceptId: string): Element | null;
-  observe(conceptId: string): ProductObservation | null;
-  dispatch(conceptId: string, event: Event): boolean;
+  locate(itemId: string): Element | null;
+  observe(itemId: string): ProductObservation | null;
+  dispatch(itemId: string, event: Event): boolean;
 }
 
 export interface ReviewMark {
   readonly markId: string;
-  readonly conceptId: string;
+  readonly itemId: string;
+  readonly level: 'L1' | 'L2';
+  readonly testCaseId: string | null;
+  readonly pathStepId: string | null;
   readonly kind: 'interaction' | 'visual' | 'position-size' | 'text';
   readonly note: string;
 }

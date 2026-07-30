@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/functional-delivery-baseline.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "items", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "FunctionalDeliveryBaseline"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "revision", "status"],
+      "properties": {
+        "artifactId": {"const": "FUNCTIONAL-DELIVERY-BASELINE"},
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["draft", "ready"]}
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/item"}
+    },
+    "gaps": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/gap"}
+    }
+  },
+  "$defs": {
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^(UC-[0-9]{3}([A-Z0-9-]*)?|INT-STATE-[0-9]{3}|LF-(SCREEN|REGION|CONTROL)-[0-9]{3})$"
+    },
+    "testCaseRef": {"type": "string", "pattern": "^TC-[0-9]{3}$"},
+    "kind": {
+      "enum": ["PAGE", "COMPONENT", "STATE", "VARIANT", "VIEWPORT", "TOKEN", "ASSET", "MOTION"]
+    },
+    "visualRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sourceRef", "requirementRefs", "name", "viewports", "states", "variants", "contentCases"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/kind"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"},
+        "requirementRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sourceRef"}
+        },
+        "name": {"type": "string", "minLength": 1},
+        "viewports": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "states": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "variants": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "contentCases": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "tokens": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "assets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "motions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baselineItemId", "classification", "targetRefs", "deliveryLevel", "testCaseRefs", "reason", "visualRequirements"],
+      "properties": {
+        "baselineItemId": {"type": "string", "pattern": "^FDBI-[0-9]{3}$"},
+        "classification": {"enum": ["visual", "non-visual", "gap"]},
+        "targetRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sourceRef"}
+        },
+        "deliveryLevel": {"enum": ["VISUAL", "USER_PATH"]},
+        "testCaseRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/testCaseRef"}
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "visualRequirements": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/visualRequirement"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"deliveryLevel": {"const": "USER_PATH"}}, "required": ["deliveryLevel"]},
+          "then": {"properties": {"testCaseRefs": {"minItems": 1}}}
+        },
+        {
+          "if": {"properties": {"deliveryLevel": {"const": "VISUAL"}}, "required": ["deliveryLevel"]},
+          "then": {"properties": {"testCaseRefs": {"maxItems": 0}}}
+        },
+        {
+          "if": {"properties": {"classification": {"const": "visual"}}, "required": ["classification"]},
+          "then": {"properties": {"visualRequirements": {"minItems": 1}}}
+        },
+        {
+          "if": {"properties": {"classification": {"enum": ["non-visual", "gap"]}}, "required": ["classification"]},
+          "then": {"properties": {"visualRequirements": {"maxItems": 0}}}
+        }
+      ]
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gapId", "baselineItemRef", "reason"],
+      "properties": {
+        "gapId": {"type": "string", "pattern": "^FDB-GAP-[0-9]{3}$"},
+        "baselineItemRef": {"type": ["string", "null"], "pattern": "^FDBI-[0-9]{3}$"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import type { TemplateResult } from 'lit';
 
 export interface ProductPage {
-  readonly conceptId: string;
+  readonly visualItemId: string;
   render(): TemplateResult;
 }

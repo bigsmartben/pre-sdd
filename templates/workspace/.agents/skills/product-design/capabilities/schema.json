@@ -20,8 +20,13 @@
   },
   "$defs": {
     "metadata": {
-      "type": "object", "additionalProperties": false, "required": ["status", "version"],
-      "properties": {"status": {"enum": ["draft", "ready"]}, "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}
+      "type": "object", "additionalProperties": false, "required": ["artifactId", "revision", "status", "version"],
+      "properties": {
+        "artifactId": {"const": "PRODUCT-USE-CASES"},
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["draft", "ready"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
+      }
     },
     "nullableText": {"type": ["string", "null"], "minLength": 1},
     "intent": {

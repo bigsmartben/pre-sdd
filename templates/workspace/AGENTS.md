@@ -17,10 +17,14 @@
 - 不存在 Harness Manifest、Resolver、Profile、Scope、Gate、Consistency Report（统一一致性报告）、Handoff Receipt（移交凭证）或中央生命周期控制面。遇到要求使用这些旧概念的请求时，停止写入并解释当前版本由 Agent 与领域 Skill 直接协作。
 - Product Design、MockCase 与 Architecture Design 生命周期彼此独立。架构设计可只读引用固定版本的产品产物，但不得改写产品事实。
 - 领域 Skill 可以在后台调用当前工作区本地脚本完成初始化、原子写入、渲染和验证；不得让用户承担这些内部操作。
-- 面向用户阅读和评审的正式规格使用 Markdown；隐藏 YAML/JSON 模型只能写到项目绑定声明的位置。
-- 界面交付主链固定为 `Figma + UC → Mapping.html → 用户确认 → Lit UI Spec → UIHTML`。`Mapping.html` 是唯一确认载体，真实 `src/ui/` 模块是实现权威，UIHTML 是最终产品交付；Review、Mock、Case 与临时证据不属于产品 Bundle。
+- Product Use Cases（产品用例）可以生成只读 Markdown；Visual Spec Checklist（视觉规格清单）、Coverage（覆盖）、Evidence（证据）和状态均为机器 JSON，不要求人类阅读或签署。
+- 界面交付主链固定为 `Product Use Cases → Functional Delivery Baseline → Optional Test Case Catalog → Visual Spec Checklist → Figma Evidence → Lit L1 → Optional Lit L2 → 真实 Lit 人工评审 → UIHTML`。
+- 唯一正式人类视觉评审入口是 `VISUAL-SPEC-DELIVERY` 所绑定的真实 Lit Review Build。它只读组合机器事实，不复制 UI，也不产生第二份视觉规格。
+- L1 覆盖全部视觉项；只有上游 Baseline 声明 `USER_PATH` 时才执行 L2。Agent 不得自行降级或扩大范围。
+- Review/Test 可以替换 Adapter 并使用 Mock；生产 UIHTML 只能使用同一份已评审 `src/ui` 与真实 Adapter，不得读取 Spec、Figma Evidence、Finding、Mock、Case 或 Path Plan。
+- Finding 必须沿最早权威根因修复，并按 `Finding → Stale → 重建/实现 → 回归 → 人工复验 → Closed` 闭环。
 - 修改前保留已有改动；不得覆盖无关内容，不得把 `FAIL`、`BLOCKED` 或 `NOT_RUN` 描述为通过。
 
 ## 开始与停止
 
-只有用户明确开始某领域时，Agent 才调用该领域 Skill 的初始化能力。出现范围外修复、不可恢复错误或需要新的用户决定时停止，并用通俗语言说明原因。
+只有用户明确开始某领域时，Agent 才调用该领域 Skill 的初始化能力。出现范围外修复、不可恢复错误或需要新的用户决定时停止，并用通俗语言说明原因。生成后的工作区不兼容旧视觉载体，也不提供迁移、双读、回退或升级命令。

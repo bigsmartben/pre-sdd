@@ -1,0 +1,24 @@
+apiVersion: psp.dev/v1
+kind: ArtifactContract
+metadata:
+  id: functional-delivery-baseline
+  version: 1.0.0
+spec:
+  stage: product-design
+  artifactId: FUNCTIONAL-DELIVERY-BASELINE
+  authorityPath: 01-product-design/.psp/models/functional-delivery-baseline.json
+  purpose: 决定每个产品范围项需要 VISUAL（仅视觉）还是 USER_PATH（用户路径）交付。
+  owns:
+    - 稳定 FDBI-### 身份
+    - 产品来源引用
+    - VISUAL 或 USER_PATH 层级
+    - USER_PATH 所需 Test Case 引用
+    - 框架无关的视觉要求维度
+  excludes:
+    - Figma 节点与设计值
+    - Lit 组件、源码、路由与 DOM
+    - Mock 数据与生产 Adapter
+    - 人工评审状态
+  readiness:
+    requiredStatus: ready
+    requireNoGaps: true

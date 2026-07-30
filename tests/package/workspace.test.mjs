@@ -84,8 +84,7 @@ test('M03 domain initializers operate in a generated workspace without a control
   for (const path of [
     '01-product-design/.psp/models/use-cases.yaml',
     '01-product-design/UC.md',
-    '01-product-design/.psp/models/visual-spec.yaml',
-    '01-product-design/Visual-Spec.md',
+    '01-product-design/.psp/models/functional-delivery-baseline.json',
     '02-architecture-design/.psp/models/architecture-package.yaml',
     '02-architecture-design/README.md',
   ]) {
@@ -102,19 +101,25 @@ test('U04 legacy governance requests are explicitly side-effect-free', async () 
   assert.match(instructions + principle, /停止写入|不产生副作用/);
 });
 
-test('L05 Lit UI scaffold is complete and contains no product instance or build output', async () => {
+test('L05 Visual Spec scaffold is complete and contains no product instance or build output', async () => {
   for (const relative of [
+    '.agents/skills/visual-spec/SKILL.md',
+    '.agents/skills/visual-spec/schemas/visual-spec.schema.json',
+    '.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json',
+    '.agents/skills/visual-spec/scripts/generate.mjs',
+    '.agents/skills/user-path-cases/schemas/test-case-catalog.schema.json',
+    '.agents/skills/figma-workflow/schemas/figma-coverage.schema.json',
+    '.agents/skills/figma-workflow/schemas/figma-evidence.schema.json',
     '.agents/skills/lit-ui/SKILL.md',
-    '.agents/skills/lit-ui/contracts/framework.yaml',
-    '.agents/skills/lit-ui/contracts/mapping.yaml',
-    '.agents/skills/lit-ui/contracts/blocker-codes.yaml',
-    '.agents/skills/lit-ui/templates/Mapping.html',
+    '.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json',
+    '.agents/skills/lit-ui/schemas/user-path-coverage.schema.json',
+    '.agents/skills/lit-ui/schemas/delivery-manifest.schema.json',
+    '.agents/skills/lit-ui/schemas/review-findings.schema.json',
     '.agents/skills/lit-ui/template/src/ui/main.ts',
     '.agents/skills/lit-ui/template/src/review/review-main.ts',
-    '.agents/skills/lit-ui-workflow/SKILL.md',
     '.agents/skills/implement-lit-ui/SKILL.md',
-    '.agents/skills/repair-lit-ui/SKILL.md',
-    '.agents/skills/use-case-generation/contract.yaml',
+    '.agents/skills/repair-visual-delivery/SKILL.md',
+    '.agents/skills/mockcase/schemas/mock-scenario-suite.schema.json',
   ]) {
     assert.equal(
       (await readFile(resolve(templateRoot, relative), 'utf8')).length > 0,
@@ -122,7 +127,7 @@ test('L05 Lit UI scaffold is complete and contains no product instance or build 
       `LIT_UI_SCAFFOLD_INCOMPLETE: ${relative}`,
     );
   }
-  for (const relative of ['Mapping.html', 'src/ui', 'UIHTML', 'node_modules', 'dist', '.vite']) {
+  for (const relative of ['.psp/visual-spec', 'src/ui', 'UIHTML', 'node_modules', 'dist', '.vite']) {
     assert.equal(
       (await regularFiles(templateRoot)).some((path) => (
         path === resolve(templateRoot, relative)
@@ -135,16 +140,37 @@ test('L05 Lit UI scaffold is complete and contains no product instance or build 
   }
 });
 
-test('L06 project and scripts expose the Mapping to Lit to UIHTML chain without old projection refresh', async () => {
+test('L06 project and scripts expose only the Visual Spec to real Lit to UIHTML chain', async () => {
   const project = await readFile(resolve(templateRoot, 'psp.project.yaml'), 'utf8');
   const workspacePackage = JSON.parse(await readFile(resolve(templateRoot, 'package.json'), 'utf8'));
-  assert.match(project, /frameworkContract:[\s\S]*Mapping\.html[\s\S]*authorityRoot: src\/ui[\s\S]*outputRoot: UIHTML/);
-  assert.doesNotMatch(project, /semanticEntry:\s*src\/spec|memberProjections:[\s\S]*canonical/i);
+  assert.match(project, /internalModel: \.psp\/models\/use-cases\.yaml/);
+  assert.match(project, /internalModel: \.psp\/models\/functional-delivery-baseline\.json/);
+  assert.match(project, /internalModel: Cases\/test-cases\.json/);
+  assert.match(project, /internalModel: \.psp\/visual-spec\/checklist\.json/);
+  assert.match(project, /figma-coverage\.json/);
+  assert.match(project, /lit-visual-coverage\.json/);
+  assert.match(project, /delivery-manifest\.json/);
+  assert.match(project, /outputRoot: UIHTML/);
+  assert.doesNotMatch(project, /Mapping\.html|LitSpec|Preview\.html|ui-cases\.json|consumerTargets/);
   for (const command of Object.values(workspacePackage.scripts)) {
-    assert.doesNotMatch(command, /refresh-projections|canonical-ui-prototype|ui-case-mock/);
+    assert.doesNotMatch(command, /mapping|litspec|preview|ui-cases|use-case-generation|repair-lit-ui/i);
   }
-  assert.match(workspacePackage.scripts['validate:lit-ui'], /--strict/);
+  assert.match(workspacePackage.scripts['validate:visual-spec'], /visual-spec\/scripts\/validate/);
+  assert.match(workspacePackage.scripts['validate:visual-delivery'], /--phase delivery/);
+  assert.match(workspacePackage.scripts['workspace:build'], /lit-ui\/scripts\/build/);
+  assert.equal(Object.hasOwn(workspacePackage.scripts, 'record:uihtml'), false);
   assert.match(workspacePackage.scripts['check:strict'], /validate:uihtml/);
+
+  for (const forbidden of [
+    '.agents/skills/lit-ui-workflow',
+    '.agents/skills/use-case-generation',
+    '.agents/skills/repair-lit-ui',
+    '.agents/skills/product-design/visual-spec',
+    '.agents/skills/lit-ui/templates/Mapping.html',
+    '.agents/skills/figma-workflow/acquisition-packet.schema.json',
+  ]) {
+    assert.equal((await regularFiles(templateRoot)).some((path) => path.startsWith(resolve(templateRoot, forbidden))), false, forbidden);
+  }
 
   const workspace = await workspaceFixture();
   await symlink(resolve(repositoryRoot, 'node_modules'), resolve(workspace, 'node_modules'), 'junction');

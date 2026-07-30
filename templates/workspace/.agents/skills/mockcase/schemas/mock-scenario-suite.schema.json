@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/mock-scenario-suite.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metadata", "pathPlanLock", "scenarios", "gaps"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/visual-spec/v1"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "revision", "status"],
+      "properties": {
+        "artifactId": {"const": "MOCK-SCENARIO-SUITE"},
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["draft", "ready", "stale"]}
+      }
+    },
+    "pathPlanLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "path", "revision", "digest"],
+      "properties": {
+        "artifactId": {"const": "USER-PATH-PLAN"},
+        "path": {"const": ".psp/visual-spec/user-path-plan.json"},
+        "revision": {"type": "integer", "minimum": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenarioId", "status", "fixtures"],
+        "properties": {
+          "scenarioId": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "status": {"enum": ["draft", "ready", "stale"]},
+          "fixtures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fixtureId", "port", "request", "response"],
+              "properties": {
+                "fixtureId": {"type": "string", "pattern": "^FIXTURE-[A-Z0-9-]+$"},
+                "port": {"type": "string", "minLength": 1},
+                "request": {},
+                "response": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "scenarioId", "reason"],
+        "properties": {
+          "code": {"enum": ["MOCK_SCENARIO_MISSING", "MOCK_FIXTURE_MISSING", "MOCK_SOURCE_STALE"]},
+          "scenarioId": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

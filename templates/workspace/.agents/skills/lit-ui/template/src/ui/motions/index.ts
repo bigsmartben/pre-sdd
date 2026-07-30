@@ -1,6 +1,6 @@
 export interface ProductMotion {
   readonly trigger: string;
-  readonly targetConceptId: string;
+  readonly targetId: string;
   readonly durationMs: number;
   readonly interruptible: boolean;
   readonly reducedMotion: 'remove-transform' | 'disable' | 'shorten';

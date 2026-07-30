@@ -1,3 +1,4 @@
 interface:
-  display_name: "Lit UI"
-  short_description: "Build confirmed Mapping decisions as real Lit modules and UIHTML"
+  display_name: "Lit Visual Delivery"
+  short_description: "实现真实 Lit L1/L2 并交付隔离 UIHTML"
+  default_prompt: "Use $lit-ui to implement the ready Checklist and Figma Evidence in one real src/ui, record L1 and optional L2 coverage, review that same source, and build an isolated production UIHTML."

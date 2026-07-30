@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/test-case-catalog.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "testCases", "gaps"],
+  "properties": {
+    "apiVersion": {"const": "psp.dev/v1"},
+    "kind": {"const": "TestCaseCatalog"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "revision", "status"],
+      "properties": {
+        "artifactId": {"const": "TEST-CASE-CATALOG"},
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["draft", "ready"]}
+      }
+    },
+    "testCases": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/testCase"}
+    },
+    "gaps": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/gap"}
+    }
+  },
+  "$defs": {
+    "testCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["testCaseId", "useCaseRef", "scenarioRef", "name", "preconditions", "steps"],
+      "properties": {
+        "testCaseId": {"type": "string", "pattern": "^TC-[0-9]{3}$"},
+        "useCaseRef": {"type": "string", "pattern": "^UC-[0-9]{3}$"},
+        "scenarioRef": {"type": "string", "pattern": "^(main|UC-[0-9]{3}-(ALT|EXC)-[0-9]{2})$"},
+        "name": {"type": "string", "minLength": 1},
+        "preconditions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/step"}
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "useCaseStepRef", "action", "expectedOutcome"],
+      "properties": {
+        "stepId": {"type": "string", "pattern": "^TC-[0-9]{3}-STEP-[0-9]{2}$"},
+        "useCaseStepRef": {"type": "string", "pattern": "^UC-[0-9]{3}(?:-(?:ALT|EXC)-[0-9]{2})?-STEP-[0-9]{2}$"},
+        "action": {"type": "string", "minLength": 1},
+        "expectedOutcome": {"type": "string", "minLength": 1}
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gapId", "reason"],
+      "properties": {
+        "gapId": {"type": "string", "pattern": "^TC-GAP-[0-9]{3}$"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

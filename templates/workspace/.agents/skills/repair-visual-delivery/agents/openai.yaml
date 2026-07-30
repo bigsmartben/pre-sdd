@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repair Visual Delivery"
+  short_description: "路由视觉根因、传播 Stale 并复验"
+  default_prompt: "Use $repair-visual-delivery to confirm the earliest authority behind a Review Finding, make downstream evidence stale, repair through the owning skill, rerun validation, and require human verification before closing."

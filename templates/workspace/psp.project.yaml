@@ -18,50 +18,99 @@ stages:
           - path: UC.md
             role: user-artifact
             projection: use-cases-document
-      visual-spec:
-        format: yaml
-        renderer: visual-spec-markdown
-        contract: .agents/skills/product-design/visual-spec/contract.yaml
-        schema: .agents/skills/product-design/visual-spec/schema.json
-        template: .agents/skills/product-design/visual-spec/template.yaml
-        inputRoot: inputs/visual-spec
-        internalModel: .psp/models/visual-spec.yaml
-        outputs:
-          - path: Visual-Spec.md
-            role: user-artifact
-            projection: visual-spec-document
-    litUiDelivery:
-      frameworkContract: .agents/skills/lit-ui/contracts/framework.yaml
-      mapping:
-        contract: .agents/skills/lit-ui/contracts/mapping.yaml
-        template: .agents/skills/lit-ui/templates/Mapping.html
-        role: user-confirmation-artifact
-      implementation:
-        template: .agents/skills/lit-ui/template
-        authorityRoot: src/ui
-        entry: src/ui/main.ts
-      uihtml:
-        outputRoot: UIHTML
-        role: product-delivery
-      review:
-        entry: src/review/review-main.ts
-        outputRoot: .psp/review-dist
-        role: independent-tool
-      cases:
-        contract: .agents/skills/use-case-generation/contract.yaml
-        role: validation-data
+      functional-delivery-baseline:
+        format: json
+        contract: .agents/skills/product-design/functional-delivery-baseline/contract.yaml
+        schema: .agents/skills/product-design/functional-delivery-baseline/schema.json
+        template: .agents/skills/product-design/functional-delivery-baseline/template.json
+        internalModel: .psp/models/functional-delivery-baseline.json
+  user-path-cases:
+    status: uninitialized
+    root: ""
+    artifacts:
+      test-case-catalog:
+        format: json
+        contract: .agents/skills/user-path-cases/contracts/test-case-catalog.md
+        schema: .agents/skills/user-path-cases/schemas/test-case-catalog.schema.json
+        template: .agents/skills/user-path-cases/templates/test-cases.json
+        internalModel: Cases/test-cases.json
+      user-path-plan:
+        format: json
+        contract: .agents/skills/user-path-cases/contracts/user-path-plan.md
+        schema: .agents/skills/user-path-cases/schemas/user-path-plan.schema.json
+        internalModel: .psp/visual-spec/user-path-plan.json
+  visual-spec:
+    status: uninitialized
+    root: ""
+    artifacts:
+      checklist:
+        format: json
+        contract: .agents/skills/visual-spec/contracts/visual-spec-contract.md
+        schema: .agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json
+        template: .agents/skills/visual-spec/templates/visual-spec-checklist.json
+        internalModel: .psp/visual-spec/checklist.json
+      ready-authorization:
+        format: json
+        schema: .agents/skills/visual-spec/schemas/ready-authorization.schema.json
+        internalModel: .psp/visual-spec/ready-authorization.json
+  figma-workflow:
+    status: uninitialized
+    root: ""
+    artifacts:
+      figma-coverage:
+        format: json
+        schema: .agents/skills/figma-workflow/schemas/figma-coverage.schema.json
+        internalModel: .psp/visual-spec/figma-coverage.json
+      figma-evidence:
+        format: json
+        schema: .agents/skills/figma-workflow/schemas/figma-evidence.schema.json
+        internalModel: .psp/visual-spec/figma-evidence.json
+  lit-ui:
+    status: uninitialized
+    root: ""
+    implementation:
+      template: .agents/skills/lit-ui/template
+      authorityRoot: src/ui
+      entry: src/ui/main.ts
+    review:
+      entry: src/review/review-main.ts
+      outputRoot: .psp/review-dist
+      role: real-lit-delivery
+    production:
+      entry: index.html
+      adapterRoot: src/adapters/real
+      outputRoot: UIHTML
+    artifacts:
+      lit-visual-coverage:
+        format: json
+        schema: .agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json
+        internalModel: .psp/visual-spec/lit-visual-coverage.json
+      user-path-coverage:
+        format: json
+        schema: .agents/skills/lit-ui/schemas/user-path-coverage.schema.json
+        internalModel: .psp/visual-spec/user-path-coverage.json
+      delivery-manifest:
+        format: json
+        schema: .agents/skills/lit-ui/schemas/delivery-manifest.schema.json
+        internalModel: .psp/visual-spec/delivery-manifest.json
+      review-findings:
+        format: json
+        schema: .agents/skills/lit-ui/schemas/review-findings.schema.json
+        internalModel: .psp/visual-spec/review-findings.json
+      uihtml-production:
+        format: json
+        schema: .agents/skills/lit-ui/schemas/uihtml-production.schema.json
+        internalModel: .psp/visual-spec/uihtml-production.json
   mockcase:
     status: uninitialized
-    root: MockCase
+    root: ""
     artifacts:
-      mockcase-suite:
+      mock-scenario-suite:
         format: json
-        contract: .agents/skills/mockcase/contract.yaml
-        schema: .agents/skills/mockcase/suite.schema.json
-        internalModel: suite.json
-        input:
-          path: Cases/ui-cases.json
-          role: read-only-neutral-input
+        contract: .agents/skills/mockcase/contract.md
+        schema: .agents/skills/mockcase/schemas/mock-scenario-suite.schema.json
+        template: .agents/skills/mockcase/templates/suite.json
+        internalModel: MockCase/suite.json
   architecture-design:
     status: uninitialized
     root: 02-architecture-design
