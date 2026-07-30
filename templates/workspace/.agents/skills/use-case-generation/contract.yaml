@@ -1,0 +1,17 @@
+apiVersion: psp.dev/ui-cases/v1
+kind: UiCaseGenerationContract
+outputs:
+  businessCases:
+    owns: [route-page-component-event-port-state-chain]
+    mustNotOwn: [single-component-input-matrix, runtime-control]
+  componentCases:
+    owns: [property-attribute-slot-component-state-event-motion-viewport]
+    mustNotOwn: [cross-page-business-chain, runtime-control]
+requiredTraceability: [uc, mapping, framework]
+gapRule: unknown-facts-become-gaps
+runtimeRule: cases-are-validation-data-not-uihtml-input
+blockerCodes:
+  layering: UI_CASE_LAYER_COLLISION
+  traceability: UI_CASE_TRACEABILITY_MISSING
+  invention: UI_CASE_INVENTS_BUSINESS_FACT
+  runtime: UI_CASE_RUNTIME_DEP

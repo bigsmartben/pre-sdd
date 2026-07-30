@@ -1,4 +1,0 @@
-interface:
-  display_name: "实现 Canonical UI"
-  short_description: "从提供方中立的产品与视觉事实实现可验证的 Lit 规范界面"
-  default_prompt: "Use $implement-canonical-ui for initial or specification-driven Canonical UI HTML/CSS/Lit implementation across autonomous, guided, and exact modes. Consume only Product Design-registered semantics and evidence; before writing, build a complete Reuse Plan and prefer existing Contract components, App/Feature Shells, layout/style primitives, slots, and registered tokens over parallel code. Require Figma workflow closure only for Figma sources, keep non-Figma components provider-neutral, run canonical-ui-dev for the actual temporary preview when runnable, and stop before Feedback Packet routing, formal Review, Repair, or Publish."

@@ -1,0 +1,5 @@
+{
+  "name": "direct-modules-and-isolated-delivery",
+  "expected": "PASS",
+  "checks": ["direct-module-authority", "bundle-isolation", "no-central-control-plane"]
+}

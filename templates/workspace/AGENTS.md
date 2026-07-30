@@ -18,7 +18,7 @@
 - Product Design、MockCase 与 Architecture Design 生命周期彼此独立。架构设计可只读引用固定版本的产品产物，但不得改写产品事实。
 - 领域 Skill 可以在后台调用当前工作区本地脚本完成初始化、原子写入、渲染和验证；不得让用户承担这些内部操作。
 - 面向用户阅读和评审的正式规格使用 Markdown；隐藏 YAML/JSON 模型只能写到项目绑定声明的位置。
-- Canonical UI Prototype（规范界面原型）的可执行界面与 `src/spec/canonical-ui.ts` 是界面事实；临时截图、构建目录和评审数据不是正式交付物。
+- 界面交付主链固定为 `Figma + UC → Mapping.html → 用户确认 → Lit UI Spec → UIHTML`。`Mapping.html` 是唯一确认载体，真实 `src/ui/` 模块是实现权威，UIHTML 是最终产品交付；Review、Mock、Case 与临时证据不属于产品 Bundle。
 - 修改前保留已有改动；不得覆盖无关内容，不得把 `FAIL`、`BLOCKED` 或 `NOT_RUN` 描述为通过。
 
 ## 开始与停止

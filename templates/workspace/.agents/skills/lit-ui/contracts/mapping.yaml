@@ -1,0 +1,33 @@
+apiVersion: psp.dev/mapping-contract/v1
+kind: MappingHtmlContract
+artifact:
+  mediaType: text/html
+  fileName: Mapping.html
+  machinePayloadSelector: script#psp-mapping-data[type="application/json"]
+  parallelAuthoritiesForbidden: [Preview.html, mapping.json, hidden-mapping-projection]
+requiredFields:
+  root: [schemaVersion, mappingVersion, sources, concepts, questions, confirmation]
+  concept: [conceptId, kind, name, sourceRefs, relations, observableContract, useCaseRefs, status]
+conceptKinds: [page, region, component, component-instance, state, event, transition, route, motion, port]
+stateLayers: [business, interaction, page, component]
+statuses: [proposed, confirmed, gap, rejected, stale]
+implementationDetailKeys:
+  - sourcePath
+  - filePath
+  - className
+  - functionName
+  - litTag
+  - tagName
+  - domSelector
+  - selector
+confirmation:
+  requiresNoGap: true
+  binds: [mappingVersion, mappingContentHash, figmaVersion, figmaContentHash, ucVersion, ucContentHash]
+blockerCodes:
+  duplicatedAuthority: MAPPING_AUTHORITY_DUPLICATED
+  gapsOpen: MAPPING_GAPS_OPEN
+  confirmationStale: MAPPING_CONFIRMATION_STALE
+  implementationDetail: MAPPING_LEAKS_IMPLEMENTATION_DETAIL
+  stateLayerCollision: MAPPING_STATE_LAYER_COLLISION
+  sourceAuthority: MAPPING_SOURCE_AUTHORITY_VIOLATION
+  questionUnbound: MAPPING_QUESTION_UNBOUND

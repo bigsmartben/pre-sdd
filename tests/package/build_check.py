@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import tarfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -16,7 +17,7 @@ class DistributionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="sdd-pre-build-") as temporary:
             output = Path(temporary) / "dist"
             result = subprocess.run(
-                ["uv", "build", "--wheel", "--out-dir", str(output)],
+                ["uv", "build", "--out-dir", str(output)],
                 cwd=REPOSITORY_ROOT,
                 check=False,
                 text=True,
@@ -30,6 +31,19 @@ class DistributionTests(unittest.TestCase):
                 names = set(archive.namelist())
                 self.assertIn("sdd_pre/cli.py", names)
                 self.assertIn("sdd_pre/_workspace/AGENTS.md", names)
+                for required in [
+                    "sdd_pre/_workspace/.agents/skills/lit-ui/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/lit-ui/contracts/framework.yaml",
+                    "sdd_pre/_workspace/.agents/skills/lit-ui/contracts/mapping.yaml",
+                    "sdd_pre/_workspace/.agents/skills/lit-ui/templates/Mapping.html",
+                    "sdd_pre/_workspace/.agents/skills/lit-ui/scripts/validate.mjs",
+                    "sdd_pre/_workspace/.agents/skills/lit-ui-workflow/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/implement-lit-ui/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/repair-lit-ui/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/use-case-generation/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/mockcase/runtime/mock-service-adapter.ts",
+                ]:
+                    self.assertIn(required, names, f"LIT_UI_SCAFFOLD_INCOMPLETE: {required}")
                 harness = sorted(
                     name
                     for name in names
@@ -42,8 +56,45 @@ class DistributionTests(unittest.TestCase):
                     "resolve-validation.mjs",
                     "run-handoff.mjs",
                     "bin/pre-sdd.mjs",
+                    "canonical-ui.ts",
+                    "refresh-projections.mjs",
                 ]:
                     self.assertFalse(any(name.endswith(forbidden) for name in names), forbidden)
+                for forbidden_segment in [
+                    "/node_modules/",
+                    "/dist/",
+                    "/.vite/",
+                    "/UIHTML/",
+                    "/runtime-evidence/",
+                ]:
+                    self.assertFalse(
+                        any(forbidden_segment in name for name in names),
+                        f"SCAFFOLD_BUILD_OUTPUT_LEAK or PRODUCT_INSTANCE_IN_SCAFFOLD: {forbidden_segment}",
+                    )
+                for forbidden_prefix in [
+                    "sdd_pre/_workspace/Mapping.html",
+                    "sdd_pre/_workspace/src/ui/",
+                    "sdd_pre/_workspace/UIHTML/",
+                ]:
+                    self.assertFalse(
+                        any(name.startswith(forbidden_prefix) for name in names),
+                        f"PRODUCT_INSTANCE_IN_SCAFFOLD: {forbidden_prefix}",
+                    )
+
+            sdists = list(output.glob("sdd_pre-*.tar.gz"))
+            self.assertEqual(len(sdists), 1)
+            with tarfile.open(sdists[0], "r:gz") as archive:
+                names = {member.name for member in archive.getmembers() if member.isfile()}
+                suffixes = {
+                    name.split("/", 1)[1] if "/" in name else name
+                    for name in names
+                }
+                for required in [
+                    "templates/workspace/.agents/skills/lit-ui/contracts/framework.yaml",
+                    "templates/workspace/.agents/skills/lit-ui/templates/Mapping.html",
+                    "templates/workspace/.agents/skills/use-case-generation/contract.yaml",
+                ]:
+                    self.assertIn(required, suffixes, f"LIT_UI_SCAFFOLD_INCOMPLETE: {required}")
 
 
 if __name__ == "__main__":

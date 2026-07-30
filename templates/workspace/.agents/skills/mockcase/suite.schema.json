@@ -1,33 +1,47 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "MockCase Suite Manifest",
+  "$id": "psp.dev/mockcase-suite/v2",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["schemaVersion", "actor", "inputLock", "files"],
+  "required": ["schemaVersion", "version", "inputLock", "status", "fixtures", "scenarios"],
   "properties": {
-    "schemaVersion": {"const": "2.0.0"},
-    "actor": {"$ref": "#/$defs/actor"},
+    "schemaVersion": { "const": "psp.dev/mockcase-suite/v2" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
     "inputLock": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["capabilitiesDigest", "canonicalUiDigest"],
+      "required": ["uiCasesDigest"],
       "properties": {
-        "capabilitiesDigest": {"$ref": "#/$defs/digest"},
-        "canonicalUiDigest": {"$ref": "#/$defs/digest"}
+        "uiCasesDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "status": { "enum": ["draft", "reviewed", "verified"] },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fixtureId", "portId", "input", "result"],
+        "properties": {
+          "fixtureId": { "type": "string" },
+          "portId": { "type": "string" },
+          "input": {},
+          "result": {}
+        },
+        "additionalProperties": false
       }
     },
-    "files": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["mockdata.json", "mockcases.json"],
-      "properties": {
-        "mockdata.json": {"$ref": "#/$defs/digest"},
-        "mockcases.json": {"$ref": "#/$defs/digest"}
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["mockCaseId", "businessCaseId", "fixtureIds"],
+        "properties": {
+          "mockCaseId": { "type": "string" },
+          "businessCaseId": { "type": "string", "pattern": "^BUSINESS-CASE-" },
+          "fixtureIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+        },
+        "additionalProperties": false
       }
     }
   },
-  "$defs": {
-    "actor": {"type": "string", "pattern": "^ACTOR-[0-9]{3}$"},
-    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
-  }
+  "additionalProperties": false
 }

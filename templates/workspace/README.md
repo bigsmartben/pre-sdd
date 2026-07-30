@@ -5,7 +5,7 @@
 ## 对话示例
 
 - “开始产品设计，把以下想法整理成 Use Cases（用例）：……”
-- “根据当前 Use Cases 编写 Visual Spec（视觉规格）。”
+- “根据当前 Use Cases 和 Figma，逐轮澄清并生成待确认的 Mapping.html。”
 - “为 ACTOR-001 分析 MockCase，但暂时不要写入。”
 - “独立开始架构设计，先明确系统边界。”
 
@@ -15,7 +15,8 @@ Agent 会读取 `psp.project.yaml` 与对应的 `.agents/skills/`，在后台完
 
 | 路径 | 内容 |
 |---|---|
-| `01-product-design/` | Use Cases、Visual Spec 与 Canonical UI Prototype |
+| `01-product-design/` | Use Cases、Visual Spec 与项目级 Mapping.html |
+| `src/ui/`、`UIHTML/` | 用户确认后创建的真实 Lit UI Spec 与最终产品交付 |
 | `MockCase/` | 独立的模拟案例模型与评审材料 |
 | `02-architecture-design/` | 系统边界、概念模型与技术验证 |
 | `.agents/skills/` | Agent 使用的领域技能 |

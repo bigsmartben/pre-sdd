@@ -10,7 +10,7 @@
   "scripts": {
     "test:python": "uv run --isolated python -B -m unittest discover -s tests/package -p test_*.py",
     "test:package": "node --test tests/package/png-assets.test.mjs tests/package/workspace.test.mjs",
-    "test:product": "node templates/workspace/.agents/skills/product-design/tests/run-suite.mjs",
+    "test:product": "node --test templates/workspace/.agents/skills/lit-ui/tests/*.test.mjs templates/workspace/.agents/skills/use-case-generation/tests/*.test.mjs",
     "test:mockcase": "node --test templates/workspace/.agents/skills/mockcase/tests/*.test.mjs",
     "test:architecture": "node --test templates/workspace/.agents/skills/architecture-design/tests/*.test.mjs",
     "test:domain": "npm run test:product && npm run test:mockcase && npm run test:architecture",
