@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sdd-pre"
-version = "0.6.2"
+version = "0.6.3"
 description = "Initialize a local Product Design and Architecture Design workspace for an Agent."
 readme = "README.md"
 requires-python = ">=3.10"
