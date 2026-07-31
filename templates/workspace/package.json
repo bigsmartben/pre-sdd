@@ -22,7 +22,7 @@
     "workspace:build": "node .agents/skills/lit-ui/scripts/build.mjs --mode product",
     "build": "npm run workspace:build",
     "build:review": "node .agents/skills/lit-ui/scripts/build.mjs --mode review",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --project .agents/skills/lit-ui/template/tsconfig.json",
     "validate": "npm run validate:product",
     "validate:strict": "npm run validate:product:strict",
     "validate:product": "node .agents/skills/product-design/scripts/validate.mjs",

@@ -1,6 +1,6 @@
 {
   "name": "pre-sdd-maintainer",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Maintainer tooling and domain tests for the sdd-pre workspace scaffold",
   "private": true,
   "type": "module",

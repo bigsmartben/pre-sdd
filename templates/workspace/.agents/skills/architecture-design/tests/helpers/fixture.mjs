@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -12,6 +12,16 @@ for (const stage of Object.values(project.stages)) {
   if (stage.status !== 'unavailable') stage.status = 'uninitialized';
 }
 const roots = [];
+
+async function dependencyDirectory() {
+  const workspaceDependencies = resolve(repositoryRoot, 'node_modules');
+  try {
+    await access(workspaceDependencies);
+    return workspaceDependencies;
+  } catch {
+    return resolve(import.meta.dirname, '../../../../../../../node_modules');
+  }
+}
 
 export async function temporaryRepository() {
   const target = await mkdtemp(join(tmpdir(), 'psp-workspace-'));
@@ -29,7 +39,7 @@ export async function temporaryRepository() {
   }
   await writeFile(resolve(target, 'psp.project.yaml'), stringifyYaml(project), 'utf8');
   await symlink(
-    resolve(import.meta.dirname, '../../../../../../../node_modules'),
+    await dependencyDirectory(),
     resolve(target, 'node_modules'),
     process.platform === 'win32' ? 'junction' : 'dir',
   );

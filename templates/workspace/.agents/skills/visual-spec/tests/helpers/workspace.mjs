@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -17,11 +17,29 @@ export async function writeJson(path, value) {
   await writeFile(path, JSON.stringify(value, null, 2) + '\n', 'utf8');
 }
 
+async function dependencyDirectory() {
+  const workspaceDependencies = resolve(templateRoot, 'node_modules');
+  try {
+    await access(workspaceDependencies);
+    return workspaceDependencies;
+  } catch {
+    return resolve(repositoryRoot, 'node_modules');
+  }
+}
+
 export async function fixtureWorkspace({ deliveryLevel = 'VISUAL' } = {}) {
   const parent = await mkdtemp(join(tmpdir(), 'visual-spec-chain-'));
   const workspace = resolve(parent, 'workspace');
-  await cp(templateRoot, workspace, { recursive: true });
-  await symlink(resolve(repositoryRoot, 'node_modules'), resolve(workspace, 'node_modules'), 'junction');
+  const workspaceDependencies = resolve(templateRoot, 'node_modules');
+  await cp(templateRoot, workspace, {
+    recursive: true,
+    filter: (source) => resolve(source) !== workspaceDependencies,
+  });
+  await symlink(
+    await dependencyDirectory(),
+    resolve(workspace, 'node_modules'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
 
   const useCases = parseYaml(await readFile(resolve(workspace, '.agents/skills/product-design/capabilities/template.yaml'), 'utf8'));
   useCases.metadata.status = 'ready';
