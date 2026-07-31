@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 import tarfile
 import unittest
@@ -13,6 +14,25 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 class DistributionTests(unittest.TestCase):
+    def run_checked(self, command: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            check=False,
+            text=True,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, **(env or {})},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    @staticmethod
+    def npm_command(*arguments: str) -> list[str]:
+        if os.name == "nt":
+            return ["cmd.exe", "/d", "/s", "/c", "npm " + " ".join(arguments)]
+        return ["npm", *arguments]
+
     def test_uv_build_contains_cli_and_clean_workspace_template(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-pre-build-") as temporary:
             output = Path(temporary) / "dist"
@@ -97,6 +117,28 @@ class DistributionTests(unittest.TestCase):
                     "templates/workspace/.agents/skills/user-path-cases/schemas/test-case-catalog.schema.json",
                 ]:
                     self.assertIn(required, suffixes, f"LIT_UI_SCAFFOLD_INCOMPLETE: {required}")
+
+            environment = Path(temporary) / "environment"
+            self.run_checked([sys.executable, "-m", "venv", str(environment)], REPOSITORY_ROOT)
+            executable_root = environment / ("Scripts" if os.name == "nt" else "bin")
+            python = executable_root / ("python.exe" if os.name == "nt" else "python")
+            sdd_pre = executable_root / ("sdd-pre.exe" if os.name == "nt" else "sdd-pre")
+            self.run_checked(
+                [str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])],
+                REPOSITORY_ROOT,
+                {"PIP_DISABLE_PIP_VERSION_CHECK": "1"},
+            )
+
+            workspace = Path(temporary) / "workspace"
+            workspace.mkdir()
+            self.run_checked(
+                [str(sdd_pre), "init", str(workspace)],
+                REPOSITORY_ROOT,
+                {"PYTHONIOENCODING": "utf-8"},
+            )
+            self.run_checked(self.npm_command("install", "--no-audit", "--no-fund"), workspace)
+            self.run_checked(self.npm_command("run", "check"), workspace)
+            self.run_checked(self.npm_command("run", "typecheck"), workspace)
 
 
 if __name__ == "__main__":
