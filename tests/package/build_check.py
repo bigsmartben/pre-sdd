@@ -131,7 +131,11 @@ class DistributionTests(unittest.TestCase):
 
             workspace = Path(temporary) / "workspace"
             workspace.mkdir()
-            self.run_checked([str(sdd_pre), "init", str(workspace)], REPOSITORY_ROOT)
+            self.run_checked(
+                [str(sdd_pre), "init", str(workspace)],
+                REPOSITORY_ROOT,
+                {"PYTHONIOENCODING": "utf-8"},
+            )
             self.run_checked(self.npm_command("install", "--no-audit", "--no-fund"), workspace)
             self.run_checked(self.npm_command("run", "check"), workspace)
             self.run_checked(self.npm_command("run", "typecheck"), workspace)
