@@ -7,7 +7,7 @@
 - “开始产品设计，把以下想法整理成 Use Cases（用例）：……”
 - “把当前功能范围分为 VISUAL（视觉）和 USER_PATH（用户路径），再生成机器视觉规格清单。”
 - “把清单绑定到这份 Figma 设计证据，并列出缺失项。”
-- “在真实 Lit 中实现 L1 和声明的 L2，然后打开唯一评审交付。”
+- “在唯一 `lib/ui/**` 中实现 Flutter L1 和声明的 L2，然后在 Android 上打开 Preview。”
 - “为 USER_PATH 的场景槽位准备 Mock Fixture（固定测试数据）。”
 - “独立开始架构设计，先明确系统边界。”
 
@@ -19,12 +19,13 @@ Agent 会读取 `psp.project.yaml` 与对应的 `.agents/skills/`，在后台完
 |---|---|
 | `01-product-design/` | Product Use Cases 与 Functional Delivery Baseline（功能交付基线） |
 | `Cases/` | 仅 USER_PATH 需要的框架无关 Test Case Catalog（测试用例目录） |
-| `.psp/visual-spec/` | Checklist、Figma/Lit Coverage、Finding 和交付锁等机器事实 |
-| `src/ui/`、`UIHTML/` | 同一份真实 Lit 权威源码与隔离的最终产品交付 |
+| `.psp/visual-spec/` | Checklist、Figma Evidence 和上游机器事实 |
+| `.psp/ui-spec/` | Flutter Coverage、selected-target Preview、Finding 和最终 Manifest |
+| `lib/ui/` | Review/Test/Preview/Production 共享的唯一 Flutter UI 权威源码 |
 | `MockCase/` | 仅 Review/Test 使用的场景与 Fixture |
 | `02-architecture-design/` | 系统边界、概念模型与技术验证 |
 | `.agents/skills/` | Agent 使用的领域技能 |
 | `.agents/runtime/` | 无领域语义的本地事务工具 |
 | `.psp/` | 隐藏模型、发布记录与简短行为原则 |
 
-视觉链是单向且可追溯的：产品事实决定范围，Figma 提供设计证据，Lit 提供真实实现，UIHTML 来自同一份已评审源码。中间机器产物不需要人类签署；人类只评审真实 Lit。Product Design、MockCase 和 Architecture Design 的权威边界仍相互独立。
+视觉链是单向且可追溯的：产品事实决定范围，Figma 提供设计依据，accepted `lib/ui/**` 提供可执行 Flutter UI 规格。人类只验收明确目标上的真实 Preview；`UI-SPEC-MANIFEST` 锁定完整离线输入闭包。Product Design、MockCase 和 Architecture Design 的权威边界仍相互独立。

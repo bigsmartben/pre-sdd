@@ -42,7 +42,7 @@ class InitializeWorkspaceTests(unittest.TestCase):
             finally:
                 os.chdir(original)
 
-            self.assertEqual(initialized, target)
+            self.assertEqual(initialized.resolve(), target.resolve())
             for relative in [
                 "AGENTS.md",
                 "README.md",
@@ -50,9 +50,10 @@ class InitializeWorkspaceTests(unittest.TestCase):
                 "psp.project.yaml",
                 ".agents/skills",
                 ".agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json",
-                ".agents/skills/figma-workflow/schemas/figma-coverage.schema.json",
-                ".agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json",
-                ".agents/skills/implement-lit-ui/SKILL.md",
+                ".agents/skills/figma-evidence/schemas/figma-coverage.schema.json",
+                ".agents/skills/flutter-ui/schemas/flutter-visual-coverage.schema.json",
+                ".agents/skills/flutter-ui/schemas/ui-spec-manifest.schema.json",
+                ".agents/skills/implement-flutter-ui/SKILL.md",
                 ".agents/skills/user-path-cases/schemas/test-case-catalog.schema.json",
                 ".agents/skills/repair-visual-delivery/SKILL.md",
                 "01-product-design",
@@ -62,11 +63,12 @@ class InitializeWorkspaceTests(unittest.TestCase):
             self.assertFalse((target / "workspace").exists())
             for forbidden in [
                 ".psp/visual-spec",
-                "src/ui",
-                "UIHTML",
+                ".psp/ui-spec",
+                "lib/ui",
                 "node_modules",
                 "dist",
-                ".vite",
+                "build",
+                ".dart_tool",
             ]:
                 self.assertFalse(
                     (target / forbidden).exists(),
@@ -81,7 +83,7 @@ class InitializeWorkspaceTests(unittest.TestCase):
             self.assertEqual(
                 snapshot(target),
                 snapshot(TEMPLATE_ROOT),
-                "LIT_UI_INIT_SNAPSHOT_MISMATCH",
+                "FLUTTER_UI_INIT_SNAPSHOT_MISMATCH",
             )
 
     def test_conflict_lists_paths_and_has_zero_side_effects(self) -> None:

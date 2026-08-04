@@ -1,0 +1,9 @@
+interface:
+  display_name: "Figma Evidence"
+  short_description: "采集 Figma 并闭环 Coverage、Evidence 与 Assets"
+  default_prompt: "Use $figma-evidence to acquire the current Figma scope, bind the ready Visual Spec Checklist, export assets, and verify freshness."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "figma"
+      description: "读取当前 Figma scope 并导出正式 Assets"

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/flutter-ui/v1/ui-spec-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metadata", "source", "artifactLocks", "selectedPreview", "indexes", "closure", "completeness"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/flutter-ui/v1"},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["artifactId", "revision", "status"], "properties": {"artifactId": {"const": "UI-SPEC-MANIFEST"}, "revision": {"type": "integer", "minimum": 1}, "status": {"enum": ["accepted", "stale"]}}},
+    "source": {"$ref": "#/$defs/source"},
+    "artifactLocks": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/lock"}},
+    "selectedPreview": {"type": "object", "additionalProperties": false, "required": ["target", "runtimeProfile", "sourceDigest", "buildDigest", "acceptedBy", "acceptedAt"], "properties": {"target": {"enum": ["android", "ios", "web"]}, "runtimeProfile": {"type": "string", "minLength": 1}, "sourceDigest": {"$ref": "#/$defs/digest"}, "buildDigest": {"$ref": "#/$defs/digest"}, "acceptedBy": {"type": "string", "minLength": 1}, "acceptedAt": {"type": "string", "format": "date-time"}}},
+    "indexes": {"type": "object", "additionalProperties": false, "required": ["routes", "pages", "widgets", "states", "events"], "properties": {"routes": {"$ref": "#/$defs/indexEntries"}, "pages": {"$ref": "#/$defs/indexEntries"}, "widgets": {"$ref": "#/$defs/indexEntries"}, "states": {"$ref": "#/$defs/indexEntries"}, "events": {"$ref": "#/$defs/indexEntries"}}},
+    "closure": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file"}},
+    "completeness": {"type": "object", "additionalProperties": false, "required": ["sourceCoverage", "specCoverage", "undeclaredInference", "openBlockerMajor", "staleArtifacts"], "properties": {"sourceCoverage": {"const": 100}, "specCoverage": {"const": 100}, "undeclaredInference": {"const": 0}, "openBlockerMajor": {"const": 0}, "staleArtifacts": {"const": 0}}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "source": {"type": "object", "additionalProperties": false, "required": ["framework", "language", "root", "commit", "digest", "flutterConstraint"], "properties": {"framework": {"const": "flutter"}, "language": {"const": "dart"}, "root": {"const": "lib/ui"}, "commit": {"type": "string", "pattern": "^[a-f0-9]{7,64}$"}, "digest": {"$ref": "#/$defs/digest"}, "flutterConstraint": {"type": "string", "minLength": 1}}},
+    "lock": {"type": "object", "additionalProperties": false, "required": ["artifactId", "path", "revision", "digest"], "properties": {"artifactId": {"enum": ["FLUTTER-VISUAL-COVERAGE", "FLUTTER-USER-PATH-COVERAGE", "FLUTTER-UI-PREVIEW", "REVIEW-FINDINGS"]}, "path": {"type": "string", "minLength": 1}, "revision": {"type": "integer", "minimum": 1}, "digest": {"$ref": "#/$defs/digest"}}},
+    "indexEntries": {"type": "array", "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["id", "path"], "properties": {"id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}}}},
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "role", "digest"], "properties": {"path": {"type": "string", "minLength": 1}, "role": {"enum": ["ui-source", "adapter-contract", "production-adapter", "entrypoint", "package-manifest", "package-lock", "platform-config", "asset", "font", "token", "motion"]}, "digest": {"$ref": "#/$defs/digest"}}}
+  }
+}

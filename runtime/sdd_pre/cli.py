@@ -90,7 +90,7 @@ def _validate_staging(staging: Path) -> None:
             if path.is_symlink():
                 relative = path.relative_to(staging).as_posix()
                 raise SddPreError("SDD_PRE_TEMPLATE_INVALID", f"工作区模板不得包含符号链接：{relative}")
-        forbidden = sorted(set(directories) & {"node_modules", "dist", ".vite"})
+        forbidden = sorted(set(directories) & {"node_modules", "dist", "build", ".dart_tool"})
         if forbidden:
             relative = current.relative_to(staging).as_posix()
             raise SddPreError(

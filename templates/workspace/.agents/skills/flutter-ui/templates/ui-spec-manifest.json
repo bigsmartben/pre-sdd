@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "psp.dev/flutter-ui/v1",
+  "metadata": {"artifactId": "UI-SPEC-MANIFEST", "revision": 1, "status": "stale"},
+  "source": {"framework": "flutter", "language": "dart", "root": "lib/ui", "commit": "0000000", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "flutterConstraint": ">=3.27.0"},
+  "artifactLocks": [
+    {"artifactId": "FLUTTER-VISUAL-COVERAGE", "path": ".psp/ui-spec/flutter-visual-coverage.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"artifactId": "FLUTTER-UI-PREVIEW", "path": ".psp/ui-spec/preview-manifest.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"artifactId": "REVIEW-FINDINGS", "path": ".psp/ui-spec/review-findings.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "selectedPreview": {"target": "android", "runtimeProfile": "android-emulator-fixed", "sourceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "buildDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "acceptedBy": "pending", "acceptedAt": "1970-01-01T00:00:00Z"},
+  "indexes": {"routes": [], "pages": [], "widgets": [], "states": [], "events": []},
+  "closure": [{"path": "lib/ui/app/app.dart", "role": "ui-source", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}],
+  "completeness": {"sourceCoverage": 100, "specCoverage": 100, "undeclaredInference": 0, "openBlockerMajor": 0, "staleArtifacts": 0}
+}

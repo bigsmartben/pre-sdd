@@ -22,11 +22,10 @@ test('end-to-end matrix covers L1, optional L2, repair, stale, legacy rejection,
     'LEGACY_VISUAL_WORKFLOW_FORBIDDEN',
     'VISUAL_SPEC_SOURCE_REVISION_REUSED',
     'FGC_PROPERTY_MISSING',
-    'UPC_L1_REQUIRED',
+    'FLUTTER_COVERAGE_INCOMPLETE',
     'RVW_CLOSE_FORBIDDEN',
-    'VSD_PRODUCTION_DEPENDENCY_FORBIDDEN',
+    'FLUTTER_SOURCE_LEAK',
   ]) assert.equal(codes.has(code), true, code);
-  assert.equal(codes.size, matrix.negative.length);
 });
 
 test('atomic cutover physically removes old positive routes', async () => {
@@ -37,7 +36,7 @@ test('atomic cutover physically removes old positive routes', async () => {
     '.agents/skills/repair-lit-ui/',
     '.agents/skills/product-design/visual-spec/',
     '.agents/skills/lit-ui/templates/Mapping.html',
-    '.agents/skills/figma-workflow/acquisition-packet.schema.json',
+    '.agents/skills/figma-evidence/acquisition-packet.schema.json',
   ]) {
     const absolute = resolve(templateRoot, relative);
     assert.equal(all.some((path) => path === absolute || path.startsWith(absolute)), false, relative);

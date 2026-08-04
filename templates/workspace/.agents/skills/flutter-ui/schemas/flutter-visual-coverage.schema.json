@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/flutter-ui/v1/flutter-visual-coverage.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metadata", "source", "sourceLocks", "dependencies", "items", "gaps"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/flutter-ui/v1"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "source": {"$ref": "#/$defs/source"},
+    "sourceLocks": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/lock"}},
+    "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "names": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["artifactId", "revision", "status"], "properties": {"artifactId": {"const": "FLUTTER-VISUAL-COVERAGE"}, "revision": {"type": "integer", "minimum": 1}, "status": {"enum": ["draft", "ready", "stale"]}}},
+    "source": {"type": "object", "additionalProperties": false, "required": ["framework", "language", "root", "commit", "digest"], "properties": {"framework": {"const": "flutter"}, "language": {"const": "dart"}, "root": {"const": "lib/ui"}, "commit": {"type": "string", "pattern": "^[a-f0-9]{7,64}$"}, "digest": {"$ref": "#/$defs/digest"}}},
+    "lock": {"type": "object", "additionalProperties": false, "required": ["artifactId", "path", "revision", "digest"], "properties": {"artifactId": {"enum": ["VISUAL-SPEC-READY-AUTHORIZATION", "FIGMA-COVERAGE", "FIGMA-EVIDENCE"]}, "path": {"$ref": "#/$defs/path"}, "revision": {"type": "integer", "minimum": 1}, "digest": {"$ref": "#/$defs/digest"}}},
+    "dependency": {"type": "object", "additionalProperties": false, "required": ["ref", "kind", "path", "digest"], "properties": {"ref": {"type": "string", "minLength": 1}, "kind": {"enum": ["asset", "font", "token", "motion"]}, "path": {"$ref": "#/$defs/path"}, "digest": {"$ref": "#/$defs/digest"}}},
+    "item": {"type": "object", "additionalProperties": false, "required": ["itemId", "status", "route", "page", "widgetId", "sourcePaths", "viewports", "states", "variants", "contentCases", "tokenRefs", "assetRefs", "motionRefs", "scenario"], "properties": {"itemId": {"type": "string", "pattern": "^VSI-FDBI-[0-9]{3}-[A-Z]+-[0-9]{2}$"}, "status": {"enum": ["implemented", "accepted", "stale"]}, "route": {"type": "string", "minLength": 1}, "page": {"type": "string", "minLength": 1}, "widgetId": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]+$"}, "sourcePaths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}}, "viewports": {"$ref": "#/$defs/names"}, "states": {"$ref": "#/$defs/names"}, "variants": {"$ref": "#/$defs/names"}, "contentCases": {"$ref": "#/$defs/names"}, "tokenRefs": {"$ref": "#/$defs/names"}, "assetRefs": {"$ref": "#/$defs/names"}, "motionRefs": {"$ref": "#/$defs/names"}, "scenario": {"type": "string", "minLength": 1}}},
+    "gap": {"type": "object", "additionalProperties": false, "required": ["code", "itemId", "reason"], "properties": {"code": {"type": "string", "pattern": "^FLUTTER_[A-Z0-9_]+$"}, "itemId": {"type": ["string", "null"]}, "reason": {"type": "string", "minLength": 1}}}
+  }
+}

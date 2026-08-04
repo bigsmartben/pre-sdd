@@ -1,6 +1,9 @@
 node_modules/
 dist/
-.vite/
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
 coverage/
 *.log
 *.tsbuildinfo

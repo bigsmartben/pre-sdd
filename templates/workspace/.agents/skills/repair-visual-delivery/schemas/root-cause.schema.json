@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/flutter-ui/v1/root-cause.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["category", "authorityPath", "confirmedBy"],
+  "properties": {
+    "category": {"enum": ["SCHEMA", "CHECKLIST_BASELINE", "FIGMA_SOURCE", "FIGMA_BINDING", "FLUTTER_L1", "MOCK_ADAPTER", "FLUTTER_L2", "REVIEW_TOOL"]},
+    "authorityPath": {"type": "string", "minLength": 1},
+    "confirmedBy": {"type": "string", "minLength": 1}
+  }
+}

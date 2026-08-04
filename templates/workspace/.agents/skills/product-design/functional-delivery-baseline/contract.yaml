@@ -16,7 +16,7 @@ spec:
     - 框架无关的视觉要求维度
   excludes:
     - Figma 节点与设计值
-    - Lit 组件、源码、路由与 DOM
+    - Flutter Widget、Dart 源码、路由与 Finder
     - Mock 数据与生产 Adapter
     - 人工评审状态
   readiness:

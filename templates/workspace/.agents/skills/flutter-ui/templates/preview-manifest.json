@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "psp.dev/flutter-ui/v1",
+  "metadata": {"artifactId": "FLUTTER-UI-PREVIEW", "revision": 1, "status": "built"},
+  "source": {"framework": "flutter", "language": "dart", "root": "lib/ui", "commit": "0000000", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+  "coverageLocks": [{"artifactId": "FLUTTER-VISUAL-COVERAGE", "path": ".psp/ui-spec/flutter-visual-coverage.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}],
+  "preview": {"target": "android", "runtimeProfile": "android-emulator-fixed", "buildPath": "build/app/outputs/flutter-apk/app-debug.apk", "buildDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "reviewAdapterDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "acceptanceStatus": "pending", "acceptedBy": null, "acceptedAt": null},
+  "platformPolicy": {"flutterNativeAdaptations": "accepted", "crossPlatformPixelParityRequired": false, "previewAcceptanceMode": "selected-target"}
+}

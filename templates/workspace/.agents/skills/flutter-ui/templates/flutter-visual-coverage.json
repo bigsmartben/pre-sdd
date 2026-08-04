@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "psp.dev/flutter-ui/v1",
+  "metadata": {"artifactId": "FLUTTER-VISUAL-COVERAGE", "revision": 1, "status": "draft"},
+  "source": {"framework": "flutter", "language": "dart", "root": "lib/ui", "commit": "0000000", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+  "sourceLocks": [
+    {"artifactId": "VISUAL-SPEC-READY-AUTHORIZATION", "path": ".psp/visual-spec/ready-authorization.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"artifactId": "FIGMA-COVERAGE", "path": ".psp/visual-spec/figma-coverage.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"artifactId": "FIGMA-EVIDENCE", "path": ".psp/visual-spec/figma-evidence.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "dependencies": [],
+  "items": [],
+  "gaps": []
+}

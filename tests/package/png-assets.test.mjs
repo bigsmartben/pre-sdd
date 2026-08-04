@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { deflateSync } from 'node:zlib';
 
-import { analyzePng } from '../../templates/workspace/.agents/skills/figma-workflow/scripts/validate-png-assets.mjs';
+import { analyzePng } from '../../templates/workspace/.agents/skills/figma-evidence/scripts/validate-png-assets.mjs';
 
 const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const roots = [];

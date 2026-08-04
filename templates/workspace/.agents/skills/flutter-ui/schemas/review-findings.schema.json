@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/flutter-ui/v1/review-findings.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metadata", "previewLock", "findings"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/flutter-ui/v1"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "previewLock": {"$ref": "#/$defs/lock"},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "revision", "status"],
+      "properties": {
+        "artifactId": {"const": "REVIEW-FINDINGS"},
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["clear", "active", "stale"]}
+      }
+    },
+    "lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "path", "revision", "digest"],
+      "properties": {
+        "artifactId": {"const": "FLUTTER-UI-PREVIEW"},
+        "path": {"const": ".psp/ui-spec/preview-manifest.json"},
+        "revision": {"type": "integer", "minimum": 1},
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "digest", "paths"],
+      "properties": {
+        "commit": {"type": "string", "minLength": 7},
+        "digest": {"$ref": "#/$defs/digest"},
+        "paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "runtimeProfile", "buildDigest"],
+      "properties": {
+        "target": {"enum": ["android", "ios", "web"]},
+        "runtimeProfile": {"type": "string", "minLength": 1},
+        "buildDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}}
+    },
+    "rootCause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "authorityPath", "confirmedBy"],
+      "properties": {
+        "category": {"enum": ["SCHEMA", "CHECKLIST_BASELINE", "FIGMA_SOURCE", "FIGMA_BINDING", "FLUTTER_L1", "MOCK_ADAPTER", "FLUTTER_L2", "REVIEW_TOOL"]},
+        "authorityPath": {"type": "string", "minLength": 1},
+        "confirmedBy": {"type": "string", "minLength": 1}
+      }
+    },
+    "repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorityPath", "verificationPath", "revision", "digest"],
+      "properties": {"authorityPath": {"type": "string", "minLength": 1}, "verificationPath": {"type": "string", "minLength": 1}, "revision": {"type": ["integer", "null"], "minimum": 1}, "digest": {"$ref": "#/$defs/digest"}}
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machinePassed", "humanVerifiedBy", "verifiedAt"],
+      "properties": {"machinePassed": {"const": true}, "humanVerifiedBy": {"type": "string", "minLength": 1}, "verifiedAt": {"type": "string", "format": "date-time"}}
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["findingId", "severity", "status", "level", "itemId", "testCaseId", "pathStepId", "route", "page", "widgetId", "state", "variant", "viewport", "figmaEvidenceRefs", "source", "preview", "evidence", "description", "rootCause", "repair", "verification"],
+      "properties": {
+        "findingId": {"type": "string", "pattern": "^RVW-[0-9]{4}$"},
+        "severity": {"enum": ["Blocker", "Major", "Minor"]},
+        "status": {"enum": ["open", "triaged", "repairing", "resolved", "verified", "closed"]},
+        "level": {"enum": ["L1", "L2"]},
+        "itemId": {"type": "string", "minLength": 1},
+        "testCaseId": {"type": ["string", "null"]},
+        "pathStepId": {"type": ["string", "null"]},
+        "route": {"type": "string", "minLength": 1},
+        "page": {"type": "string", "minLength": 1},
+        "widgetId": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "minLength": 1},
+        "variant": {"type": ["string", "null"]},
+        "viewport": {"type": "string", "minLength": 1},
+        "figmaEvidenceRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "source": {"$ref": "#/$defs/source"},
+        "preview": {"$ref": "#/$defs/preview"},
+        "evidence": {"$ref": "#/$defs/evidence"},
+        "description": {"type": "string", "minLength": 1},
+        "rootCause": {"oneOf": [{"$ref": "#/$defs/rootCause"}, {"type": "null"}]},
+        "repair": {"oneOf": [{"$ref": "#/$defs/repair"}, {"type": "null"}]},
+        "verification": {"oneOf": [{"$ref": "#/$defs/verification"}, {"type": "null"}]}
+      }
+    }
+  }
+}

@@ -34,16 +34,16 @@ Agent 只处理明确请求的当前产物，不会自动扩展到其他阶段�
 2. “把当前功能逐项声明为 VISUAL（视觉）或 USER_PATH（用户路径）。”
 3. “如果存在 USER_PATH，先建立 Test Case Catalog（测试用例目录）；再生成 Visual Spec Checklist（视觉规格清单）。”
 4. “把清单绑定到这份 Figma 设计证据，并列出缺失项。”
-5. “为 USER_PATH 生成 User Path Plan（用户路径计划）和 Mock Fixture（固定测试数据），然后在真实 Lit 中实现所需层级。”
-6. “打开唯一的人工评审交付；评审通过后，从同一份已评审源码构建 UIHTML。”
+5. “为 USER_PATH 生成 User Path Plan（用户路径计划）和 Mock Fixture（固定测试数据），然后在唯一 `lib/ui/**` 中实现 Flutter L1 和所需 L2。”
+6. “在 Android 上构建并打开真实 Flutter UI Preview；我验收后生成 UI-SPEC-MANIFEST。”
 
-`VISUAL` 要求 Lit L1 覆盖视觉项；`USER_PATH` 同时包含 L1 和 L2，并且还需要 Test Case Catalog（测试用例目录）、User Path Plan（用户路径计划）与 Mock Fixture（固定测试数据）。只有 Functional Delivery Baseline 声明了 `USER_PATH`，Agent 才会进入这些额外步骤。
+`VISUAL` 要求 Flutter L1 覆盖视觉项；`USER_PATH` 同时包含 L1 和 L2，并且还需要 Test Case Catalog（测试用例目录）、User Path Plan（用户路径计划）与 Mock Fixture（固定测试数据）。只有 Functional Delivery Baseline 声明了 `USER_PATH`，Agent 才会进入这些额外步骤。
 
 完整主链为：
 
-`Product Use Cases → Functional Delivery Baseline → Optional Test Case Catalog → Visual Spec Checklist → Figma Evidence → Lit L1 → Optional Lit L2 → 真实 Lit 人工评审 → UIHTML`
+`Product Use Cases → Functional Delivery Baseline → Optional Test Case Catalog → Visual Spec Checklist → Figma Evidence → Flutter L1 → Optional Flutter L2 → Flutter UI Preview(target) → Human Acceptance → UI-SPEC-MANIFEST`
 
-人类只评审真实 Lit；Review/Test 可以使用 Mock，但生产 UIHTML 必须来自同一份已评审的 `src/ui` 和真实 Adapter（适配器）。
+Preview 必须显式选择 `android | ios | web`，不得根据本机环境猜测。人类只验收所选目标；Review/Test 可以使用 Mock，但所有模式共享同一份 `lib/ui/**`，最终 Manifest 锁定源码、依赖、Asset、Font、Token、Motion、Coverage、Preview 与 Finding 闭包。
 
 ## 5. 工作区生命周期
 

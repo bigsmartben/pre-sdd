@@ -9,12 +9,16 @@ const root = repositoryRootFrom(import.meta.dirname);
 const blockers = [];
 let transactionId = null;
 let authorization = null;
+const freshnessIndex = process.argv.indexOf('--figma-freshness');
+const freshnessPath = (freshnessIndex >= 0 ? process.argv[freshnessIndex + 1] : null) || process.env.PSP_FIGMA_FRESHNESS_PATH || null;
 try {
   for (const validator of [
     resolve(import.meta.dirname, 'validate.mjs'),
-    resolve(import.meta.dirname, '../../figma-workflow/scripts/validate.mjs'),
+    resolve(import.meta.dirname, '../../figma-evidence/scripts/validate.mjs'),
   ]) {
-    const result = spawnSync(process.execPath, [validator, '--json'], {
+    const validatorArgs = [validator, '--json'];
+    if (validator.includes('figma-evidence') && freshnessPath) validatorArgs.push('--figma-freshness', freshnessPath);
+    const result = spawnSync(process.execPath, validatorArgs, {
       cwd: root,
       encoding: 'utf8',
       windowsHide: true,
@@ -22,7 +26,7 @@ try {
     });
     if (result.status !== 0) {
       blockers.push({
-        code: validator.includes('figma-workflow') ? 'FGC_SOURCE_NOT_READY' : 'VISUAL_SPEC_SOURCE_NOT_READY',
+        code: validator.includes('figma-evidence') ? 'FGC_SOURCE_NOT_READY' : 'VISUAL_SPEC_SOURCE_NOT_READY',
         message: result.stdout || result.stderr,
       });
     }
@@ -31,8 +35,8 @@ try {
   const project = await loadProject(root);
   const paths = {
     checklist: artifactPaths(project, 'checklist', 'visual-spec')?.authorityPath,
-    coverage: artifactPaths(project, 'figma-coverage', 'figma-workflow')?.authorityPath,
-    evidence: artifactPaths(project, 'figma-evidence', 'figma-workflow')?.authorityPath,
+    coverage: artifactPaths(project, 'figma-coverage', 'figma-evidence')?.authorityPath,
+    evidence: artifactPaths(project, 'figma-evidence', 'figma-evidence')?.authorityPath,
     authorization: artifactPaths(project, 'ready-authorization', 'visual-spec')?.authorityPath,
   };
   if (Object.values(paths).some((value) => !value)) {
@@ -46,8 +50,8 @@ try {
   const coverage = await load(paths.coverage);
   const evidence = await load(paths.evidence);
   blockers.push(...await validateWithSchema(root, '.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json', checklist.data));
-  blockers.push(...await validateWithSchema(root, '.agents/skills/figma-workflow/schemas/figma-coverage.schema.json', coverage.data));
-  blockers.push(...await validateWithSchema(root, '.agents/skills/figma-workflow/schemas/figma-evidence.schema.json', evidence.data));
+  blockers.push(...await validateWithSchema(root, '.agents/skills/figma-evidence/schemas/figma-coverage.schema.json', coverage.data));
+  blockers.push(...await validateWithSchema(root, '.agents/skills/figma-evidence/schemas/figma-evidence.schema.json', evidence.data));
   if (
     checklist.data.metadata?.status !== 'ready'
     || coverage.data.metadata?.status !== 'ready'

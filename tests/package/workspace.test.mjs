@@ -108,26 +108,27 @@ test('L05 Visual Spec scaffold is complete and contains no product instance or b
     '.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json',
     '.agents/skills/visual-spec/scripts/generate.mjs',
     '.agents/skills/user-path-cases/schemas/test-case-catalog.schema.json',
-    '.agents/skills/figma-workflow/schemas/figma-coverage.schema.json',
-    '.agents/skills/figma-workflow/schemas/figma-evidence.schema.json',
-    '.agents/skills/lit-ui/SKILL.md',
-    '.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json',
-    '.agents/skills/lit-ui/schemas/user-path-coverage.schema.json',
-    '.agents/skills/lit-ui/schemas/delivery-manifest.schema.json',
-    '.agents/skills/lit-ui/schemas/review-findings.schema.json',
-    '.agents/skills/lit-ui/template/src/ui/main.ts',
-    '.agents/skills/lit-ui/template/src/review/review-main.ts',
-    '.agents/skills/implement-lit-ui/SKILL.md',
+    '.agents/skills/figma-evidence/schemas/figma-coverage.schema.json',
+    '.agents/skills/figma-evidence/schemas/figma-evidence.schema.json',
+    '.agents/skills/flutter-ui/SKILL.md',
+    '.agents/skills/flutter-ui/schemas/flutter-visual-coverage.schema.json',
+    '.agents/skills/flutter-ui/schemas/flutter-user-path-coverage.schema.json',
+    '.agents/skills/flutter-ui/schemas/preview-manifest.schema.json',
+    '.agents/skills/flutter-ui/schemas/review-findings.schema.json',
+    '.agents/skills/flutter-ui/schemas/ui-spec-manifest.schema.json',
+    '.agents/skills/implement-flutter-ui/SKILL.md',
+    '.agents/skills/implement-flutter-ui/templates/flutter-workspace/lib/ui/app/app.dart',
+    '.agents/skills/implement-flutter-ui/templates/flutter-workspace/lib/review/review_main.dart',
     '.agents/skills/repair-visual-delivery/SKILL.md',
     '.agents/skills/mockcase/schemas/mock-scenario-suite.schema.json',
   ]) {
     assert.equal(
       (await readFile(resolve(templateRoot, relative), 'utf8')).length > 0,
       true,
-      `LIT_UI_SCAFFOLD_INCOMPLETE: ${relative}`,
+      `FLUTTER_UI_SCAFFOLD_INCOMPLETE: ${relative}`,
     );
   }
-  for (const relative of ['.psp/visual-spec', 'src/ui', 'UIHTML', 'node_modules', 'dist', '.vite']) {
+  for (const relative of ['.psp/visual-spec', '.psp/ui-spec', 'lib/ui', 'node_modules', 'dist', 'build', '.dart_tool']) {
     assert.equal(
       (await regularFiles(templateRoot)).some((path) => (
         path === resolve(templateRoot, relative)
@@ -140,7 +141,7 @@ test('L05 Visual Spec scaffold is complete and contains no product instance or b
   }
 });
 
-test('L06 project and scripts expose only the Visual Spec to real Lit to UIHTML chain', async () => {
+test('L06 project and scripts expose only the Visual Spec to Flutter Preview to Manifest chain', async () => {
   const project = await readFile(resolve(templateRoot, 'psp.project.yaml'), 'utf8');
   const workspacePackage = JSON.parse(await readFile(resolve(templateRoot, 'package.json'), 'utf8'));
   assert.match(project, /internalModel: \.psp\/models\/use-cases\.yaml/);
@@ -148,33 +149,35 @@ test('L06 project and scripts expose only the Visual Spec to real Lit to UIHTML 
   assert.match(project, /internalModel: Cases\/test-cases\.json/);
   assert.match(project, /internalModel: \.psp\/visual-spec\/checklist\.json/);
   assert.match(project, /figma-coverage\.json/);
-  assert.match(project, /lit-visual-coverage\.json/);
-  assert.match(project, /delivery-manifest\.json/);
-  assert.match(project, /outputRoot: UIHTML/);
-  assert.doesNotMatch(project, /Mapping\.html|LitSpec|Preview\.html|ui-cases\.json|consumerTargets/);
+  assert.match(project, /flutter-visual-coverage\.json/);
+  assert.match(project, /preview-manifest\.json/);
+  assert.match(project, /internalModel: \.psp\/ui-spec\/manifest\.json/);
+  assert.match(project, /authorityRoot: lib\/ui/);
+  assert.doesNotMatch(project, /Mapping\.html|LitSpec|Preview\.html|ui-cases\.json|consumerTargets|UIHTML|lit-ui/);
   for (const command of Object.values(workspacePackage.scripts)) {
-    assert.doesNotMatch(command, /mapping|litspec|preview|ui-cases|use-case-generation|repair-lit-ui/i);
+    assert.doesNotMatch(command, /mapping|litspec|uihtml|ui-cases|use-case-generation|repair-lit-ui|lit-ui/i);
   }
   assert.match(workspacePackage.scripts['validate:visual-spec'], /visual-spec\/scripts\/validate/);
-  assert.match(workspacePackage.scripts['validate:visual-delivery'], /--phase delivery/);
-  assert.match(workspacePackage.scripts['workspace:build'], /lit-ui\/scripts\/build/);
-  assert.equal(Object.hasOwn(workspacePackage.scripts, 'record:uihtml'), false);
-  assert.match(workspacePackage.scripts['check:strict'], /validate:uihtml/);
+  assert.match(workspacePackage.scripts['validate:flutter-preview'], /--phase preview/);
+  assert.match(workspacePackage.scripts['build:flutter-preview'], /flutter-ui\/scripts\/build-preview/);
+  assert.match(workspacePackage.scripts['open:flutter-preview'], /flutter-ui\/scripts\/open-preview/);
+  assert.match(workspacePackage.scripts['generate:ui-spec-manifest'], /generate-manifest/);
+  assert.match(workspacePackage.scripts['check:strict'], /validate:ui-spec-manifest/);
 
   for (const forbidden of [
-    '.agents/skills/lit-ui-workflow',
+    '.agents/skills/lit-ui',
+    '.agents/skills/implement-lit-ui',
     '.agents/skills/use-case-generation',
     '.agents/skills/repair-lit-ui',
     '.agents/skills/product-design/visual-spec',
-    '.agents/skills/lit-ui/templates/Mapping.html',
-    '.agents/skills/figma-workflow/acquisition-packet.schema.json',
+    '.agents/skills/figma-evidence/acquisition-packet.schema.json',
   ]) {
     assert.equal((await regularFiles(templateRoot)).some((path) => path.startsWith(resolve(templateRoot, forbidden))), false, forbidden);
   }
 
   const workspace = await workspaceFixture();
   await symlink(resolve(repositoryRoot, 'node_modules'), resolve(workspace, 'node_modules'), 'junction');
-  const validator = resolve(workspace, '.agents/skills/lit-ui/scripts/validate.mjs');
+  const validator = resolve(workspace, '.agents/skills/flutter-ui/scripts/validate.mjs');
   const result = spawnSync(process.execPath, [validator, '--root', workspace, '--scaffold', '--json'], {
     cwd: workspace,
     encoding: 'utf8',

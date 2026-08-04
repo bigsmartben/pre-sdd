@@ -1,0 +1,4 @@
+interface:
+  display_name: "Flutter UI"
+  short_description: "Validate Flutter UI coverage, preview, and accepted manifest"
+  default_prompt: "Use $flutter-ui to validate Flutter coverage and build an explicit-target preview."

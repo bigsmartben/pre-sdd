@@ -4,7 +4,7 @@ import { stableJson } from '../../visual-spec/scripts/lib/visual-spec.mjs';
 import {
   argument,
   assertAuthority,
-  bindFindingsToDelivery,
+  bindFindingsToPreview,
   context,
   findingById,
   loadOptional,
@@ -32,25 +32,25 @@ try {
     SCHEMA: [
       state.paths.checklist, state.paths.figmaCoverage, state.paths.figmaEvidence,
       state.paths.authorization, state.paths.plan, state.paths.mock, state.paths.l1,
-      state.paths.l2, state.paths.delivery, state.paths.uihtml,
+      state.paths.l2, state.paths.preview, state.paths.manifest,
     ],
     CHECKLIST_BASELINE: [
       state.paths.checklist, state.paths.figmaCoverage, state.paths.figmaEvidence,
       state.paths.authorization, state.paths.plan, state.paths.mock, state.paths.l1,
-      state.paths.l2, state.paths.delivery, state.paths.uihtml,
+      state.paths.l2, state.paths.preview, state.paths.manifest,
     ],
     FIGMA_SOURCE: [
       state.paths.figmaCoverage, state.paths.figmaEvidence, state.paths.authorization,
-      state.paths.l1, state.paths.l2, state.paths.delivery, state.paths.uihtml,
+      state.paths.l1, state.paths.l2, state.paths.preview, state.paths.manifest,
     ],
     FIGMA_BINDING: [
       state.paths.figmaCoverage, state.paths.figmaEvidence, state.paths.authorization,
-      state.paths.l1, state.paths.l2, state.paths.delivery, state.paths.uihtml,
+      state.paths.l1, state.paths.l2, state.paths.preview, state.paths.manifest,
     ],
-    LIT_L1: [state.paths.l1, state.paths.l2, state.paths.delivery, state.paths.uihtml],
-    MOCK_ADAPTER: [state.paths.mock, state.paths.l2, state.paths.delivery, state.paths.uihtml],
-    LIT_L2: [state.paths.l2, state.paths.delivery, state.paths.uihtml],
-    REVIEW_TOOL: [state.paths.delivery],
+    FLUTTER_L1: [state.paths.l1, state.paths.l2, state.paths.preview, state.paths.manifest],
+    MOCK_ADAPTER: [state.paths.mock, state.paths.l2, state.paths.preview, state.paths.manifest],
+    FLUTTER_L2: [state.paths.l2, state.paths.preview, state.paths.manifest],
+    REVIEW_TOOL: [state.paths.preview, state.paths.manifest],
   };
   const records = [];
   const selectedPaths = chains[category] ?? [];
@@ -62,8 +62,8 @@ try {
       .flatMap((path) => path.scenarioSlots ?? []),
   );
   const writes = records.map((record) => staleArtifact(record, finding.itemId, scenarioIds)).filter(Boolean);
-  const deliveryWrite = writes.find((write) => write.target === state.paths.delivery);
-  await bindFindingsToDelivery(root, state.findings, deliveryWrite, state.paths.delivery);
+  const previewWrite = writes.find((write) => write.target === state.paths.preview);
+  await bindFindingsToPreview(root, state.findings, previewWrite, state.paths.preview);
   writes.push({ target: state.paths.findings, content: stableJson(state.findings) });
   transactionId = await commitManagedWrites({
     root,

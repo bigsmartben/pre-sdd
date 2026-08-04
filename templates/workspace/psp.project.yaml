@@ -53,54 +53,61 @@ stages:
         format: json
         schema: .agents/skills/visual-spec/schemas/ready-authorization.schema.json
         internalModel: .psp/visual-spec/ready-authorization.json
-  figma-workflow:
+  figma-evidence:
     status: uninitialized
     root: ""
+    contract: .agents/skills/figma-evidence/contracts/figma-evidence-contract.md
     artifacts:
       figma-coverage:
         format: json
-        schema: .agents/skills/figma-workflow/schemas/figma-coverage.schema.json
+        schema: .agents/skills/figma-evidence/schemas/figma-coverage.schema.json
         internalModel: .psp/visual-spec/figma-coverage.json
       figma-evidence:
         format: json
-        schema: .agents/skills/figma-workflow/schemas/figma-evidence.schema.json
+        schema: .agents/skills/figma-evidence/schemas/figma-evidence.schema.json
         internalModel: .psp/visual-spec/figma-evidence.json
-  lit-ui:
+  flutter-ui:
     status: uninitialized
     root: ""
     implementation:
-      template: .agents/skills/lit-ui/template
-      authorityRoot: src/ui
-      entry: src/ui/main.ts
+      template: .agents/skills/implement-flutter-ui/templates/flutter-workspace
+      authorityRoot: lib/ui
+      entry: lib/main.dart
     review:
-      entry: src/review/review-main.ts
-      outputRoot: .psp/review-dist
-      role: real-lit-delivery
-    production:
-      entry: index.html
-      adapterRoot: src/adapters/real
-      outputRoot: UIHTML
+      entry: lib/review/review_main.dart
+      role: selected-target-flutter-preview
+      targets: [android, ios, web]
     artifacts:
-      lit-visual-coverage:
+      flutter-visual-coverage:
         format: json
-        schema: .agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json
-        internalModel: .psp/visual-spec/lit-visual-coverage.json
-      user-path-coverage:
+        contract: .agents/skills/flutter-ui/contracts/flutter-ui.md
+        schema: .agents/skills/flutter-ui/schemas/flutter-visual-coverage.schema.json
+        template: .agents/skills/flutter-ui/templates/flutter-visual-coverage.json
+        internalModel: .psp/ui-spec/flutter-visual-coverage.json
+      flutter-user-path-coverage:
         format: json
-        schema: .agents/skills/lit-ui/schemas/user-path-coverage.schema.json
-        internalModel: .psp/visual-spec/user-path-coverage.json
-      delivery-manifest:
+        contract: .agents/skills/flutter-ui/contracts/flutter-ui.md
+        schema: .agents/skills/flutter-ui/schemas/flutter-user-path-coverage.schema.json
+        template: .agents/skills/flutter-ui/templates/flutter-user-path-coverage.json
+        internalModel: .psp/ui-spec/flutter-user-path-coverage.json
+      preview-manifest:
         format: json
-        schema: .agents/skills/lit-ui/schemas/delivery-manifest.schema.json
-        internalModel: .psp/visual-spec/delivery-manifest.json
+        contract: .agents/skills/flutter-ui/contracts/flutter-ui.md
+        schema: .agents/skills/flutter-ui/schemas/preview-manifest.schema.json
+        template: .agents/skills/flutter-ui/templates/preview-manifest.json
+        internalModel: .psp/ui-spec/preview-manifest.json
       review-findings:
         format: json
-        schema: .agents/skills/lit-ui/schemas/review-findings.schema.json
-        internalModel: .psp/visual-spec/review-findings.json
-      uihtml-production:
+        contract: .agents/skills/flutter-ui/contracts/flutter-ui.md
+        schema: .agents/skills/flutter-ui/schemas/review-findings.schema.json
+        template: .agents/skills/flutter-ui/templates/review-findings.json
+        internalModel: .psp/ui-spec/review-findings.json
+      ui-spec-manifest:
         format: json
-        schema: .agents/skills/lit-ui/schemas/uihtml-production.schema.json
-        internalModel: .psp/visual-spec/uihtml-production.json
+        contract: .agents/skills/flutter-ui/contracts/flutter-ui.md
+        schema: .agents/skills/flutter-ui/schemas/ui-spec-manifest.schema.json
+        template: .agents/skills/flutter-ui/templates/ui-spec-manifest.json
+        internalModel: .psp/ui-spec/manifest.json
   mockcase:
     status: uninitialized
     root: ""

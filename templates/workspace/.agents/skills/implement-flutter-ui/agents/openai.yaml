@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Flutter UI"
+  short_description: "Implement ready visual specs in the single Flutter UI source"
+  default_prompt: "Use $implement-flutter-ui to implement the ready visual spec in lib/ui."

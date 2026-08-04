@@ -1,4 +1,4 @@
 interface:
   display_name: "MockCase"
   short_description: "为 L2 提供隔离的 Fixture 与 Test Adapter"
-  default_prompt: "Use $mockcase to fill only the scenario slots declared by the User Path Plan and keep all fixtures and adapters out of production UIHTML."
+  default_prompt: "Use $mockcase to fill only the scenario slots declared by the User Path Plan and keep all fixtures and test adapters out of the accepted Flutter source closure."

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/flutter-ui/v1/preview-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metadata", "source", "coverageLocks", "preview", "platformPolicy"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/flutter-ui/v1"},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["artifactId", "revision", "status"], "properties": {"artifactId": {"const": "FLUTTER-UI-PREVIEW"}, "revision": {"type": "integer", "minimum": 1}, "status": {"enum": ["built", "reviewing", "accepted", "stale"]}}},
+    "source": {"$ref": "#/$defs/source"},
+    "coverageLocks": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"$ref": "#/$defs/lock"}},
+    "preview": {"$ref": "#/$defs/preview"},
+    "platformPolicy": {"type": "object", "additionalProperties": false, "required": ["flutterNativeAdaptations", "crossPlatformPixelParityRequired", "previewAcceptanceMode"], "properties": {"flutterNativeAdaptations": {"const": "accepted"}, "crossPlatformPixelParityRequired": {"const": false}, "previewAcceptanceMode": {"const": "selected-target"}}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "source": {"type": "object", "additionalProperties": false, "required": ["framework", "language", "root", "commit", "digest"], "properties": {"framework": {"const": "flutter"}, "language": {"const": "dart"}, "root": {"const": "lib/ui"}, "commit": {"type": "string", "pattern": "^[a-f0-9]{7,64}$"}, "digest": {"$ref": "#/$defs/digest"}}},
+    "lock": {"type": "object", "additionalProperties": false, "required": ["artifactId", "path", "revision", "digest"], "properties": {"artifactId": {"enum": ["FLUTTER-VISUAL-COVERAGE", "FLUTTER-USER-PATH-COVERAGE"]}, "path": {"type": "string", "minLength": 1}, "revision": {"type": "integer", "minimum": 1}, "digest": {"$ref": "#/$defs/digest"}}},
+    "preview": {"type": "object", "additionalProperties": false, "required": ["target", "runtimeProfile", "buildPath", "buildDigest", "reviewAdapterDigest", "acceptanceStatus", "acceptedBy", "acceptedAt"], "properties": {"target": {"enum": ["android", "ios", "web"]}, "runtimeProfile": {"type": "string", "minLength": 1}, "buildPath": {"type": "string", "minLength": 1}, "buildDigest": {"$ref": "#/$defs/digest"}, "reviewAdapterDigest": {"$ref": "#/$defs/digest"}, "acceptanceStatus": {"enum": ["pending", "accepted", "stale"]}, "acceptedBy": {"type": ["string", "null"], "minLength": 1}, "acceptedAt": {"type": ["string", "null"], "format": "date-time"}}}
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "psp.dev/flutter-ui/v1",
+  "metadata": {"artifactId": "REVIEW-FINDINGS", "revision": 1, "status": "clear"},
+  "previewLock": {"artifactId": "FLUTTER-UI-PREVIEW", "path": ".psp/ui-spec/preview-manifest.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+  "findings": []
+}

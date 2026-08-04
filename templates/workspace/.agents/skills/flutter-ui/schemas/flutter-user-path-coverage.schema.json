@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/flutter-ui/v1/flutter-user-path-coverage.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metadata", "source", "sourceLocks", "paths", "gaps"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/flutter-ui/v1"},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["artifactId", "revision", "status"], "properties": {"artifactId": {"const": "FLUTTER-USER-PATH-COVERAGE"}, "revision": {"type": "integer", "minimum": 1}, "status": {"enum": ["draft", "ready", "stale"]}}},
+    "source": {"$ref": "#/$defs/source"},
+    "sourceLocks": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/lock"}},
+    "paths": {"type": "array", "items": {"$ref": "#/$defs/pathCoverage"}},
+    "gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "safePath": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "source": {"type": "object", "additionalProperties": false, "required": ["framework", "language", "root", "commit", "digest"], "properties": {"framework": {"const": "flutter"}, "language": {"const": "dart"}, "root": {"const": "lib/ui"}, "commit": {"type": "string", "pattern": "^[a-f0-9]{7,64}$"}, "digest": {"$ref": "#/$defs/digest"}}},
+    "lock": {"type": "object", "additionalProperties": false, "required": ["artifactId", "path", "revision", "digest"], "properties": {"artifactId": {"enum": ["USER-PATH-PLAN", "FLUTTER-VISUAL-COVERAGE", "MOCK-SCENARIO-SUITE"]}, "path": {"$ref": "#/$defs/safePath"}, "revision": {"type": "integer", "minimum": 1}, "digest": {"$ref": "#/$defs/digest"}}},
+    "step": {"type": "object", "additionalProperties": false, "required": ["pathStepId", "route", "action", "event", "guard", "scenario", "fixtureRefs", "checkpoint", "assertion", "sourcePaths", "passed"], "properties": {"pathStepId": {"type": "string", "pattern": "^UP-TC-[0-9]{3}-STEP-[0-9]{2}$"}, "route": {"type": "string", "minLength": 1}, "action": {"type": "string", "minLength": 1}, "event": {"type": "string", "minLength": 1}, "guard": {"type": ["string", "null"]}, "scenario": {"type": "string", "minLength": 1}, "fixtureRefs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^FIXTURE-[A-Z0-9-]+$"}}, "checkpoint": {"type": "string", "minLength": 1}, "assertion": {"type": "string", "minLength": 1}, "sourcePaths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/safePath"}}, "passed": {"type": "boolean"}}},
+    "pathCoverage": {"type": "object", "additionalProperties": false, "required": ["pathId", "testCaseRef", "checklistItemRefs", "status", "steps", "traceDigest"], "properties": {"pathId": {"type": "string", "pattern": "^UP-TC-[0-9]{3}$"}, "testCaseRef": {"type": "string", "pattern": "^TC-[0-9]{3}$"}, "checklistItemRefs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}, "status": {"enum": ["implemented", "accepted", "stale"]}, "steps": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/step"}}, "traceDigest": {"$ref": "#/$defs/digest"}}},
+    "gap": {"type": "object", "additionalProperties": false, "required": ["code", "pathId", "reason"], "properties": {"code": {"type": "string", "pattern": "^FLUTTER_[A-Z0-9_]+$"}, "pathId": {"type": ["string", "null"]}, "reason": {"type": "string", "minLength": 1}}}
+  }
+}

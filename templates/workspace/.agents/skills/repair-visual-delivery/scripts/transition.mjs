@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { commitManagedWrites } from '../../../runtime/artifact-transaction.mjs';
-import { repositoryFile, repositoryRootFrom } from '../../../runtime/project.mjs';
-import { sha256, stableJson } from '../../visual-spec/scripts/lib/visual-spec.mjs';
-import { argument, context, findingById } from './lib/findings.mjs';
+import { repositoryRootFrom } from '../../../runtime/project.mjs';
+import { stableJson } from '../../visual-spec/scripts/lib/visual-spec.mjs';
+import { isIsoDateTime } from '../../flutter-ui/scripts/lib/core.mjs';
+import { argument, context, findingById, repairEvidence } from './lib/findings.mjs';
 
 const root = repositoryRootFrom(import.meta.dirname);
 const blockers = [];
@@ -24,34 +24,20 @@ try {
   }
   if (operation === 'start-repair') finding.status = 'repairing';
   if (operation === 'resolve') {
-    const revision = Number(argument('revision'));
-    const digest = argument('digest');
     const authorityPath = argument('authority');
-    if (
-      authorityPath !== finding.rootCause?.authorityPath
-      || !Number.isInteger(revision)
-      || revision < 1
-      || !/^sha256:[a-f0-9]{64}$/.test(digest ?? '')
-    ) throw Object.assign(new Error('resolve 必须绑定已修复的最早权威路径、revision 与实际 digest。'), { code: 'RVW_REPAIR_INVALID' });
-    if (!authorityPath.startsWith('figma://')) {
-      let actual;
-      try { actual = sha256(await readFile(repositoryFile(root, authorityPath))); } catch (error) {
-        throw Object.assign(new Error('修复权威源不可读：' + error.message), { code: 'RVW_REPAIR_INVALID' });
-      }
-      if (actual !== digest) throw Object.assign(new Error('修复 digest 与权威源实际字节不一致。'), { code: 'RVW_REPAIR_INVALID' });
-    }
-    finding.repair = { authorityPath, revision, digest };
+    if (authorityPath !== finding.rootCause?.authorityPath) throw Object.assign(new Error('resolve 必须绑定已确认的最早权威路径。'), { code: 'RVW_REPAIR_INVALID' });
+    finding.repair = await repairEvidence(root, authorityPath, state.paths.figmaEvidence);
     finding.status = 'resolved';
   }
   if (operation === 'verify') {
     const humanVerifiedBy = argument('human-verified-by');
     const verifiedAt = argument('verified-at');
-    if (!humanVerifiedBy || !verifiedAt || Number.isNaN(Date.parse(verifiedAt))) {
-      throw Object.assign(new Error('verify 要求真实 Lit 人工复验身份/时间。'), { code: 'RVW_VERIFICATION_REQUIRED' });
+    if (!humanVerifiedBy || !isIsoDateTime(verifiedAt)) {
+      throw Object.assign(new Error('verify 要求 selected-target Flutter Preview 人工复验身份与 RFC 3339 时间。'), { code: 'RVW_VERIFICATION_REQUIRED' });
     }
     const validation = spawnSync(
       process.execPath,
-      [resolve(import.meta.dirname, '../../lit-ui/scripts/validate.mjs'), '--phase', 'delivery', '--allow-resolved-findings'],
+      [resolve(import.meta.dirname, '../../flutter-ui/scripts/validate.mjs'), '--phase', 'preview', '--allow-resolved-findings'],
       {
         cwd: root,
         encoding: 'utf8',

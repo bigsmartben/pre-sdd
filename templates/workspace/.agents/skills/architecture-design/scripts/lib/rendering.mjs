@@ -12,7 +12,7 @@ import {
 
 const LABELS = {
   capabilities: 'UC Specification',
-  'lit-ui-delivery': 'Lit UI Delivery',
+  'flutter-ui-spec': 'Flutter UI Spec',
   'system-boundary': '系统边界',
   'conceptual-model': '概念建模',
   'technical-validation': '技术验证',

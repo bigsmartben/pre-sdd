@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psp.dev/schemas/flutter-ui/v1/implementation-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operation", "authorityRoot", "readyAuthorization", "figmaCoverage", "figmaEvidence", "userPathMode"],
+  "properties": {
+    "schemaVersion": {"const": "psp.dev/flutter-ui/v1"},
+    "operation": {"const": "IMPLEMENT-FLUTTER-UI"},
+    "authorityRoot": {"const": "lib/ui"},
+    "readyAuthorization": {"$ref": "#/$defs/lock"},
+    "figmaCoverage": {"$ref": "#/$defs/lock"},
+    "figmaEvidence": {"$ref": "#/$defs/lock"},
+    "userPathMode": {"enum": ["not-required", "required"]}
+  },
+  "$defs": {
+    "lock": {"type": "object", "additionalProperties": false, "required": ["artifactId", "path", "revision", "digest"], "properties": {"artifactId": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "revision": {"type": "integer", "minimum": 1}, "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}}
+  }
+}

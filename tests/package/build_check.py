@@ -55,16 +55,19 @@ class DistributionTests(unittest.TestCase):
                     "sdd_pre/_workspace/.agents/skills/visual-spec/SKILL.md",
                     "sdd_pre/_workspace/.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json",
                     "sdd_pre/_workspace/.agents/skills/user-path-cases/schemas/test-case-catalog.schema.json",
-                    "sdd_pre/_workspace/.agents/skills/figma-workflow/schemas/figma-coverage.schema.json",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui/SKILL.md",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui/schemas/review-findings.schema.json",
-                    "sdd_pre/_workspace/.agents/skills/lit-ui/scripts/validate.mjs",
-                    "sdd_pre/_workspace/.agents/skills/implement-lit-ui/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/figma-evidence/schemas/figma-coverage.schema.json",
+                    "sdd_pre/_workspace/.agents/skills/flutter-ui/SKILL.md",
+                    "sdd_pre/_workspace/.agents/skills/flutter-ui/schemas/flutter-visual-coverage.schema.json",
+                    "sdd_pre/_workspace/.agents/skills/flutter-ui/schemas/review-findings.schema.json",
+                    "sdd_pre/_workspace/.agents/skills/flutter-ui/schemas/ui-spec-manifest.schema.json",
+                    "sdd_pre/_workspace/.agents/skills/flutter-ui/scripts/validate.mjs",
+                    "sdd_pre/_workspace/.agents/skills/flutter-ui/scripts/open-preview.mjs",
+                    "sdd_pre/_workspace/.agents/skills/flutter-ui/scripts/serve-web-preview.mjs",
+                    "sdd_pre/_workspace/.agents/skills/implement-flutter-ui/SKILL.md",
                     "sdd_pre/_workspace/.agents/skills/repair-visual-delivery/SKILL.md",
-                    "sdd_pre/_workspace/.agents/skills/mockcase/runtime/mock-service-adapter.ts",
+                    "sdd_pre/_workspace/.agents/skills/mockcase/runtime/fake-service-adapter.dart",
                 ]:
-                    self.assertIn(required, names, f"LIT_UI_SCAFFOLD_INCOMPLETE: {required}")
+                    self.assertIn(required, names, f"FLUTTER_UI_SCAFFOLD_INCOMPLETE: {required}")
                 harness = sorted(
                     name
                     for name in names
@@ -84,8 +87,8 @@ class DistributionTests(unittest.TestCase):
                 for forbidden_segment in [
                     "/node_modules/",
                     "/dist/",
-                    "/.vite/",
-                    "/UIHTML/",
+                    "/build/",
+                    "/.dart_tool/",
                     "/runtime-evidence/",
                 ]:
                     self.assertFalse(
@@ -94,8 +97,8 @@ class DistributionTests(unittest.TestCase):
                     )
                 for forbidden_prefix in [
                     "sdd_pre/_workspace/.psp/visual-spec/",
-                    "sdd_pre/_workspace/src/ui/",
-                    "sdd_pre/_workspace/UIHTML/",
+                    "sdd_pre/_workspace/.psp/ui-spec/",
+                    "sdd_pre/_workspace/lib/ui/",
                 ]:
                     self.assertFalse(
                         any(name.startswith(forbidden_prefix) for name in names),
@@ -112,11 +115,12 @@ class DistributionTests(unittest.TestCase):
                 }
                 for required in [
                     "templates/workspace/.agents/skills/visual-spec/schemas/visual-spec-checklist.schema.json",
-                    "templates/workspace/.agents/skills/figma-workflow/schemas/figma-coverage.schema.json",
-                    "templates/workspace/.agents/skills/lit-ui/schemas/lit-visual-coverage.schema.json",
+                    "templates/workspace/.agents/skills/figma-evidence/schemas/figma-coverage.schema.json",
+                    "templates/workspace/.agents/skills/flutter-ui/schemas/flutter-visual-coverage.schema.json",
+                    "templates/workspace/.agents/skills/flutter-ui/schemas/ui-spec-manifest.schema.json",
                     "templates/workspace/.agents/skills/user-path-cases/schemas/test-case-catalog.schema.json",
                 ]:
-                    self.assertIn(required, suffixes, f"LIT_UI_SCAFFOLD_INCOMPLETE: {required}")
+                    self.assertIn(required, suffixes, f"FLUTTER_UI_SCAFFOLD_INCOMPLETE: {required}")
 
             environment = Path(temporary) / "environment"
             self.run_checked([sys.executable, "-m", "venv", str(environment)], REPOSITORY_ROOT)
@@ -138,7 +142,7 @@ class DistributionTests(unittest.TestCase):
             )
             self.run_checked(self.npm_command("install", "--no-audit", "--no-fund"), workspace)
             self.run_checked(self.npm_command("run", "check"), workspace)
-            self.run_checked(self.npm_command("run", "typecheck"), workspace)
+            self.run_checked(self.npm_command("run", "validate:flutter-ui"), workspace)
 
 
 if __name__ == "__main__":

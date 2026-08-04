@@ -12,7 +12,7 @@ description: 在 PSP 工作区中建立、编写和验证 Product Use Cases（�
 - `PRODUCT-USE-CASES`：产品行为、Actor（参与者）、场景、步骤、交互状态和 Low-Fi（低保真）蓝图。
 - `FUNCTIONAL-DELIVERY-BASELINE`：每个范围项必须交付到 `VISUAL`（L1 视觉）还是 `USER_PATH`（L1 + L2 用户路径）。
 
-具体例子：结算失败属于 Product Use Case；“该失败分支必须作为 USER_PATH 运行”属于 Functional Delivery Baseline。按钮颜色、Figma 节点、Lit Tag 和 Mock 响应都不属于本 Skill。
+具体例子：结算失败属于 Product Use Case；“该失败分支必须作为 USER_PATH 运行”属于 Functional Delivery Baseline。按钮颜色、Figma 节点、Flutter Widget 和 Mock 响应都不属于本 Skill。
 
 ## 工作流
 
@@ -24,6 +24,6 @@ description: 在 PSP 工作区中建立、编写和验证 Product Use Cases（�
 
 ## 硬边界
 
-- 不拥有 Visual Spec、Figma Evidence（设计证据）、Lit、Mock 或 UIHTML。
+- 不拥有 Visual Spec、Figma Evidence（设计证据）、Flutter UI、Mock、Preview 或 UI-SPEC-MANIFEST。
 - 不生成视觉规格的人类文档或评审页面。
 - 不创建兼容转换器、迁移入口或中央工作流控制面。

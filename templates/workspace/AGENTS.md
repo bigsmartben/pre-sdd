@@ -18,10 +18,10 @@
 - Product Design、MockCase 与 Architecture Design 生命周期彼此独立。架构设计可只读引用固定版本的产品产物，但不得改写产品事实。
 - 领域 Skill 可以在后台调用当前工作区本地脚本完成初始化、原子写入、渲染和验证；不得让用户承担这些内部操作。
 - Product Use Cases（产品用例）可以生成只读 Markdown；Visual Spec Checklist（视觉规格清单）、Coverage（覆盖）、Evidence（证据）和状态均为机器 JSON，不要求人类阅读或签署。
-- 界面交付主链固定为 `Product Use Cases → Functional Delivery Baseline → Optional Test Case Catalog → Visual Spec Checklist → Figma Evidence → Lit L1 → Optional Lit L2 → 真实 Lit 人工评审 → UIHTML`。
-- 唯一正式人类视觉评审入口是 `VISUAL-SPEC-DELIVERY` 所绑定的真实 Lit Review Build。它只读组合机器事实，不复制 UI，也不产生第二份视觉规格。
+- 界面交付主链固定为 `Product Use Cases → Functional Delivery Baseline → Optional Test Case Catalog → Visual Spec Checklist → Figma Evidence → Flutter L1 → Optional Flutter L2 → Flutter UI Preview(target) → Human Acceptance → UI-SPEC-MANIFEST`。
+- 唯一正式人类视觉评审入口是显式 `target=android|ios|web` 的真实 Flutter UI Preview；`UI-SPEC-MANIFEST` 是最终单一入口和验收锁。
 - L1 覆盖全部视觉项；只有上游 Baseline 声明 `USER_PATH` 时才执行 L2。Agent 不得自行降级或扩大范围。
-- Review/Test 可以替换 Adapter 并使用 Mock；生产 UIHTML 只能使用同一份已评审 `src/ui` 与真实 Adapter，不得读取 Spec、Figma Evidence、Finding、Mock、Case 或 Path Plan。
+- accepted `lib/ui/**` 是唯一 UI SSOT（单一事实源）。Review/Test/Preview 只能替换 Adapter、Fixture、导航和 Finding Marker，不得复制 Widget Tree；正式源码闭包不得包含 Spec、Figma Evidence、Finding、Mock、Case 或 Path Plan。
 - Finding 必须沿最早权威根因修复，并按 `Finding → Stale → 重建/实现 → 回归 → 人工复验 → Closed` 闭环。
 - 修改前保留已有改动；不得覆盖无关内容，不得把 `FAIL`、`BLOCKED` 或 `NOT_RUN` 描述为通过。
 

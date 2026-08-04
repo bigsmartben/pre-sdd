@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "psp.dev/flutter-ui/v1",
+  "metadata": {"artifactId": "FLUTTER-USER-PATH-COVERAGE", "revision": 1, "status": "draft"},
+  "source": {"framework": "flutter", "language": "dart", "root": "lib/ui", "commit": "0000000", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+  "sourceLocks": [
+    {"artifactId": "USER-PATH-PLAN", "path": ".psp/visual-spec/user-path-plan.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"artifactId": "FLUTTER-VISUAL-COVERAGE", "path": ".psp/ui-spec/flutter-visual-coverage.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    {"artifactId": "MOCK-SCENARIO-SUITE", "path": "MockCase/suite.json", "revision": 1, "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "paths": [],
+  "gaps": []
+}
